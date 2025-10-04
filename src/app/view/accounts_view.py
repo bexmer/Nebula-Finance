@@ -1,0 +1,61 @@
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
+                               QPushButton, QFrame, QTableWidget, QTableWidgetItem,
+                               QComboBox, QFormLayout, QHeaderView)
+from PySide6.QtCore import Qt
+
+class AccountsView(QWidget):
+    def __init__(self):
+        super().__init__()
+        
+        main_layout = QHBoxLayout(self)
+        form_card = QFrame(); form_card.setObjectName("Card"); form_card.setFixedWidth(350)
+        form_layout = QFormLayout(form_card)
+        form_layout.setContentsMargins(15, 15, 15, 15); form_layout.setSpacing(10)
+
+        self.name_input = QLineEdit()
+        self.type_input = QComboBox(); self.type_input.addItems(["Cuenta de Ahorros", "Cuenta Corriente", "Tarjeta de Crédito", "Efectivo", "Inversión"])
+        self.balance_input = QLineEdit()
+        
+        self.add_button = QPushButton("Añadir Cuenta"); self.add_button.setObjectName("ActionButton")
+        self.delete_button = QPushButton("Eliminar Selección")
+
+        form_layout.addRow("Nombre de la Cuenta:", self.name_input)
+        form_layout.addRow("Tipo de Cuenta:", self.type_input)
+        form_layout.addRow("Saldo Inicial:", self.balance_input)
+        form_layout.addRow(self.add_button)
+
+        table_card = QFrame(); table_card.setObjectName("Card"); table_layout = QVBoxLayout(table_card)
+        table_layout.addWidget(self.delete_button, 0, Qt.AlignmentFlag.AlignRight)
+        
+        self.table = QTableWidget(0, 3); self.table.setHorizontalHeaderLabels(["Nombre", "Tipo", "Saldo Actual"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        table_layout.addWidget(self.table)
+
+        main_layout.addWidget(form_card); main_layout.addWidget(table_card, 1)
+
+    def get_form_data(self):
+        return {
+            "name": self.name_input.text(),
+            "account_type": self.type_input.currentText(),
+            "initial_balance": self.balance_input.text()
+        }
+
+    def clear_form(self):
+        self.name_input.clear(); self.balance_input.clear()
+        self.type_input.setCurrentIndex(0)
+
+    def display_accounts(self, accounts):
+        self.table.setRowCount(0)
+        for row, account in enumerate(accounts):
+            self.table.insertRow(row)
+            self.table.setItem(row, 0, QTableWidgetItem(account.name))
+            self.table.setItem(row, 1, QTableWidgetItem(account.account_type))
+            self.table.setItem(row, 2, QTableWidgetItem(f"${account.current_balance:,.2f}"))
+            self.table.item(row, 0).setData(Qt.ItemDataRole.UserRole, account.id)
+
+    def get_selected_account_id(self):
+        selected_items = self.table.selectedItems()
+        return selected_items[0].data(Qt.ItemDataRole.UserRole) if selected_items else None
