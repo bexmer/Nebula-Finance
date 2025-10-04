@@ -331,10 +331,9 @@ class AppController:
         trans, total_income, total_expense = self._update_kpis(year, months); self._update_net_worth_chart()
         budgeted_income = sum(b.budgeted_amount for b in BudgetEntry.select().where(BudgetEntry.type == 'Ingreso Planeado'))
         budgeted_expense = sum(b.budgeted_amount for b in BudgetEntry.select().where(BudgetEntry.type == 'Gasto Planeado'))
-        # Llamar al nuevo método para las tarjetas de comparación
-        self.view.dashboard_page.update_budget_comparison_cards(
-            income_data={"budgeted_amount": budgeted_income, "real_amount": total_income},
-            expense_data={"budgeted_amount": budgeted_expense, "real_amount": total_expense}
+        self.view.dashboard_page.update_budget_vs_real_cards(
+        income_data={"budgeted_amount": budgeted_income, "real_amount": total_income},
+        expense_data={"budgeted_amount": budgeted_expense, "real_amount": total_expense}
         )
         self._update_dashboard_widgets()
         if trans: self._update_expense_dist_chart(trans); self._update_budget_rule_chart(trans, total_income)
