@@ -8,7 +8,22 @@ class TransactionsView(QWidget):
     def __init__(self):
         super().__init__()
         
-        main_layout = QHBoxLayout(self)
+        # --- INICIO DE LA SOLUCIÓN: Layout principal vertical y título ---
+        main_container_layout = QVBoxLayout(self)
+        main_container_layout.setContentsMargins(20, 20, 20, 20)
+        main_container_layout.setSpacing(20)
+
+        header_layout = QHBoxLayout()
+        title_label = QLabel("Transacciones")
+        title_label.setObjectName("DashboardTitle")
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        main_container_layout.addLayout(header_layout)
+
+        content_layout = QHBoxLayout()
+        main_container_layout.addLayout(content_layout, 1)
+        # --- FIN DE LA SOLUCIÓN ---
+        
         form_card = QFrame(); form_card.setObjectName("Card"); form_card.setFixedWidth(350)
         self.form_layout = QFormLayout(form_card)
         self.form_layout.setContentsMargins(15, 15, 15, 15); self.form_layout.setSpacing(10)
@@ -88,7 +103,10 @@ class TransactionsView(QWidget):
         self.tabs.addTab(self.all_tab, "Todas"); self.tabs.addTab(self.goals_tab, "Aportes a Metas"); self.tabs.addTab(self.debts_tab, "Pagos a Deudas"); self.tabs.addTab(self.recurring_tab, "Recurrentes")
         table_layout.addWidget(self.tabs)
         self.delete_button = QPushButton("Eliminar Selección"); table_layout.addWidget(self.delete_button, 0, Qt.AlignmentFlag.AlignRight)
-        main_layout.addWidget(form_card); main_layout.addWidget(table_card, 1)
+        
+        # --- INICIO DE LA SOLUCIÓN: Widgets añadidos al content_layout ---
+        content_layout.addWidget(form_card); content_layout.addWidget(table_card, 1)
+        # --- FIN DE LA SOLUCIÓN ---
 
     def _toggle_recurring_fields(self, checked=None):
         if checked is None: checked = self.recurring_checkbox.isChecked()

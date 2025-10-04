@@ -12,7 +12,23 @@ class GoalsView(QWidget):
 
     def __init__(self):
         super().__init__()
-        main_layout = QHBoxLayout(self); main_layout.setContentsMargins(20, 20, 20, 20); main_layout.setSpacing(20)
+        
+        # --- INICIO DE LA SOLUCIÓN: Layout principal vertical y título ---
+        main_container_layout = QVBoxLayout(self)
+        main_container_layout.setContentsMargins(20, 20, 20, 20)
+        main_container_layout.setSpacing(20)
+
+        header_layout = QHBoxLayout()
+        title_label = QLabel("Metas y Deudas")
+        title_label.setObjectName("DashboardTitle")
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        main_container_layout.addLayout(header_layout)
+
+        content_layout = QHBoxLayout()
+        main_container_layout.addLayout(content_layout, 1)
+        # --- FIN DE LA SOLUCIÓN ---
+        
         form_container = QWidget(); form_container.setFixedWidth(350)
         form_layout = QVBoxLayout(form_container); form_layout.setContentsMargins(0, 0, 0, 0); form_layout.setSpacing(20)
         goal_frame = QFrame(); goal_frame.setObjectName("Card"); goal_form_layout = QFormLayout(goal_frame)
@@ -33,7 +49,10 @@ class GoalsView(QWidget):
         display_layout.addWidget(QLabel("<b>Mis Deudas</b>")); scroll_debts = QScrollArea(); scroll_debts.setWidgetResizable(True)
         self.debts_content_widget = QWidget(); self.debts_list_layout = QVBoxLayout(self.debts_content_widget); self.debts_list_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         scroll_debts.setWidget(self.debts_content_widget); display_layout.addWidget(scroll_debts)
-        main_layout.addWidget(form_container); main_layout.addWidget(right_container, 1)
+        
+        # --- INICIO DE LA SOLUCIÓN: Widgets añadidos al content_layout ---
+        content_layout.addWidget(form_container); content_layout.addWidget(right_container, 1)
+        # --- FIN DE LA SOLUCIÓN ---
 
     def get_goal_form_data(self): return {"name": self.goal_name_input.text(), "target_amount": self.goal_target_input.text()}
     def get_debt_form_data(self): return {"name": self.debt_name_input.text(), "total_amount": self.debt_total_input.text(), "minimum_payment": self.debt_minimum_payment_input.text()}

@@ -1,4 +1,3 @@
-# ... (importaciones y constantes iniciales sin cambios)
 from PySide6.QtWidgets import QMessageBox, QTableWidget
 from PySide6.QtCore import QDate, Qt
 from app.model.transaction import Transaction; from app.model.goal import Goal; from app.model.debt import Debt; from app.model.budget_entry import BudgetEntry
@@ -19,7 +18,6 @@ BUDGET_RULES = {"Esenciales": 0.50, "Crecimiento": 0.25, "Estabilidad": 0.15, "R
 CATEGORY_TO_RULE_MAPPING = { "Vivienda": "Esenciales", "Servicios": "Esenciales", "Comida": "Esenciales", "Transporte": "Esenciales", "Salud": "Esenciales", "Educación": "Esenciales", "Ahorro": "Crecimiento", "Pago Deuda": "Estabilidad", "Ocio": "Recompensas", "Otros Gastos": "Recompensas" }
 
 class AppController:
-    # ... (el método __init__ y otros se mantienen igual)
     def __init__(self, view):
         self.view = view
         self.view.dashboard_page.year_filter.currentTextChanged.connect(self.update_dashboard)
@@ -31,35 +29,6 @@ class AppController:
         self.view.budget_page.table.cellDoubleClicked.connect(self.edit_budget_entry_by_row)
         self.view.accounts_page.table.cellDoubleClicked.connect(self.edit_account_by_row)
 
-    # --- INICIO DE LA SOLUCIÓN: Método update_dashboard modificado ---
-    def update_dashboard(self):
-        filters = self.view.dashboard_page.get_selected_filters()
-        year, months = filters["year"], filters["months"]
-        
-        trans, total_income, total_expense = self._update_kpis(year, months)
-        self._update_net_worth_chart()
-        
-        # Obtiene los montos presupuestados
-        budgeted_income = sum(b.budgeted_amount for b in BudgetEntry.select().where(BudgetEntry.type == 'Ingreso Planeado'))
-        budgeted_expense = sum(b.budgeted_amount for b in BudgetEntry.select().where(BudgetEntry.type == 'Gasto Planeado'))
-        
-        # Llama a la función correcta con los datos necesarios
-        self.view.dashboard_page.update_budget_vs_real_cards(
-            income_data={"budgeted_amount": budgeted_income, "real_amount": total_income},
-            expense_data={"budgeted_amount": budgeted_expense, "real_amount": total_expense}
-        )
-        
-        self._update_dashboard_widgets()
-        
-        if trans:
-            self._update_expense_dist_chart(trans)
-            self._update_budget_rule_chart(trans, total_income)
-        else:
-            self.view.dashboard_page.clear_expense_dist_chart()
-            self.view.dashboard_page.clear_budget_rule_chart()
-    # --- FIN DE LA SOLUCIÓN ---
-
-    # ... (El resto de la clase AppController continúa aquí sin más cambios)
     def full_refresh(self):
         self.process_recurring_transactions()
         self.load_accounts()
@@ -305,23 +274,46 @@ class AppController:
         self.view.transactions_page.update_accounts_list(accounts)
 
     def filter_transactions(self):
-        filters = self.view.transactions_page.get_filters(); tab_index = filters["current_tab_index"]
-        if tab_index == 3: self.load_recurring_rules(); return
-        query = Transaction.select().join(Account)
-        if tab_index == 1: query = query.join(Goal).where(Transaction.goal.is_null(False))
-        elif tab_index == 2: query = query.join(Debt).where(Transaction.debt.is_null(False))
+        filters = self.view.transactions_page.get_filters()
+        tab_index = filters["current_tab_index"]
+
+        if tab_index == 3:
+            self.load_recurring_rules()
+            return
+
+        query = Transaction.select()
+        
+        # --- INICIO DE LA SOLUCIÓN: Lógica de JOIN explícita ---
+        if tab_index == 1:
+            query = query.join(Goal).where(Transaction.goal.is_null(False))
+        elif tab_index == 2:
+            query = query.join(Debt).where(Transaction.debt.is_null(False))
+        # Para tab_index 0, no se necesita un join específico a Goal o Debt,
+        # pero sí a Account para obtener información si fuera necesario.
+        # Por seguridad, nos aseguramos que el join a Account esté presente.
+        if query.model != Account:
+             query = query.join(Account, on=(Transaction.account == Account.id))
+        # --- FIN DE LA SOLUCIÓN ---
+
         start_date, end_date = filters["start_date"], filters["end_date"]
         query = query.where((Transaction.date >= start_date) & (Transaction.date <= end_date))
+        
         if filters["search_text"]: query = query.where(Transaction.description.contains(filters["search_text"]))
         if filters["type"] != "Todos los Tipos": query = query.where(Transaction.type == filters["type"])
         if filters["category"] != "Todas las Categorías": query = query.where(Transaction.category == filters["category"])
+        
         sort_field = Transaction.date if filters["sort_by"] == "Fecha" else Transaction.amount
         if filters["sort_order"] == "Descendente": query = query.order_by(sort_field.desc())
         else: query = query.order_by(sort_field.asc())
+        
         transactions = list(query)
-        if tab_index == 0: self.view.transactions_page.display_all_transactions(transactions)
-        elif tab_index == 1: self.view.transactions_page.display_goal_transactions(transactions)
-        else: self.view.transactions_page.display_debt_transactions(transactions)
+
+        if tab_index == 0:
+            self.view.transactions_page.display_all_transactions(transactions)
+        elif tab_index == 1:
+            self.view.transactions_page.display_goal_transactions(transactions)
+        elif tab_index == 2:
+            self.view.transactions_page.display_debt_transactions(transactions)
 
     def add_budget_entry(self):
         data = self.view.budget_page.get_form_data()
@@ -356,7 +348,20 @@ class AppController:
         except (ValueError, TypeError): self.view.show_notification("El monto debe ser un número válido.", "error"); return
         entry.description, entry.category, entry.type, entry.budgeted_amount = data["description"], data["category"], data["type"], amount
         entry.save(); self.full_refresh(); self.view.show_notification("Entrada de presupuesto actualizada.", "success")
-        
+
+    def update_dashboard(self):
+        filters = self.view.dashboard_page.get_selected_filters(); year, months = filters["year"], filters["months"]
+        trans, total_income, total_expense = self._update_kpis(year, months); self._update_net_worth_chart()
+        budgeted_income = sum(b.budgeted_amount for b in BudgetEntry.select().where(BudgetEntry.type == 'Ingreso Planeado'))
+        budgeted_expense = sum(b.budgeted_amount for b in BudgetEntry.select().where(BudgetEntry.type == 'Gasto Planeado'))
+        self.view.dashboard_page.update_budget_vs_real_cards(
+            income_data={"budgeted_amount": budgeted_income, "real_amount": total_income},
+            expense_data={"budgeted_amount": budgeted_expense, "real_amount": total_expense}
+        )
+        self._update_dashboard_widgets()
+        if trans: self._update_expense_dist_chart(trans); self._update_budget_rule_chart(trans, total_income)
+        else: self.view.dashboard_page.clear_expense_dist_chart(); self.view.dashboard_page.clear_budget_rule_chart()
+
     def _update_dashboard_widgets(self):
         today = datetime.date.today(); upcoming_payments = []
         rules = RecurringTransaction.select().order_by(RecurringTransaction.day_of_month)
@@ -405,8 +410,24 @@ class AppController:
         budget_data = []
         for name, ideal in BUDGET_RULES.items():
             actual = spending.get(name, 0.0)
-            percent = (actual / total_income) * 100 if total_income > 1 else 0
-            budget_data.append({"name": name, "ideal_percent": ideal * 100, "actual_percent": percent, "actual_amount": actual, "is_overdrawn": is_overdrawn})
+            percent_of_income = (actual / total_income) * 100 if total_income > 1 else 0
+            
+            state = "good"
+            if is_overdrawn:
+                state = "critical"
+            elif percent_of_income > (ideal * 100) + 10:
+                state = "critical"
+            elif percent_of_income > ideal * 100:
+                state = "warning"
+
+            budget_data.append({
+                "name": name, 
+                "ideal_percent": ideal * 100, 
+                "actual_percent": percent_of_income, 
+                "actual_amount": actual, 
+                "state": state,
+                "is_overdrawn": is_overdrawn
+            })
         self.view.dashboard_page.update_budget_rule_chart(budget_data)
         
     def _update_net_worth_chart(self):

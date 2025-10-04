@@ -7,9 +7,20 @@ from PySide6.QtGui import QFont
 class AnalysisView(QWidget):
     def __init__(self):
         super().__init__()
-        main_layout = QVBoxLayout(self); main_layout.setContentsMargins(20, 20, 20, 20); main_layout.setSpacing(20)
         
-        # --- Tarjeta de Patrimonio Neto (Simplificada)---
+        # --- INICIO DE LA SOLUCIÓN: Título añadido ---
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(20)
+        
+        header_layout = QHBoxLayout()
+        title_label = QLabel("Análisis")
+        title_label.setObjectName("DashboardTitle")
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        main_layout.addLayout(header_layout)
+        # --- FIN DE LA SOLUCIÓN ---
+        
         net_worth_card = QFrame(); net_worth_card.setObjectName("Card"); net_worth_layout = QVBoxLayout(net_worth_card)
         net_worth_grid = QGridLayout()
         self.total_assets_label = QLabel("$0.00"); self.total_assets_label.setObjectName("KPI_Value")
@@ -20,9 +31,6 @@ class AnalysisView(QWidget):
         net_worth_grid.addWidget(QLabel("<b>Patrimonio Neto:</b>"), 2, 0); net_worth_grid.addWidget(self.net_worth_label, 2, 1, Qt.AlignmentFlag.AlignRight)
         net_worth_layout.addLayout(net_worth_grid)
         
-        # --- SECCIÓN DE ACTIVOS ELIMINADA ---
-        
-        # --- Tarjeta de Reporte Anual ---
         report_card = QFrame(); report_card.setObjectName("Card"); report_layout = QVBoxLayout(report_card)
         report_header_layout = QHBoxLayout()
         report_header_layout.addWidget(QLabel("<b>Reporte Anual de Gastos por Categoría</b>")); report_header_layout.addStretch()
@@ -37,8 +45,6 @@ class AnalysisView(QWidget):
         report_layout.addWidget(self.report_table)
 
         main_layout.addWidget(net_worth_card); main_layout.addWidget(report_card, 1)
-
-    # --- MÉTODOS RELACIONADOS A ACTIVOS ELIMINADOS ---
 
     def display_annual_report(self, data, categories, year, monthly_totals, grand_total):
         months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]

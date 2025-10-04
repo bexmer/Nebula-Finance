@@ -7,7 +7,22 @@ class BudgetView(QWidget):
     def __init__(self):
         super().__init__()
         
-        main_layout = QHBoxLayout(self)
+        # --- INICIO DE LA SOLUCIÓN: Layout principal vertical y título ---
+        main_container_layout = QVBoxLayout(self)
+        main_container_layout.setContentsMargins(20, 20, 20, 20)
+        main_container_layout.setSpacing(20)
+
+        header_layout = QHBoxLayout()
+        title_label = QLabel("Presupuesto")
+        title_label.setObjectName("DashboardTitle")
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        main_container_layout.addLayout(header_layout)
+
+        content_layout = QHBoxLayout()
+        main_container_layout.addLayout(content_layout, 1)
+        # --- FIN DE LA SOLUCIÓN ---
+        
         form_card = QFrame(); form_card.setObjectName("Card"); form_card.setFixedWidth(350)
         form_layout = QFormLayout(form_card)
         form_layout.setContentsMargins(15, 15, 15, 15); form_layout.setSpacing(10)
@@ -36,7 +51,9 @@ class BudgetView(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         table_layout.addWidget(self.table)
 
-        main_layout.addWidget(form_card); main_layout.addWidget(table_card, 1)
+        # --- INICIO DE LA SOLUCIÓN: Widgets añadidos al content_layout ---
+        content_layout.addWidget(form_card); content_layout.addWidget(table_card, 1)
+        # --- FIN DE LA SOLUCIÓN ---
 
     def display_budget_entries(self, entries):
         self.table.setRowCount(0)
@@ -59,4 +76,3 @@ class BudgetView(QWidget):
     def get_selected_entry_id(self):
         selected_items = self.table.selectedItems()
         return selected_items[0].data(Qt.ItemDataRole.UserRole) if selected_items else None
-

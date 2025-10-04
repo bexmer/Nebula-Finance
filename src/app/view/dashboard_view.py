@@ -47,9 +47,6 @@ class DashboardView(QWidget):
         grid_layout.setSpacing(20)
         main_layout.addLayout(grid_layout, 1)
         
-        # --- INICIO DE LA SOLUCIÓN: Reestructuración según nuevo boceto ---
-        
-        # 1. Definición de todos los widgets del dashboard
         self.income_kpi = self._create_kpi_card("Ganancias", "$0.00")
         self.expense_kpi = self._create_kpi_card("Gastos", "$0.00")
         self.net_kpi = self._create_kpi_card("Ahorro Neto", "$0.00")
@@ -60,7 +57,6 @@ class DashboardView(QWidget):
         self.main_goals_card = self._create_chart_card("Metas", has_plot_widget=False)
         self.expense_dist_card = self._create_chart_card("Distribución de Gastos")
 
-        # 2. Creación de layouts intermedios para agrupar widgets
         kpi_layout = QHBoxLayout()
         kpi_layout.setSpacing(20)
         kpi_layout.addWidget(self.income_kpi)
@@ -71,27 +67,19 @@ class DashboardView(QWidget):
         budget_vs_real_layout.setSpacing(20)
         budget_vs_real_layout.addWidget(self.budget_income_card)
         budget_vs_real_layout.addWidget(self.budget_expense_card)
-
-        # 3. Posicionamiento en el Grid siguiendo la estructura del boceto
-        #    La función es .addWidget(widget, fila, columna, expansión_filas, expansión_columnas)
-
-        # Columna Izquierda (Verde)
-        grid_layout.addLayout(kpi_layout, 0, 0, 1, 1)               # Fila 0, Col 0
-        grid_layout.addWidget(self.net_worth_chart_card, 1, 0, 1, 1) # Fila 1, Col 0
-        grid_layout.addLayout(budget_vs_real_layout, 2, 0, 1, 1)     # Fila 2, Col 0
-        grid_layout.addWidget(self.main_goals_card, 3, 0, 1, 1)      # Fila 3, Col 0
         
-        # Columna Derecha (Verde)
-        grid_layout.addWidget(self.budget_rule_card, 0, 1, 2, 1)  # Ocupa Fila 0 y 1, en Col 1
-        grid_layout.addWidget(self.expense_dist_card, 2, 1, 2, 1)  # Ocupa Fila 2 y 3, en Col 1
+        grid_layout.addLayout(kpi_layout, 0, 0, 1, 1)
+        grid_layout.addWidget(self.net_worth_chart_card, 1, 0, 1, 1)
+        grid_layout.addLayout(budget_vs_real_layout, 2, 0, 1, 1)
+        grid_layout.addWidget(self.main_goals_card, 3, 0, 1, 1)
+        
+        grid_layout.addWidget(self.budget_rule_card, 0, 1, 2, 1)
+        grid_layout.addWidget(self.expense_dist_card, 2, 1, 2, 1)
 
-        # 4. Ajuste de proporciones de las filas y columnas
-        grid_layout.setColumnStretch(0, 2) # La columna izquierda es el doble de ancha que la derecha
+        grid_layout.setColumnStretch(0, 2)
         grid_layout.setColumnStretch(1, 1)
-        grid_layout.setRowStretch(1, 1)    # La fila de la gráfica principal es más alta
-        grid_layout.setRowStretch(3, 1)    # La fila de metas también tiene más espacio
-
-        # --- FIN DE LA SOLUCIÓN ---
+        grid_layout.setRowStretch(1, 1)
+        grid_layout.setRowStretch(3, 1)
 
         self.quick_add_button = QPushButton("+")
         self.quick_add_button.setObjectName("QuickAddButton")
@@ -151,7 +139,7 @@ class DashboardView(QWidget):
             content_layout = QVBoxLayout(); content_layout.setSpacing(10); layout.addLayout(content_layout, 1)
             card.content_layout = content_layout
         return card
-
+        
     def update_budget_vs_real_cards(self, income_data, expense_data):
         self.budget_income_card.value_label.setText(f"${income_data['budgeted_amount']:,.2f}")
         self.budget_income_card.comparison_label.setText(f"Real: ${income_data['real_amount']:,.2f}")
@@ -180,15 +168,21 @@ class DashboardView(QWidget):
         self.main_goals_card.content_layout.addStretch()
 
     def _create_goal_bar(self, goal_data):
-        widget = QWidget(); layout = QVBoxLayout(widget); layout.setContentsMargins(0, 5, 0, 5)
+        widget = QWidget()
+        widget.setObjectName("GoalBarContainer")
+        layout = QVBoxLayout(widget)
+        
         title_layout = QHBoxLayout(); name_label = QLabel(f"<b>{goal_data['name']}</b>")
         percentage = (goal_data['current'] / goal_data['target']) * 100 if goal_data['target'] > 0 else 0
         amount_label = QLabel(f"<b>{percentage:.1f}%</b>")
         title_layout.addWidget(name_label); title_layout.addStretch(); title_layout.addWidget(amount_label)
+        
         progress_bar = QProgressBar(); progress_bar.setValue(int(percentage));
         progress_bar.setTextVisible(False)
         progress_bar.setProperty("state", "good"); progress_bar.style().polish(progress_bar)
-        layout.addLayout(title_layout); layout.addWidget(progress_bar); return widget
+        
+        layout.addLayout(title_layout); layout.addWidget(progress_bar)
+        return widget
 
     def update_upcoming_payments(self, payments):
         pass
@@ -211,35 +205,63 @@ class DashboardView(QWidget):
         self.budget_rule_card.content_layout.addStretch()
 
     def _create_budget_bar(self, item_data):
-        widget = QWidget(); layout = QVBoxLayout(widget); layout.setContentsMargins(0, 5, 0, 5)
-        title_layout = QHBoxLayout(); name_label = QLabel(f"<b>{item_data['name']}</b> ({item_data['ideal_percent']:.0f}%)")
-        amount_label = QLabel(f"${item_data['actual_amount']:,.2f}")
-        title_layout.addWidget(name_label); title_layout.addStretch(); title_layout.addWidget(amount_label)
-        progress_bar = QProgressBar(); progress_bar.setTextVisible(True)
-        if item_data['is_overdrawn']:
-            progress_bar.setValue(100); progress_bar.setFormat("Excedido"); progress_bar.setProperty("state", "critical")
+        widget = QWidget()
+        widget.setObjectName("BudgetBarContainer")
+        layout = QVBoxLayout(widget)
+        
+        title_layout = QHBoxLayout()
+        name_label = QLabel(f"<b>{item_data['name']}</b> ({item_data['ideal_percent']:.0f}%)")
+        
+        if item_data['state'] == 'critical':
+            amount_label = QLabel(f"<font color='#E06C75'>Excedido</font>")
         else:
-            progress_bar.setValue(min(100, int(item_data['actual_percent']))); progress_bar.setFormat(f"{item_data['actual_percent']:.1f}%")
-            if item_data['actual_percent'] > item_data['ideal_percent']:
-                progress_bar.setProperty("state", "warning")
-            else:
-                progress_bar.setProperty("state", "good")
+            amount_label = QLabel(f"${item_data['actual_amount']:,.2f}")
+
+        title_layout.addWidget(name_label); title_layout.addStretch(); title_layout.addWidget(amount_label)
+
+        progress_bar = QProgressBar()
+        progress_bar.setTextVisible(False)
+        
+        if item_data['is_overdrawn']:
+            progress_bar.setValue(100)
+        else:
+            progress_bar.setValue(min(100, int(item_data['actual_percent'])))
+        
+        progress_bar.setProperty("state", item_data['state'])
         progress_bar.style().polish(progress_bar)
-        layout.addLayout(title_layout); layout.addWidget(progress_bar); return widget
+
+        layout.addLayout(title_layout)
+        layout.addWidget(progress_bar)
+        
+        percent_label = QLabel(f"{item_data['actual_percent']:.1f}% del ingreso")
+        percent_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        percent_label.setStyleSheet("font-size: 11px; color: #888;")
+        layout.addWidget(percent_label)
+
+        return widget
 
     def update_chart_themes(self, is_dark_mode):
-        fg_color = '#EAEAEA' if is_dark_mode else '#344767'
+        if is_dark_mode:
+            fg_color = '#EAEAEA'
+            accent_color = '#8A9BFF'
+        else:
+            fg_color = '#364765'
+            accent_color = '#364765'
+
         axis_pen = pg.mkPen(color=fg_color)
+        
         for plot_widget in [self.net_worth_chart_card.plot_widget, self.expense_dist_card.plot_widget]:
             if plot_widget:
-                plot_widget.getPlotItem().getAxis('left').setPen(axis_pen); plot_widget.getPlotItem().getAxis('left').setTextPen(fg_color)
-                plot_widget.getPlotItem().getAxis('bottom').setPen(axis_pen); plot_widget.getPlotItem().getAxis('bottom').setTextPen(fg_color)
+                plot_widget.getPlotItem().getAxis('left').setPen(axis_pen)
+                plot_widget.getPlotItem().getAxis('left').setTextPen(fg_color)
+                plot_widget.getPlotItem().getAxis('bottom').setPen(axis_pen)
+                plot_widget.getPlotItem().getAxis('bottom').setTextPen(fg_color)
+                
                 if plot_widget.listDataItems():
-                    color = '#61AFEF' if is_dark_mode else '#0d6efd'
                     if isinstance(plot_widget.listDataItems()[0], pg.BarGraphItem):
-                        plot_widget.listDataItems()[0].setOpts(brush=color)
+                        plot_widget.listDataItems()[0].setOpts(brush=accent_color)
                     else:
-                        plot_widget.listDataItems()[0].setPen(pg.mkPen(color=color, width=3))
+                        plot_widget.listDataItems()[0].setPen(pg.mkPen(color=accent_color, width=3))
     
     def _create_month_menu(self):
         self.month_menu = QMenu(self); self.month_actions = []
@@ -276,14 +298,14 @@ class DashboardView(QWidget):
         plot_widget = self.net_worth_chart_card.plot_widget; plot_widget.clear()
         if dates and values:
             timestamps = [datetime.strptime(str(d), "%Y%m%d").timestamp() for d in dates]
-            pen_color = '#61AFEF' if self.styleSheet().startswith("DARK_STYLE") else '#0d6efd'
+            pen_color = '#61AFEF' if self.styleSheet().startswith("DARK_STYLE") else '#364765'
             plot_widget.plot(timestamps, values, pen=pg.mkPen(color=pen_color, width=3))
     
     def update_expense_dist_chart(self, categories, amounts):
         plot_widget = self.expense_dist_card.plot_widget; plot_widget.clear()
         if categories and amounts:
             x_ticks = [list(enumerate(categories))]; axis = plot_widget.getAxis('bottom'); axis.setTicks(x_ticks); axis.setTickFont(QFont("Segoe UI", 8))
-            brush_color = '#61AFEF' if self.styleSheet().startswith("DARK_STYLE") else '#0d6efd'
+            brush_color = '#61AFEF' if self.styleSheet().startswith("DARK_STYLE") else '#364765'
             bar_chart = pg.BarGraphItem(x=range(len(categories)), height=amounts, width=0.6, brush=brush_color); plot_widget.addItem(bar_chart)
     
     def clear_expense_dist_chart(self):

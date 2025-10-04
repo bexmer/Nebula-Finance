@@ -7,11 +7,21 @@ class PortfolioView(QWidget):
     def __init__(self):
         super().__init__()
         
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0,0,0,0)
+        # --- INICIO DE LA SOLUCIÓN: Layout principal vertical y título ---
+        main_container_layout = QVBoxLayout(self)
+        main_container_layout.setContentsMargins(20, 20, 20, 20)
+        main_container_layout.setSpacing(20)
 
+        header_layout = QHBoxLayout()
+        title_label = QLabel("Portafolio")
+        title_label.setObjectName("DashboardTitle")
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        main_container_layout.addLayout(header_layout)
+        # --- FIN DE LA SOLUCIÓN ---
+        
         self.tabs = QTabWidget()
-        main_layout.addWidget(self.tabs)
+        main_container_layout.addWidget(self.tabs, 1)
 
         self.portfolio_tab = self._create_portfolio_tab()
         self.history_tab = self._create_history_tab()
@@ -62,10 +72,8 @@ class PortfolioView(QWidget):
 
     def _create_trade_tab(self):
         widget = QWidget()
-        # --- INICIO DE LA MODIFICACIÓN ---
-        layout = QHBoxLayout(widget) # Layout principal horizontal
+        layout = QHBoxLayout(widget)
 
-        # Columna Izquierda: Formulario de Registro
         form_card = QFrame(); form_card.setObjectName("Card"); form_card.setMaximumWidth(400)
         form_layout = QFormLayout(form_card)
         form_layout.setContentsMargins(20, 20, 20, 20)
@@ -86,7 +94,6 @@ class PortfolioView(QWidget):
         form_layout.addRow("Precio por Unidad:", self.trade_price_input)
         form_layout.addRow(self.add_trade_button)
 
-        # Columna Derecha: Tabla de activos actuales
         table_card = QFrame(); table_card.setObjectName("Card")
         table_layout = QVBoxLayout(table_card)
         table_layout.addWidget(QLabel("<b>Activos en Portafolio</b>"))
@@ -96,8 +103,7 @@ class PortfolioView(QWidget):
         table_layout.addWidget(self.simple_portfolio_table)
 
         layout.addWidget(form_card)
-        layout.addWidget(table_card, 1) # El '1' le da más espacio a la tabla
-        # --- FIN DE LA MODIFICACIÓN ---
+        layout.addWidget(table_card, 1)
         return widget
 
     def get_trade_form_data(self):
@@ -149,14 +155,12 @@ class PortfolioView(QWidget):
         self.valor_actual_label.setText(f"Portafolio Actual: ${total_valor_actual:,.2f}")
         self.gp_total_label.setText(f"G/P: ${total_gp:,.2f}")
     
-    # --- INICIO DE NUEVO MÉTODO ---
     def display_simple_portfolio(self, assets):
         self.simple_portfolio_table.setRowCount(0)
         for row, asset in enumerate(assets):
             self.simple_portfolio_table.insertRow(row)
             self.simple_portfolio_table.setItem(row, 0, QTableWidgetItem(asset.symbol))
             self.simple_portfolio_table.setItem(row, 1, QTableWidgetItem(f"{asset.total_quantity:,.4f}"))
-    # --- FIN DE NUEVO MÉTODO ---
 
     def display_history(self, trades):
         self.history_table.setRowCount(0)
