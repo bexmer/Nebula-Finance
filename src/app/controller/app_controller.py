@@ -283,16 +283,16 @@ class AppController:
 
         query = Transaction.select()
         
-        # --- INICIO DE LA SOLUCIÓN: Lógica de JOIN explícita ---
         if tab_index == 1:
             query = query.join(Goal).where(Transaction.goal.is_null(False))
         elif tab_index == 2:
             query = query.join(Debt).where(Transaction.debt.is_null(False))
-        # Para tab_index 0, no se necesita un join específico a Goal o Debt,
-        # pero sí a Account para obtener información si fuera necesario.
-        # Por seguridad, nos aseguramos que el join a Account esté presente.
-        if query.model != Account:
-             query = query.join(Account, on=(Transaction.account == Account.id))
+        
+        # --- INICIO DE LA SOLUCIÓN: Lógica de filtrado corregida ---
+        # La forma correcta de verificar si un modelo ya está en la consulta es más compleja.
+        # Es más seguro y simple asegurarse de que el JOIN con Account siempre esté presente,
+        # ya que Peewee es lo suficientemente inteligente como para no añadirlo dos veces.
+        query = query.join(Account, on=(Transaction.account == Account.id))
         # --- FIN DE LA SOLUCIÓN ---
 
         start_date, end_date = filters["start_date"], filters["end_date"]
@@ -350,7 +350,11 @@ class AppController:
         entry.save(); self.full_refresh(); self.view.show_notification("Entrada de presupuesto actualizada.", "success")
 
     def update_dashboard(self):
-        filters = self.view.dashboard_page.get_selected_filters(); year, months = filters["year"], filters["months"]
+        filters = self.view.dashboard_page.get_selected_filters()
+        # --- INICIO DE LA SOLUCIÓN: Error de variable corregido ---
+        year = filters["year"]
+        months = filters["months"]
+        # --- FIN DE LA SOLUCIÓN ---
         trans, total_income, total_expense = self._update_kpis(year, months); self._update_net_worth_chart()
         budgeted_income = sum(b.budgeted_amount for b in BudgetEntry.select().where(BudgetEntry.type == 'Ingreso Planeado'))
         budgeted_expense = sum(b.budgeted_amount for b in BudgetEntry.select().where(BudgetEntry.type == 'Gasto Planeado'))
@@ -359,8 +363,30 @@ class AppController:
             expense_data={"budgeted_amount": budgeted_expense, "real_amount": total_expense}
         )
         self._update_dashboard_widgets()
-        if trans: self._update_expense_dist_chart(trans); self._update_budget_rule_chart(trans, total_income)
-        else: self.view.dashboard_page.clear_expense_dist_chart(); self.view.dashboard_page.clear_budget_rule_chart()
+        
+        accounts = list(Account.select())
+        self.view.dashboard_page.update_accounts_card(accounts)
+        
+        if trans:
+            self._update_expense_dist_chart(trans)
+            self._update_budget_rule_chart(trans, total_income)
+            
+            expense_by_type = defaultdict(float)
+            for t in trans:
+                if t.type in ["Gasto Fijo", "Gasto Variable", "Ahorro/Pago Meta/Deuda"]:
+                    expense_by_type[t.type] += t.amount
+            
+            if expense_by_type:
+                sorted_expense_type = sorted(expense_by_type.items(), key=lambda i: i[1], reverse=True)
+                cats = [i[0] for i in sorted_expense_type]
+                amounts = [i[1] for i in sorted_expense_type]
+                self.view.dashboard_page.update_expense_type_chart(cats, amounts)
+            else:
+                self.view.dashboard_page.clear_expense_type_chart()
+        else:
+            self.view.dashboard_page.clear_expense_dist_chart()
+            self.view.dashboard_page.clear_budget_rule_chart()
+            self.view.dashboard_page.clear_expense_type_chart()
 
     def _update_dashboard_widgets(self):
         today = datetime.date.today(); upcoming_payments = []

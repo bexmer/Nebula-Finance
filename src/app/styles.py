@@ -32,22 +32,31 @@ LIGHT_STYLE = """
     QPushButton#NavButton:hover { background-color: #E6F0FF; color: #364765; }
     
     QPushButton#NavButton:checked {
-        background-color: #364765;
-        color: #FFFFFF;
+        background-color: #364765; /* Color de fondo solicitado */
+        color: #FFFFFF; /* Color de texto blanco para contraste */
     }
 
+    /* Estilo para centrar el ícono cuando el panel está colapsado */
     QPushButton#NavButton[collapsed="true"] {
         text-align: center;
-        padding: 11px;
+        padding: 11px; /* Padding simétrico para centrar */
     }
 
     /* --- TEXTO --- */
     QLabel { color: #364765; }
-    QLabel#DashboardTitle { font-size: 22px; font-weight: 700; color: #364765; }
+    QLabel#DashboardTitle { 
+        font-size: 22px; 
+        font-weight: 700; 
+        color: #364765;
+    }
     QLabel#Chart_Title, QLabel#MetricTitle { font-size: 15px; font-weight: 600; color: #364765; }
     QLabel#KPI_Title, QLabel#MetricComparison { font-size: 12px; color: #979ba5; font-weight: 500; }
     QLabel#KPI_Value { font-size: 20px; font-weight: 700; color: #364765; }
     QLabel#MetricValue { font-size: 22px; font-weight: 700; color: #364765; }
+    QLabel#BudgetPercentLabel {
+        color: #979ba5;
+        font-size: 11px;
+    }
 
     /* --- OTROS BOTONES --- */
     QPushButton {
@@ -117,7 +126,6 @@ LIGHT_STYLE = """
         color: #FFFFFF;
     }
 
-    /* --- INICIO DE LA SOLUCIÓN: Estilo para las pestañas de Transacciones --- */
     QTabWidget::pane { border: none; }
     QTabBar::tab {
         background: transparent;
@@ -135,7 +143,55 @@ LIGHT_STYLE = """
         background-color: #364765;
         color: #FFFFFF;
     }
-    /* --- FIN DE LA SOLUCIÓN --- */
+
+    /* Estilos para la nueva tarjeta de crédito */
+    QFrame#CreditCardFrame {
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                    stop:0 #3E517A, stop:1 #2C3A54);
+        border-radius: 15px;
+    }
+    QLabel#CardBalance {
+        font-size: 20px;
+        font-weight: 700;
+        color: #FFFFFF;
+    }
+    QLabel#CardType {
+        font-size: 14px;
+        font-weight: 600;
+        color: #FFFFFF;
+        font-style: italic;
+    }
+    QLabel#CardNumber {
+        font-size: 16px;
+        font-weight: 400;
+        color: #FFFFFF;
+        font-family: "Courier New", Courier, monospace;
+    }
+    QLabel#CardSubText {
+        font-size: 10px;
+        color: #D3D3D3;
+        text-transform: uppercase;
+    }
+    QLabel#CardMainText {
+        font-size: 13px;
+        font-weight: 600;
+        color: #FFFFFF;
+    }
+    QPushButton#CardNavButton {
+        background-color: #e8eaf6;
+        color: #364765;
+        border: none;
+        border-radius: 12px;
+        font-weight: 700;
+    }
+    QPushButton#CardNavButton:hover {
+        background-color: #d5daed;
+    }
+     QPushButton#CardVisibilityButton {
+        background-color: transparent;
+        border: none;
+        padding: 0px;
+    }
 """
 
 DARK_STYLE = """
@@ -158,7 +214,7 @@ DARK_STYLE = """
     QWidget#BudgetBarContainer, QWidget#GoalBarContainer {
         background-color: #191A23;
         border-radius: 8px;
-        padding: 10px;
+        padding: 8px;
     }
     
     /* --- BOTONES DE NAVEGACIÓN --- */
@@ -179,15 +235,24 @@ DARK_STYLE = """
 
     /* --- TEXTO --- */
     QLabel { color: #EAEAEA; }
-    QLabel#DashboardTitle { font-size: 22px; font-weight: 600; color: #EAEAEA; }
-    QLabel#Chart_Title, QLabel#MetricTitle { font-size: 15px; font-weight: 600; color: #EAEAEA; }
-    QLabel#KPI_Title, QLabel#MetricComparison { font-size: 12px; color: #979ba5; font-weight: 500; }
-    QLabel#KPI_Value, QLabel#MetricValue { font-size: 20px; font-weight: 700; color: #EAEAEA; }
+    QLabel#DashboardTitle {
+        font-size: 22px; 
+        font-weight: 600; 
+        color: #EAEAEA;
+    }
+    QLabel#Chart_Title, QLabel#MetricTitle { font-size: 14px; font-weight: 600; color: #EAEAEA; }
+    QLabel#KPI_Title, QLabel#MetricComparison { font-size: 11px; color: #979ba5; font-weight: 500; }
+    QLabel#KPI_Value, QLabel#MetricValue { font-size: 18px; font-weight: 700; color: #EAEAEA; }
+    QLabel#BudgetPercentLabel {
+        color: #979ba5;
+        font-size: 11px;
+    }
 
     /* --- OTROS BOTONES --- */
     QPushButton {
         background-color: #8A9BFF; color: #191A23; border: none;
-        padding: 9px 14px; border-radius: 8px; font-weight: 600;
+        padding: 8px 12px; border-radius: 8px; font-weight: 600;
+        font-size: 13px;
     }
     QPushButton:hover { background-color: #7A89E8; }
     
@@ -224,7 +289,7 @@ DARK_STYLE = """
         padding: 7px 11px; border-radius: 8px; color: #EAEAEA;
     }
     QHeaderView::section {
-        background-color: #232533; padding: 9px 15px; border: none;
+        background-color: #232533; padding: 8px 15px; border: none;
         font-weight: 600; color: #EAEAEA;
     }
 
@@ -252,12 +317,11 @@ DARK_STYLE = """
         color: #191A23;
     }
 
-    /* --- INICIO DE LA SOLUCIÓN: Estilo para las pestañas de Transacciones (Modo Oscuro) --- */
     QTabWidget::pane { border: none; }
     QTabBar::tab {
         background: transparent;
         color: #979ba5;
-        padding: 10px 20px;
+        padding: 8px 18px;
         border-radius: 8px;
         font-weight: 600;
         margin-right: 5px;
@@ -270,5 +334,53 @@ DARK_STYLE = """
         background-color: #8A9BFF;
         color: #191A23;
     }
-    /* --- FIN DE LA SOLUCIÓN --- */
+
+    /* Estilos para la nueva tarjeta de crédito */
+    QFrame#CreditCardFrame {
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                    stop:0 #5C6784, stop:1 #3A404D);
+        border-radius: 15px;
+    }
+    QLabel#CardBalance {
+        font-size: 20px;
+        font-weight: 700;
+        color: #FFFFFF;
+    }
+    QLabel#CardType {
+        font-size: 14px;
+        font-weight: 600;
+        color: #FFFFFF;
+        font-style: italic;
+    }
+    QLabel#CardNumber {
+        font-size: 16px;
+        font-weight: 400;
+        color: #FFFFFF;
+        font-family: "Courier New", Courier, monospace;
+    }
+    QLabel#CardSubText {
+        font-size: 10px;
+        color: #D3D3D3;
+        text-transform: uppercase;
+    }
+    QLabel#CardMainText {
+        font-size: 13px;
+        font-weight: 600;
+        color: #FFFFFF;
+    }
+    QPushButton#CardNavButton {
+        background-color: #3A404D;
+        color: #EAEAEA;
+        border: none;
+        border-radius: 12px;
+        font-weight: 700;
+    }
+    QPushButton#CardNavButton:hover {
+        background-color: #4C566A;
+    }
+    QPushButton#CardVisibilityButton {
+        background-color: transparent;
+        border: none;
+        padding: 0px;
+    }
 """
