@@ -16,7 +16,9 @@ from .portfolio_view import PortfolioView
 
 class MainWindow(QMainWindow):
     def __init__(self):
-        super().__init__(); self.setWindowTitle("Nebula Finance"); self.resize(1440, 900)
+        # --- INICIO DE LA SOLUCIÓN: Tamaño de ventana ajustado ---
+        super().__init__(); self.setWindowTitle("Nebula Finance"); self.resize(1280, 800)
+        # --- FIN DE LA SOLUCIÓN ---
         self.is_dark_mode = True; self._create_ui(); self.toggle_theme()
 
     def _create_ui(self):

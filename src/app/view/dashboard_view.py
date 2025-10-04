@@ -25,7 +25,6 @@ class DashboardView(QWidget):
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(20)
 
-        # 1. Barra superior de Título y Filtros
         header_layout = QHBoxLayout()
         title_label = QLabel("Dashboard")
         title_label.setObjectName("DashboardTitle")
@@ -44,12 +43,13 @@ class DashboardView(QWidget):
         header_layout.addWidget(self.month_filter_button)
         main_layout.addLayout(header_layout)
 
-        # 2. Grid principal para los widgets
         grid_layout = QGridLayout()
         grid_layout.setSpacing(20)
-        main_layout.addLayout(grid_layout)
-
-        # --- Definición de Widgets ---
+        main_layout.addLayout(grid_layout, 1)
+        
+        # --- INICIO DE LA SOLUCIÓN: Reestructuración según nuevo boceto ---
+        
+        # 1. Definición de todos los widgets del dashboard
         self.income_kpi = self._create_kpi_card("Ganancias", "$0.00")
         self.expense_kpi = self._create_kpi_card("Gastos", "$0.00")
         self.net_kpi = self._create_kpi_card("Ahorro Neto", "$0.00")
@@ -60,74 +60,83 @@ class DashboardView(QWidget):
         self.main_goals_card = self._create_chart_card("Metas", has_plot_widget=False)
         self.expense_dist_card = self._create_chart_card("Distribución de Gastos")
 
-        # Layout para los KPIs
+        # 2. Creación de layouts intermedios para agrupar widgets
         kpi_layout = QHBoxLayout()
         kpi_layout.setSpacing(20)
         kpi_layout.addWidget(self.income_kpi)
         kpi_layout.addWidget(self.expense_kpi)
         kpi_layout.addWidget(self.net_kpi)
 
-        # Layout para Presupuesto vs Real
         budget_vs_real_layout = QHBoxLayout()
         budget_vs_real_layout.setSpacing(20)
         budget_vs_real_layout.addWidget(self.budget_income_card)
         budget_vs_real_layout.addWidget(self.budget_expense_card)
 
-        budget_vs_real_card = QFrame()
-        budget_vs_real_card.setObjectName("Card")
-        bvr_main_layout = QVBoxLayout(budget_vs_real_card)
-        bvr_main_layout.setContentsMargins(15, 15, 15, 15)
-        bvr_main_layout.addWidget(QLabel("<b>Presupuesto vs Real</b>"))
-        bvr_main_layout.addLayout(budget_vs_real_layout)
+        # 3. Posicionamiento en el Grid siguiendo la estructura del boceto
+        #    La función es .addWidget(widget, fila, columna, expansión_filas, expansión_columnas)
 
-        # --- Posicionamiento en el Grid (Según Boceto) ---
-        grid_layout.addLayout(kpi_layout, 0, 0, 1, 3)
-        grid_layout.addWidget(self.net_worth_chart_card, 1, 0, 1, 2)
-        grid_layout.addWidget(self.budget_rule_card, 1, 2, 1, 1)
-        grid_layout.addWidget(budget_vs_real_card, 2, 0, 1, 1)
-        grid_layout.addWidget(self.main_goals_card, 3, 0, 1, 1)
-        grid_layout.addWidget(self.expense_dist_card, 2, 1, 2, 2)
+        # Columna Izquierda (Verde)
+        grid_layout.addLayout(kpi_layout, 0, 0, 1, 1)               # Fila 0, Col 0
+        grid_layout.addWidget(self.net_worth_chart_card, 1, 0, 1, 1) # Fila 1, Col 0
+        grid_layout.addLayout(budget_vs_real_layout, 2, 0, 1, 1)     # Fila 2, Col 0
+        grid_layout.addWidget(self.main_goals_card, 3, 0, 1, 1)      # Fila 3, Col 0
+        
+        # Columna Derecha (Verde)
+        grid_layout.addWidget(self.budget_rule_card, 0, 1, 2, 1)  # Ocupa Fila 0 y 1, en Col 1
+        grid_layout.addWidget(self.expense_dist_card, 2, 1, 2, 1)  # Ocupa Fila 2 y 3, en Col 1
 
-        grid_layout.setColumnStretch(0, 2)
-        grid_layout.setColumnStretch(1, 2)
-        grid_layout.setColumnStretch(2, 1)
-        grid_layout.setRowStretch(1, 2)
-        grid_layout.setRowStretch(2, 1)
-        grid_layout.setRowStretch(3, 1)
+        # 4. Ajuste de proporciones de las filas y columnas
+        grid_layout.setColumnStretch(0, 2) # La columna izquierda es el doble de ancha que la derecha
+        grid_layout.setColumnStretch(1, 1)
+        grid_layout.setRowStretch(1, 1)    # La fila de la gráfica principal es más alta
+        grid_layout.setRowStretch(3, 1)    # La fila de metas también tiene más espacio
 
-        # Botón Flotante
+        # --- FIN DE LA SOLUCIÓN ---
+
         self.quick_add_button = QPushButton("+")
         self.quick_add_button.setObjectName("QuickAddButton")
-        self.quick_add_button.setFixedSize(QSize(50, 50))
+        self.quick_add_button.setFixedSize(QSize(46, 46))
         self.quick_add_button.setParent(self)
+        
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(25); shadow.setColor(QColor(0, 0, 0, 90)); shadow.setOffset(0, 5)
+        shadow.setBlurRadius(25)
+        shadow.setColor(QColor(0, 0, 0, 90))
+        shadow.setOffset(0, 5)
         self.quick_add_button.setGraphicsEffect(shadow)
-
+    
+    def showEvent(self, event):
+        super().showEvent(event)
         for card in self.findChildren(QFrame):
             if "Card" in card.objectName():
-                self._apply_shadow_to_card(card)
+                if not card.graphicsEffect():
+                    self._apply_shadow_to_card(card)
 
     def _apply_shadow_to_card(self, card):
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(20); shadow.setColor(QColor(0, 0, 0, 50)); shadow.setOffset(0, 2)
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(0, 0, 0, 30))
+        shadow.setOffset(0, 2)
         card.setGraphicsEffect(shadow)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         button_size = self.quick_add_button.size()
-        self.quick_add_button.move(self.width() - button_size.width() - 30, self.height() - button_size.height() - 30)
+        self.quick_add_button.move(self.width() - button_size.width() - 20, self.height() - button_size.height() - 20)
 
     def _create_kpi_card(self, title, default_value):
-        card = QFrame(); card.setObjectName("KPI_Card"); layout = QVBoxLayout(card); layout.setContentsMargins(15, 15, 15, 15); layout.setSpacing(5)
-        title_label = QLabel(title); title_label.setObjectName("KPI_Title"); value_label = QLabel(default_value); value_label.setObjectName("KPI_Value"); comparison_label = QLabel(""); comparison_label.setObjectName("KPI_Comparison")
+        card = QFrame(); card.setObjectName("KPI_Card"); layout = QVBoxLayout(card); layout.setContentsMargins(15, 10, 15, 10); layout.setSpacing(4)
+        title_label = QLabel(title); title_label.setObjectName("KPI_Title")
+        value_label = QLabel(default_value); value_label.setObjectName("KPI_Value")
+        comparison_label = QLabel(""); comparison_label.setObjectName("KPI_Comparison")
         layout.addWidget(title_label); layout.addWidget(value_label); layout.addWidget(comparison_label); layout.addStretch()
         card.value_label, card.comparison_label = value_label, comparison_label
         return card
         
     def _create_metric_card(self, title):
         card = QFrame(); card.setObjectName("MetricCard"); layout = QVBoxLayout(card); layout.setContentsMargins(15, 15, 15, 15); layout.setSpacing(5)
-        title_label = QLabel(title); value_label = QLabel("$0.00"); value_label.setObjectName("MetricValue"); comparison_label = QLabel("")
+        title_label = QLabel(title); title_label.setObjectName("MetricTitle")
+        value_label = QLabel("$0.00"); value_label.setObjectName("MetricValue")
+        comparison_label = QLabel("Real: $0.00"); comparison_label.setObjectName("MetricComparison")
         layout.addWidget(title_label); layout.addWidget(value_label); layout.addWidget(comparison_label); layout.addStretch()
         card.value_label, card.comparison_label = value_label, comparison_label
         return card
@@ -136,23 +145,28 @@ class DashboardView(QWidget):
         card = QFrame(); card.setObjectName("Card"); layout = QVBoxLayout(card); layout.setContentsMargins(15, 15, 15, 15); layout.setSpacing(10)
         title_label = QLabel(title); title_label.setObjectName("Chart_Title"); layout.addWidget(title_label)
         if has_plot_widget:
-            plot_widget = pg.PlotWidget(axisItems=axisItems); plot_widget.showGrid(x=True, y=True, alpha=0.1); layout.addWidget(plot_widget)
+            plot_widget = pg.PlotWidget(axisItems=axisItems); plot_widget.showGrid(x=True, y=True, alpha=0.1); layout.addWidget(plot_widget, 1)
             card.plot_widget = plot_widget
         else:
-            content_layout = QVBoxLayout(); content_layout.setSpacing(10); layout.addLayout(content_layout)
+            content_layout = QVBoxLayout(); content_layout.setSpacing(10); layout.addLayout(content_layout, 1)
             card.content_layout = content_layout
         return card
 
+    def update_budget_vs_real_cards(self, income_data, expense_data):
+        self.budget_income_card.value_label.setText(f"${income_data['budgeted_amount']:,.2f}")
+        self.budget_income_card.comparison_label.setText(f"Real: ${income_data['real_amount']:,.2f}")
+        self.budget_expense_card.value_label.setText(f"${expense_data['budgeted_amount']:,.2f}")
+        self.budget_expense_card.comparison_label.setText(f"Real: ${expense_data['real_amount']:,.2f}")
+        
     def update_kpis(self, income, expense, net_flow, income_comp=None, expense_comp=None):
         self.income_kpi.value_label.setText(f"${income:,.2f}")
         self.expense_kpi.value_label.setText(f"${expense:,.2f}")
         self.net_kpi.value_label.setText(f"${net_flow:,.2f}")
         def format_comp(value, lower_is_better=False):
             if value is None: return ""
-            prefix = "+" if value >= 0 else ""
-            is_good = (value < 0) if lower_is_better else (value >= 0)
-            color = "#28A745" if is_good else "#DC3545"
-            return f"<font color='{color}'>{prefix}{value:.1f}% vs mes anterior</font>"
+            prefix = "▲ " if value >= 0 else "▼ "
+            color = "#28A745" if (value >= 0 and not lower_is_better) or (value < 0 and lower_is_better) else "#DC3545"
+            return f"<font color='{color}'>{prefix}{abs(value):.1f}%</font>"
         self.income_kpi.comparison_label.setText(format_comp(income_comp))
         self.expense_kpi.comparison_label.setText(format_comp(expense_comp, lower_is_better=True))
 
@@ -172,12 +186,12 @@ class DashboardView(QWidget):
         amount_label = QLabel(f"<b>{percentage:.1f}%</b>")
         title_layout.addWidget(name_label); title_layout.addStretch(); title_layout.addWidget(amount_label)
         progress_bar = QProgressBar(); progress_bar.setValue(int(percentage));
-        progress_bar.setTextVisible(True); progress_bar.setFormat(f"{percentage:.1f}%")
+        progress_bar.setTextVisible(False)
         progress_bar.setProperty("state", "good"); progress_bar.style().polish(progress_bar)
         layout.addLayout(title_layout); layout.addWidget(progress_bar); return widget
 
     def update_upcoming_payments(self, payments):
-        pass # Método vacío para evitar el error
+        pass
 
     def _clear_layout(self, layout):
         if layout is not None:
@@ -188,20 +202,6 @@ class DashboardView(QWidget):
                 else:
                     child_layout = item.layout()
                     if child_layout is not None: self._clear_layout(child_layout)
-
-    def update_budget_vs_real_cards(self, income_data, expense_data):
-        self.budget_income_card.value_label.setText(f"${income_data['real_amount']:,.2f}")
-        if income_data['budgeted_amount'] > 0:
-            percentage_diff = ((income_data['real_amount'] - income_data['budgeted_amount']) / income_data['budgeted_amount']) * 100
-            state = "positive" if percentage_diff >= 0 else "negative"
-            self.budget_income_card.comparison_label.setText(f"<span state='{state}'>{percentage_diff:.1f}% vs Presupuesto</span>")
-        else: self.budget_income_card.comparison_label.setText("")
-        self.budget_expense_card.value_label.setText(f"${expense_data['real_amount']:,.2f}")
-        if expense_data['budgeted_amount'] > 0:
-            percentage_diff = ((expense_data['real_amount'] - expense_data['budgeted_amount']) / expense_data['budgeted_amount']) * 100
-            state = "negative" if percentage_diff > 0 else "positive" 
-            self.budget_expense_card.comparison_label.setText(f"<span state='{state}'>{percentage_diff:.1f}% vs Presupuesto</span>")
-        else: self.budget_expense_card.comparison_label.setText("")
 
     def update_budget_rule_chart(self, data):
         self._clear_layout(self.budget_rule_card.content_layout)

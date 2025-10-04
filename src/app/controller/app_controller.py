@@ -1,3 +1,4 @@
+# ... (importaciones y constantes iniciales sin cambios)
 from PySide6.QtWidgets import QMessageBox, QTableWidget
 from PySide6.QtCore import QDate, Qt
 from app.model.transaction import Transaction; from app.model.goal import Goal; from app.model.debt import Debt; from app.model.budget_entry import BudgetEntry
@@ -18,6 +19,7 @@ BUDGET_RULES = {"Esenciales": 0.50, "Crecimiento": 0.25, "Estabilidad": 0.15, "R
 CATEGORY_TO_RULE_MAPPING = { "Vivienda": "Esenciales", "Servicios": "Esenciales", "Comida": "Esenciales", "Transporte": "Esenciales", "Salud": "Esenciales", "Educación": "Esenciales", "Ahorro": "Crecimiento", "Pago Deuda": "Estabilidad", "Ocio": "Recompensas", "Otros Gastos": "Recompensas" }
 
 class AppController:
+    # ... (el método __init__ y otros se mantienen igual)
     def __init__(self, view):
         self.view = view
         self.view.dashboard_page.year_filter.currentTextChanged.connect(self.update_dashboard)
@@ -29,6 +31,35 @@ class AppController:
         self.view.budget_page.table.cellDoubleClicked.connect(self.edit_budget_entry_by_row)
         self.view.accounts_page.table.cellDoubleClicked.connect(self.edit_account_by_row)
 
+    # --- INICIO DE LA SOLUCIÓN: Método update_dashboard modificado ---
+    def update_dashboard(self):
+        filters = self.view.dashboard_page.get_selected_filters()
+        year, months = filters["year"], filters["months"]
+        
+        trans, total_income, total_expense = self._update_kpis(year, months)
+        self._update_net_worth_chart()
+        
+        # Obtiene los montos presupuestados
+        budgeted_income = sum(b.budgeted_amount for b in BudgetEntry.select().where(BudgetEntry.type == 'Ingreso Planeado'))
+        budgeted_expense = sum(b.budgeted_amount for b in BudgetEntry.select().where(BudgetEntry.type == 'Gasto Planeado'))
+        
+        # Llama a la función correcta con los datos necesarios
+        self.view.dashboard_page.update_budget_vs_real_cards(
+            income_data={"budgeted_amount": budgeted_income, "real_amount": total_income},
+            expense_data={"budgeted_amount": budgeted_expense, "real_amount": total_expense}
+        )
+        
+        self._update_dashboard_widgets()
+        
+        if trans:
+            self._update_expense_dist_chart(trans)
+            self._update_budget_rule_chart(trans, total_income)
+        else:
+            self.view.dashboard_page.clear_expense_dist_chart()
+            self.view.dashboard_page.clear_budget_rule_chart()
+    # --- FIN DE LA SOLUCIÓN ---
+
+    # ... (El resto de la clase AppController continúa aquí sin más cambios)
     def full_refresh(self):
         self.process_recurring_transactions()
         self.load_accounts()
@@ -325,20 +356,7 @@ class AppController:
         except (ValueError, TypeError): self.view.show_notification("El monto debe ser un número válido.", "error"); return
         entry.description, entry.category, entry.type, entry.budgeted_amount = data["description"], data["category"], data["type"], amount
         entry.save(); self.full_refresh(); self.view.show_notification("Entrada de presupuesto actualizada.", "success")
-
-    def update_dashboard(self):
-        filters = self.view.dashboard_page.get_selected_filters(); year, months = filters["year"], filters["months"]
-        trans, total_income, total_expense = self._update_kpis(year, months); self._update_net_worth_chart()
-        budgeted_income = sum(b.budgeted_amount for b in BudgetEntry.select().where(BudgetEntry.type == 'Ingreso Planeado'))
-        budgeted_expense = sum(b.budgeted_amount for b in BudgetEntry.select().where(BudgetEntry.type == 'Gasto Planeado'))
-        self.view.dashboard_page.update_budget_vs_real_cards(
-        income_data={"budgeted_amount": budgeted_income, "real_amount": total_income},
-        expense_data={"budgeted_amount": budgeted_expense, "real_amount": total_expense}
-        )
-        self._update_dashboard_widgets()
-        if trans: self._update_expense_dist_chart(trans); self._update_budget_rule_chart(trans, total_income)
-        else: self.view.dashboard_page.clear_expense_dist_chart(); self.view.dashboard_page.clear_budget_rule_chart()
-
+        
     def _update_dashboard_widgets(self):
         today = datetime.date.today(); upcoming_payments = []
         rules = RecurringTransaction.select().order_by(RecurringTransaction.day_of_month)
