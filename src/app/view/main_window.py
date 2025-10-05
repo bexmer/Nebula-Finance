@@ -17,7 +17,8 @@ from .settings_view import SettingsView
 
 class MainWindow(QMainWindow):
     def __init__(self):
-        super().__init__(); self.setWindowTitle("Nebula Finance"); self.resize(1280, 800)
+        super().__init__()
+        self.setWindowTitle("Nebula Finance")
         
         self.is_nav_panel_collapsed = False
         self.nav_panel_expanded_width = 240
@@ -35,13 +36,27 @@ class MainWindow(QMainWindow):
         
         self.nav_panel = QFrame()
         self.nav_panel.setObjectName("NavPanel")
-        self.nav_panel.setFixedWidth(self.nav_panel_expanded_width)
+        self.nav_panel.setMinimumWidth(self.nav_panel_expanded_width)
+        self.nav_panel.setMaximumWidth(self.nav_panel_expanded_width)
         nav_layout = QVBoxLayout(self.nav_panel)
         
-        nav_layout.setContentsMargins(10,10,10,10); nav_layout.setSpacing(10); nav_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        
+        nav_layout.setContentsMargins(10,10,10,10)
+        nav_layout.setSpacing(10)
+        nav_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        # --- BOTÓN DE COLAPSAR (ARRIBA) ---
+        self.toggle_button = QPushButton()
+        self.toggle_button.setObjectName("NavButton")
+        self.toggle_button.setCheckable(False)
+        self.toggle_button.clicked.connect(self.toggle_nav_panel)
+        self.toggle_layout = QHBoxLayout()
+        nav_layout.addLayout(self.toggle_layout)
+
+        # --- LOGO ---
         self.logo_label = QLabel("NF")
-        logo_font = self.logo_label.font(); logo_font.setPointSize(22); logo_font.setBold(True)
+        logo_font = self.logo_label.font()
+        logo_font.setPointSize(22)
+        logo_font.setBold(True)
         self.logo_label.setFont(logo_font)
         self.logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.logo_label.setObjectName("LogoLabel")
@@ -49,6 +64,7 @@ class MainWindow(QMainWindow):
         nav_layout.addWidget(self.logo_label, 0, Qt.AlignmentFlag.AlignCenter)
         nav_layout.addSpacing(20)
 
+        # --- BOTONES DE NAVEGACIÓN PRINCIPALES ---
         self.btn_dashboard = QPushButton("Resumen")
         self.btn_portfolio = QPushButton("Portafolio")
         self.btn_accounts = QPushButton("Cuentas")
@@ -60,23 +76,25 @@ class MainWindow(QMainWindow):
 
         buttons = [self.btn_dashboard, self.btn_portfolio, self.btn_accounts, self.btn_budget, self.btn_transactions, self.btn_goals, self.btn_analysis, self.btn_settings]
         self.button_texts = {btn: btn.text() for btn in buttons}
-        self.button_group = QButtonGroup(); self.button_group.setExclusive(True)
+        self.button_group = QButtonGroup()
+        self.button_group.setExclusive(True)
         for btn in buttons: 
-            btn.setObjectName("NavButton"); btn.setCheckable(True); btn.setIconSize(QSize(20, 20)); nav_layout.addWidget(btn); self.button_group.addButton(btn)
+            btn.setObjectName("NavButton")
+            btn.setCheckable(True)
+            btn.setIconSize(QSize(20, 20))
+            nav_layout.addWidget(btn)
+            self.button_group.addButton(btn)
         
         nav_layout.addStretch()
 
-        self.toggle_button = QPushButton()
-        self.toggle_button.setObjectName("NavButton")
-        self.toggle_button.setCheckable(False)
-        self.toggle_button.clicked.connect(self.toggle_nav_panel)
+        # --- BOTÓN DE TEMA (ABAJO) ---
+        self.theme_button = QPushButton("")
+        self.theme_button.setObjectName("ThemeButton")
+        self.theme_button.setFixedSize(35,35)
+        self.theme_layout = QHBoxLayout()
+        nav_layout.addLayout(self.theme_layout)
         
-        toggle_layout = QHBoxLayout()
-        toggle_layout.addWidget(self.toggle_button)
-        nav_layout.addLayout(toggle_layout)
-
-        self.theme_button = QPushButton(""); self.theme_button.setObjectName("ThemeButton"); self.theme_button.setFixedSize(35,35); nav_layout.addWidget(self.theme_button, 0, Qt.AlignmentFlag.AlignCenter)
-        
+        # --- WIDGETS DE CONTENIDO ---
         self.content_stack = QStackedWidget()
         self.dashboard_page = DashboardView()
         self.portfolio_page = PortfolioView()
@@ -87,19 +105,29 @@ class MainWindow(QMainWindow):
         self.analysis_page = AnalysisView()
         self.settings_page = SettingsView()
         
-        self.content_stack.addWidget(self.dashboard_page); self.content_stack.addWidget(self.portfolio_page)
-        self.content_stack.addWidget(self.accounts_page); self.content_stack.addWidget(self.budget_page)
-        self.content_stack.addWidget(self.transactions_page); self.content_stack.addWidget(self.goals_page)
+        self.content_stack.addWidget(self.dashboard_page)
+        self.content_stack.addWidget(self.portfolio_page)
+        self.content_stack.addWidget(self.accounts_page)
+        self.content_stack.addWidget(self.budget_page)
+        self.content_stack.addWidget(self.transactions_page)
+        self.content_stack.addWidget(self.goals_page)
         self.content_stack.addWidget(self.analysis_page)
         self.content_stack.addWidget(self.settings_page)
         
-        self.main_layout.addWidget(self.nav_panel); self.main_layout.addWidget(self.content_stack); self.setCentralWidget(main_widget)
+        self.main_layout.addWidget(self.nav_panel)
+        self.main_layout.addWidget(self.content_stack)
+        self.setCentralWidget(main_widget)
         self.notification = Notification(self)
 
         self.animation = QPropertyAnimation(self.nav_panel, b"minimumWidth")
         self.animation.setDuration(250)
         self.animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self.animation.finished.connect(self.on_animation_finished)
         
+        # --- CONFIGURACIÓN INICIAL DEL LAYOUT ---
+        self.update_panel_state()
+
+
     def set_controller(self, controller):
         self.controller = controller
         self.btn_dashboard.setChecked(True)
@@ -138,12 +166,9 @@ class MainWindow(QMainWindow):
         self.goals_page.edit_goal_requested.connect(self.controller.edit_goal); self.goals_page.delete_goal_requested.connect(self.controller.delete_goal)
         self.goals_page.edit_debt_requested.connect(self.controller.edit_debt); self.goals_page.delete_debt_requested.connect(self.controller.delete_debt)
         
-        # --- INICIO DE LA CORRECCIÓN ---
-        # Se conecta el doble clic para cada tabla dentro de cada pestaña de configuración
         self.settings_page.transaction_types_tab.table.cellDoubleClicked.connect(self.controller.edit_parameter_by_row)
         self.settings_page.account_types_tab.table.cellDoubleClicked.connect(self.controller.edit_parameter_by_row)
         self.settings_page.categories_tab.table.cellDoubleClicked.connect(self.controller.edit_parameter_by_row)
-        # --- FIN DE LA CORRECCIÓN ---
 
         self.controller.full_refresh()
         self.dashboard_page.set_default_month_filter()
@@ -152,11 +177,37 @@ class MainWindow(QMainWindow):
     def toggle_nav_panel(self):
         self.is_nav_panel_collapsed = not self.is_nav_panel_collapsed
         end_width = self.nav_panel_collapsed_width if self.is_nav_panel_collapsed else self.nav_panel_expanded_width
+        
+        self.animation.setTargetObject(self.nav_panel)
         self.animation.setEndValue(end_width)
+
+        if self.is_nav_panel_collapsed:
+            self.animation.setPropertyName(b"maximumWidth")
+            self.nav_panel.setMinimumWidth(end_width)
+        else:
+            self.animation.setPropertyName(b"minimumWidth")
+            self.nav_panel.setMaximumWidth(end_width)
+        
         self.animation.start()
         self.update_panel_state()
 
+    def on_animation_finished(self):
+        end_width = self.nav_panel_collapsed_width if self.is_nav_panel_collapsed else self.nav_panel_expanded_width
+        self.nav_panel.setMinimumWidth(end_width)
+        self.nav_panel.setMaximumWidth(end_width)
+
     def update_panel_state(self):
+        def clear_layout(layout):
+            if layout is not None:
+                while layout.count():
+                    item = layout.takeAt(0)
+                    widget = item.widget()
+                    if widget is not None:
+                        widget.setParent(None)
+
+        clear_layout(self.toggle_layout)
+        clear_layout(self.theme_layout)
+
         if self.is_nav_panel_collapsed:
             self.logo_label.setFixedSize(40, 40)
             font = self.logo_label.font(); font.setPointSize(14)
@@ -167,6 +218,14 @@ class MainWindow(QMainWindow):
                 btn.setProperty("collapsed", True)
                 btn.style().polish(btn)
             self.toggle_button.setToolTip("Expandir Menú")
+
+            self.toggle_layout.addStretch()
+            self.toggle_layout.addWidget(self.toggle_button)
+            self.toggle_layout.addStretch()
+            
+            self.theme_layout.addStretch()
+            self.theme_layout.addWidget(self.theme_button)
+            self.theme_layout.addStretch()
         else:
             self.logo_label.setFixedSize(60, 60)
             font = self.logo_label.font(); font.setPointSize(22)
@@ -177,6 +236,13 @@ class MainWindow(QMainWindow):
                 btn.setProperty("collapsed", False)
                 btn.style().polish(btn)
             self.toggle_button.setToolTip("Colapsar Menú")
+            
+            self.toggle_layout.addWidget(self.toggle_button)
+            self.toggle_layout.addStretch()
+            
+            self.theme_layout.addWidget(self.theme_button)
+            self.theme_layout.addStretch()
+
         self.update_theme_icons()
 
     def show_notification(self, message, m_type='success'):
@@ -196,6 +262,10 @@ class MainWindow(QMainWindow):
 
         self.dashboard_page.update_chart_themes(self.is_dark_mode)
         self.update_theme_icons()
+
+        current_width = self.nav_panel_collapsed_width if self.is_nav_panel_collapsed else self.nav_panel_expanded_width
+        self.nav_panel.setMinimumWidth(current_width)
+        self.nav_panel.setMaximumWidth(current_width)
 
     def update_theme_icons(self):
         icon_color = "#979ba5"

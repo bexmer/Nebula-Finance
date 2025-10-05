@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QMenu, QProgressBar, QGraphicsDropShadowEffect, QGridLayout
 )
 from PySide6.QtCore import Qt, QDate, QSize
-from PySide6.QtGui import QAction, QFont, QColor
+from PySide6.QtGui import QAction, QFont, QColor, QBrush
 import pyqtgraph as pg
 import qtawesome as qta
 from datetime import datetime
@@ -261,7 +261,6 @@ class DashboardView(QWidget):
         layout.addWidget(title_label)
         layout.addWidget(value_label)
         layout.addWidget(comparison_label)
-        layout.addStretch()
         card.value_label, card.comparison_label = value_label, comparison_label
         return card
 
@@ -343,12 +342,14 @@ class DashboardView(QWidget):
         header_layout.addWidget(QLabel("Cuentas"), 0, Qt.AlignLeft)
         header_layout.addStretch()
 
-        self.prev_account_btn = QPushButton("<")
+        self.prev_account_btn = QPushButton()
+        self.prev_account_btn.setIcon(qta.icon('fa5s.chevron-left'))
         self.prev_account_btn.setObjectName("CardNavButton")
         self.prev_account_btn.setFixedSize(25, 25)
         self.prev_account_btn.clicked.connect(self.show_previous_account)
 
-        self.next_account_btn = QPushButton(">")
+        self.next_account_btn = QPushButton()
+        self.next_account_btn.setIcon(qta.icon('fa5s.chevron-right'))
         self.next_account_btn.setObjectName("CardNavButton")
         self.next_account_btn.setFixedSize(25, 25)
         self.next_account_btn.clicked.connect(self.show_next_account)
@@ -599,6 +600,11 @@ class DashboardView(QWidget):
             pen_color = '#61AFEF' if self.fg_color == '#FFFFFF' else '#364765'
             plot_widget.plot(timestamps, values, pen=pg.mkPen(color=pen_color, width=3))
 
+    def _format_k(self, n):
+        if n >= 1000:
+            return f'{float(n/1000.0):.1f}'.rstrip('0').rstrip('.') + 'k'
+        return f'{n:.0f}'
+
     def update_expense_dist_chart(self, categories, amounts):
         plot_widget = self.expense_dist_card.plot_widget
         plot_widget.clear()
@@ -607,9 +613,33 @@ class DashboardView(QWidget):
             axis = plot_widget.getAxis('bottom')
             axis.setTicks(x_ticks)
             axis.setTickFont(QFont("Segoe UI", 8))
-            brush_color = '#61AFEF' if self.fg_color == '#FFFFFF' else '#364765'
-            bar_chart = pg.BarGraphItem(x=range(len(categories)), height=amounts, width=0.6, brush=brush_color)
+
+            is_dark = (self.fg_color == '#FFFFFF')
+            if is_dark:
+                hex_colors = ["#61AFEF", "#E5C07B", "#98C379", "#C678DD", "#E06C75", "#ABB2BF"]
+            else:
+                hex_colors = ["#3B82F6", "#F59E0B", "#22C55E", "#8B5CF6", "#EF4444", "#9CA3AF"]
+
+            brushes = []
+            for i in range(len(amounts)):
+                color = QColor(hex_colors[i % len(hex_colors)])
+                brushes.append(QBrush(color))
+
+            bar_chart = pg.BarGraphItem(x=range(len(categories)), height=amounts, width=0.6, brushes=brushes)
             plot_widget.addItem(bar_chart)
+
+            max_height = max(amounts) if amounts else 1
+            for i, amount in enumerate(amounts):
+                if amount > 0:
+                    text_content = f"↗ {self._format_k(amount)}"
+                    text_item = pg.TextItem(text_content, color="#FFFFFF", anchor=(0.5, 0))
+                    text_item.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+                    
+                    padding = max_height * 0.02
+                    text_item.setPos(i, amount - padding)
+                    plot_widget.addItem(text_item)
+            
+            plot_widget.getPlotItem().getViewBox().enableAutoRange(y=True)
 
     def clear_expense_dist_chart(self):
         self.expense_dist_card.plot_widget.clear()
@@ -633,8 +663,7 @@ class DashboardView(QWidget):
         is_dark = (self.fg_color == '#FFFFFF')
         fg_hex = "#FFFFFF" if is_dark else "#0F172A"
         fg_sub_hex = "#E5E7EB" if is_dark else "#6B7280"
-        fg = QColor(fg_hex)
-
+        
         # Fondo del plot igual al card
         card_bg = card.palette().window().color()
         try:
@@ -650,7 +679,7 @@ class DashboardView(QWidget):
         pw.clear()
 
         if not categories or total_amount <= 0:
-            txt = pg.TextItem("Sin datos de gastos", color=fg, anchor=(0.5, 0.5))
+            txt = pg.TextItem("Sin datos de gastos", color=fg_hex, anchor=(0.5, 0.5))
             pw.addItem(txt); txt.setPos(0, 0)
             pw.setAspectLocked(True)
             pw.setRange(xRange=(-1.0, 1.0), yRange=(-1.0, 1.0))
@@ -661,7 +690,11 @@ class DashboardView(QWidget):
         parts = [a / total_amount for a in amounts]
 
         # Paleta
-        hex_colors = ["#3B82F6", "#F59E0B", "#22C55E", "#8B5CF6", "#EF4444", "#9CA3AF"]
+        if is_dark:
+            hex_colors = ["#61AFEF", "#E5C07B", "#98C379", "#C678DD", "#E06C75", "#ABB2BF"]
+        else:
+            hex_colors = ["#3B82F6", "#F59E0B", "#22C55E", "#8B5CF6", "#EF4444", "#9CA3AF"]
+
         slice_colors = []
         for i in range(len(categories)):
             c = QColor(hex_colors[i % len(hex_colors)])
@@ -696,11 +729,11 @@ class DashboardView(QWidget):
         pw.addItem(inner)
 
         # Texto central
-        t_total = pg.TextItem(f"${total_amount:,.0f}", color=fg, anchor=(0.5, 0.5))
+        t_total = pg.TextItem(f"${total_amount:,.0f}", color=fg_hex, anchor=(0.5, 0.5))
         t_total.setFont(QFont("Segoe UI", 17, QFont.Weight.DemiBold))
         pw.addItem(t_total); t_total.setPos(0, 0.12)
 
-        t_label = pg.TextItem("Gastos", color=QColor(fg_sub_hex), anchor=(0.5, 0.5))
+        t_label = pg.TextItem("Gastos", color=fg_sub_hex, anchor=(0.5, 0.5))
         t_label.setFont(QFont("Segoe UI", 10))
         pw.addItem(t_label); t_label.setPos(0, -0.10)
 
