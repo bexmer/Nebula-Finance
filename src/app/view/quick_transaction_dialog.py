@@ -2,7 +2,7 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit,
                                QComboBox, QDialogButtonBox)
 
 class QuickTransactionDialog(QDialog):
-    def __init__(self, accounts, parent=None):
+    def __init__(self, accounts, categories, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Gasto Rápido")
         
@@ -17,7 +17,7 @@ class QuickTransactionDialog(QDialog):
             self.account_input.addItem(acc.name, userData=acc.id)
 
         self.category_input = QComboBox()
-        self.category_input.addItems(["Comida", "Transporte", "Ocio", "Servicios", "Otros Gastos"]) # Categorías de gasto más comunes
+        self.category_input.addItems(categories) 
 
         form_layout.addRow("Descripción:", self.description_input)
         form_layout.addRow("Monto:", self.amount_input)

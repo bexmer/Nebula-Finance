@@ -7,7 +7,6 @@ class AccountsView(QWidget):
     def __init__(self):
         super().__init__()
         
-        # --- INICIO DE LA SOLUCIÓN: Layout principal vertical y título ---
         main_container_layout = QVBoxLayout(self)
         main_container_layout.setContentsMargins(20, 20, 20, 20)
         main_container_layout.setSpacing(20)
@@ -21,14 +20,13 @@ class AccountsView(QWidget):
 
         content_layout = QHBoxLayout()
         main_container_layout.addLayout(content_layout, 1)
-        # --- FIN DE LA SOLUCIÓN ---
         
         form_card = QFrame(); form_card.setObjectName("Card"); form_card.setFixedWidth(350)
         form_layout = QFormLayout(form_card)
         form_layout.setContentsMargins(15, 15, 15, 15); form_layout.setSpacing(10)
 
         self.name_input = QLineEdit()
-        self.type_input = QComboBox(); self.type_input.addItems(["Cuenta de Ahorros", "Cuenta Corriente", "Tarjeta de Crédito", "Efectivo", "Inversión"])
+        self.type_input = QComboBox() # Se eliminarán los items fijos
         self.balance_input = QLineEdit()
         
         self.add_button = QPushButton("Añadir Cuenta"); self.add_button.setObjectName("ActionButton")
@@ -49,9 +47,7 @@ class AccountsView(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         table_layout.addWidget(self.table)
 
-        # --- INICIO DE LA SOLUCIÓN: Widgets añadidos al content_layout ---
         content_layout.addWidget(form_card); content_layout.addWidget(table_card, 1)
-        # --- FIN DE LA SOLUCIÓN ---
 
     def get_form_data(self):
         return {

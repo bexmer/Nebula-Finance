@@ -7,7 +7,6 @@ class BudgetView(QWidget):
     def __init__(self):
         super().__init__()
         
-        # --- INICIO DE LA SOLUCIÓN: Layout principal vertical y título ---
         main_container_layout = QVBoxLayout(self)
         main_container_layout.setContentsMargins(20, 20, 20, 20)
         main_container_layout.setSpacing(20)
@@ -21,7 +20,6 @@ class BudgetView(QWidget):
 
         content_layout = QHBoxLayout()
         main_container_layout.addLayout(content_layout, 1)
-        # --- FIN DE LA SOLUCIÓN ---
         
         form_card = QFrame(); form_card.setObjectName("Card"); form_card.setFixedWidth(350)
         form_layout = QFormLayout(form_card)
@@ -29,8 +27,8 @@ class BudgetView(QWidget):
 
         self.description_input = QLineEdit()
         self.amount_input = QLineEdit()
-        self.type_input = QComboBox(); self.type_input.addItems(["Ingreso Planeado", "Gasto Planeado"])
-        self.category_input = QComboBox(); self.category_input.addItems(["Nómina", "Freelance", "Otros Ingresos", "Vivienda", "Servicios", "Transporte", "Comida", "Ocio", "Salud", "Educación", "Ahorro", "Pago Deuda", "Otros Gastos"])
+        self.type_input = QComboBox() 
+        self.category_input = QComboBox()
         
         self.add_button = QPushButton("Añadir al Presupuesto"); self.add_button.setObjectName("ActionButton")
         self.delete_button = QPushButton("Eliminar Selección")
@@ -51,9 +49,7 @@ class BudgetView(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         table_layout.addWidget(self.table)
 
-        # --- INICIO DE LA SOLUCIÓN: Widgets añadidos al content_layout ---
         content_layout.addWidget(form_card); content_layout.addWidget(table_card, 1)
-        # --- FIN DE LA SOLUCIÓN ---
 
     def display_budget_entries(self, entries):
         self.table.setRowCount(0)

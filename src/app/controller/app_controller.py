@@ -8,12 +8,15 @@ from app.model.portfolio_asset import PortfolioAsset
 from app.model.trade import Trade
 from app.model.recurring_transaction import RecurringTransaction
 from app.model.account import Account
+from app.model.parameter import Parameter
 from app.view.edit_transaction_dialog import EditTransactionDialog
 from app.view.edit_goal_debt_dialog import EditGoalDebtDialog
 from app.view.edit_budget_entry_dialog import EditBudgetEntryDialog
 from app.view.edit_account_dialog import EditAccountDialog
 from app.view.edit_recurring_dialog import EditRecurringDialog
 from app.view.quick_transaction_dialog import QuickTransactionDialog
+from app.view.edit_parameter_dialog import EditParameterDialog
+
 import datetime
 from collections import defaultdict
 from peewee import JOIN, fn
@@ -27,47 +30,32 @@ BUDGET_RULES = {
 }
 
 CATEGORY_TO_RULE_MAPPING = {
-    "Vivienda": "Esenciales",
-    "Servicios": "Esenciales",
-    "Comida": "Esenciales",
-    "Transporte": "Esenciales",
-    "Salud": "Esenciales",
-    "Educación": "Esenciales",
-    "Ahorro": "Crecimiento",
-    "Pago Deuda": "Estabilidad",
-    "Ocio": "Recompensas",
+    "Vivienda": "Esenciales", "Servicios": "Esenciales", "Comida": "Esenciales",
+    "Transporte": "Esenciales", "Salud": "Esenciales", "Educación": "Esenciales",
+    "Ahorro": "Crecimiento", "Pago Deuda": "Estabilidad", "Ocio": "Recompensas",
     "Otros Gastos": "Recompensas",
 }
-
 
 class AppController:
     def __init__(self, view):
         self.view = view
 
-        # Filtros del dashboard
+        # Conexiones de la interfaz
         self.view.dashboard_page.year_filter.currentTextChanged.connect(self.update_dashboard)
         for action in self.view.dashboard_page.month_actions:
             action.triggered.connect(self.update_dashboard)
         self.view.dashboard_page.all_year_action.triggered.connect(self.update_dashboard)
-
-        # Análisis
         self.view.analysis_page.year_selector.currentTextChanged.connect(self.update_analysis_view)
-
-        # Presupuesto
         self.view.budget_page.add_button.clicked.connect(self.add_budget_entry)
         self.view.budget_page.delete_button.clicked.connect(self.delete_budget_entry)
         self.view.budget_page.table.cellDoubleClicked.connect(self.edit_budget_entry_by_row)
-
-        # Cuentas
         self.view.accounts_page.table.cellDoubleClicked.connect(self.edit_account_by_row)
+        self.view.settings_page.add_button.clicked.connect(self.add_parameter)
+        self.view.settings_page.delete_button.clicked.connect(self.delete_parameter)
 
-    # ------------------------------------------------------------------ #
-    # Ciclo de refresco                                                   #
-    # ------------------------------------------------------------------ #
     def full_refresh(self):
-        # Registra transacciones recurrentes pendientes (no relanza full_refresh)
         self.process_recurring_transactions()
-        # Carga y pinta todo
+        self.load_parameters_to_views()
         self.load_accounts()
         self.load_transactions()
         self.update_dashboard()
@@ -77,9 +65,127 @@ class AppController:
         self.load_budget_entries()
         self.load_portfolio()
 
-    # ------------------------------------------------------------------ #
-    # Cuentas                                                             #
-    # ------------------------------------------------------------------ #
+    def load_parameters(self):
+        parameters = list(Parameter.select())
+        self.view.settings_page.display_parameters(parameters)
+
+    def add_parameter(self):
+        data = self.view.settings_page.get_form_data()
+        if not data["value"]:
+            self.view.show_notification("El valor es obligatorio.", "error")
+            return
+        Parameter.create(value=data["value"], group=data["group"])
+        self.view.settings_page.clear_form()
+        self.load_parameters()
+        self.full_refresh()
+        self.view.show_notification("Parámetro añadido con éxito.", "success")
+
+    def delete_parameter(self):
+        parameter_id = self.view.settings_page.get_selected_parameter_id()
+        if not parameter_id: return
+        
+        param_to_delete = Parameter.get_by_id(parameter_id)
+        if not param_to_delete.is_deletable and param_to_delete.group != "Tipo de Cuenta":
+            self.view.show_notification("Este es un parámetro esencial y no se puede eliminar.", "error")
+            return
+
+        if QMessageBox.question(self.view, "Confirmar", "¿Eliminar este parámetro?") == QMessageBox.StandardButton.Yes:
+            param_to_delete.delete_instance()
+            self.load_parameters()
+            self.full_refresh()
+            self.view.show_notification("Parámetro eliminado.", "success")
+    
+    def _cascade_parameter_update(self, group, old_value, new_value):
+        """
+        Actualiza todas las tablas que usan un parámetro cuando este cambia.
+        """
+        if group == 'Categoría':
+            Transaction.update(category=new_value).where(Transaction.category == old_value).execute()
+            BudgetEntry.update(category=new_value).where(BudgetEntry.category == old_value).execute()
+            RecurringTransaction.update(category=new_value).where(RecurringTransaction.category == old_value).execute()
+        elif group == 'Tipo de Cuenta':
+            Account.update(account_type=new_value).where(Account.account_type == old_value).execute()
+        elif group == 'Tipo de Transacción':
+            Transaction.update(type=new_value).where(Transaction.type == old_value).execute()
+            BudgetEntry.update(type=new_value).where(BudgetEntry.type == old_value).execute()
+            RecurringTransaction.update(type=new_value).where(RecurringTransaction.type == old_value).execute()
+
+    def edit_parameter_by_row(self, row, column):
+        param_id = self.view.settings_page.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        if not param_id: return
+        
+        try:
+            param = Parameter.get_by_id(param_id)
+            
+            if not param.is_deletable and param.group != "Tipo de Cuenta":
+                self.view.show_notification(f"El parámetro '{param.value}' es esencial y no se puede modificar.", "error")
+                return
+            
+            param_data = {'value': param.value, 'group': param.group}
+            dialog = EditParameterDialog(param_data, self.view)
+            
+            if dialog.exec():
+                new_data = dialog.get_data()
+                new_value = new_data["value"]
+                
+                if not new_value:
+                    self.view.show_notification("El valor no puede estar vacío.", "error")
+                    return
+                
+                old_value = param.value
+                
+                # Realiza la actualización en cascada ANTES de guardar el cambio
+                self._cascade_parameter_update(param.group, old_value, new_value)
+                
+                param.value = new_value
+                param.save()
+                
+                self.full_refresh()
+                self.view.show_notification("Parámetro y registros asociados actualizados.", "success")
+
+        except Parameter.DoesNotExist:
+            self.view.show_notification("El parámetro no fue encontrado.", "error")
+
+    def load_parameters_to_views(self):
+        categories = [p.value for p in Parameter.select().where(Parameter.group == 'Categoría')]
+        transaction_types = [p.value for p in Parameter.select().where(Parameter.group == 'Tipo de Transacción')]
+        account_types = [p.value for p in Parameter.select().where(Parameter.group == 'Tipo de Cuenta')]
+
+        # Actualizar vista de Transacciones
+        self.view.transactions_page.category_input.clear()
+        self.view.transactions_page.category_input.addItems(categories)
+        self.view.transactions_page.type_input.clear()
+        self.view.transactions_page.type_input.addItems(transaction_types)
+        
+        self.view.transactions_page.category_filter.clear()
+        self.view.transactions_page.category_filter.addItem("Todas las Categorías")
+        self.view.transactions_page.category_filter.addItems(sorted(categories))
+
+        self.view.transactions_page.type_filter.clear()
+        self.view.transactions_page.type_filter.addItem("Todos los Tipos")
+        self.view.transactions_page.type_filter.addItems(transaction_types)
+
+        # Actualizar vista de Presupuesto
+        self.view.budget_page.category_input.clear()
+        self.view.budget_page.category_input.addItems(categories)
+
+        # Actualizar vista de Cuentas
+        self.view.accounts_page.type_input.clear()
+        self.view.accounts_page.type_input.addItems(account_types)
+
+    def show_quick_transaction_dialog(self):
+        accounts = list(Account.select())
+        if not accounts:
+            self.view.show_notification("Para un gasto rápido, primero debes crear una cuenta.", "error")
+            return
+        
+        categories = [p.value for p in Parameter.select().where(Parameter.group == 'Categoría')]
+        
+        dialog = QuickTransactionDialog(accounts, categories, self.view)
+        if dialog.exec():
+            data = dialog.get_data()
+            self.add_quick_transaction(data)
+
     def add_account(self):
         data = self.view.accounts_page.get_form_data()
         if not data["name"] or not data["initial_balance"]:
@@ -139,15 +245,7 @@ class AppController:
         except Account.DoesNotExist:
             self.view.show_notification("La cuenta no fue encontrada.", "error")
 
-    # ------------------------------------------------------------------ #
-    # Recurrentes                                                         #
-    # ------------------------------------------------------------------ #
     def process_recurring_transactions(self) -> bool:
-        """
-        Genera transacciones recurrentes pendientes y actualiza saldo.
-        Devuelve True si generó alguna, False si no.
-        (No llama a full_refresh para evitar refrescos encadenados.)
-        """
         today = datetime.date.today()
         rules_updated = False
         first_account = Account.select().first()
@@ -182,7 +280,6 @@ class AppController:
                     pass
 
             elif rule.frequency == "Quincenal":
-                # Primer día
                 try:
                     next_due1 = start_from.replace(day=rule.day_of_month)
                     if next_due1 <= start_from:
@@ -192,7 +289,6 @@ class AppController:
                         next_due1 += relativedelta(months=1)
                 except ValueError:
                     pass
-                # Segundo día (opcional)
                 try:
                     next_due2 = start_from.replace(day=rule.day_of_month_2)
                     if next_due2 <= start_from:
@@ -203,16 +299,11 @@ class AppController:
                 except (ValueError, TypeError):
                     pass
 
-            # Crear transacciones faltantes
             for due_date in sorted(list(set(next_due_dates))):
                 if not rule.last_processed_date or due_date > rule.last_processed_date:
                     Transaction.create(
-                        date=due_date,
-                        description=rule.description,
-                        amount=rule.amount,
-                        type=rule.type,
-                        category=rule.category,
-                        account=first_account,
+                        date=due_date, description=rule.description, amount=rule.amount,
+                        type=rule.type, category=rule.category, account=first_account,
                     )
                     if rule.type == "Ingreso":
                         first_account.current_balance += rule.amount
@@ -247,9 +338,6 @@ class AppController:
                 next_dates[rule.id] = "Fecha Inválida"
         self.view.transactions_page.display_recurring_rules(rules, next_dates)
 
-    # ------------------------------------------------------------------ #
-    # Portafolio                                                          #
-    # ------------------------------------------------------------------ #
     def add_trade(self):
         data = self.view.portfolio_page.get_trade_form_data()
         if not all([data["symbol"], data["asset_type"], data["quantity"], data["price"]]):
@@ -279,11 +367,8 @@ class AppController:
             asset.total_quantity -= quantity
 
         Trade.create(
-            asset=asset,
-            trade_type=data["operation"],
-            quantity=quantity,
-            price_per_unit=price,
-            date=data["date"],
+            asset=asset, trade_type=data["operation"], quantity=quantity,
+            price_per_unit=price, date=data["date"],
         )
         asset.current_price = price
         asset.save()
@@ -298,9 +383,6 @@ class AppController:
         sell_trades = Trade.select().where(Trade.trade_type == "Venta").order_by(Trade.date.desc())
         self.view.portfolio_page.display_history(sell_trades)
 
-    # ------------------------------------------------------------------ #
-    # Transacciones                                                       #
-    # ------------------------------------------------------------------ #
     def add_transaction(self):
         data = self.view.transactions_page.get_form_data()
 
@@ -315,15 +397,10 @@ class AppController:
                 return
 
             RecurringTransaction.create(
-                description=data["description"],
-                amount=amount,
-                type=data["type"],
-                category=data["category"],
-                frequency=data["frequency"],
-                month_of_year=data.get("month_of_year"),
-                day_of_month=data["day_of_month"],
-                day_of_month_2=data.get("day_of_month_2"),
-                start_date=data["date"],
+                description=data["description"], amount=amount, type=data["type"],
+                category=data["category"], frequency=data["frequency"],
+                month_of_year=data.get("month_of_year"), day_of_month=data["day_of_month"],
+                day_of_month_2=data.get("day_of_month_2"), start_date=data["date"],
             )
             self.view.show_notification("Regla de transacción recurrente añadida.", "success")
         else:
@@ -351,31 +428,24 @@ class AppController:
                 return
 
             goal_id, debt_id = data.get("goal_id"), data.get("debt_id")
-            if data["type"] == "Ahorro/Pago Meta/Deuda":
-                if goal_id:
-                    try:
-                        goal = Goal.get_by_id(goal_id)
-                        goal.current_amount += amount
-                        goal.save()
-                    except Goal.DoesNotExist:
-                        pass
-                if debt_id:
-                    try:
-                        debt = Debt.get_by_id(debt_id)
-                        debt.current_balance -= amount
-                        debt.save()
-                    except Debt.DoesNotExist:
-                        pass
+            
+            if data["type"] == "Ahorro Meta" and goal_id:
+                try:
+                    goal = Goal.get_by_id(goal_id)
+                    goal.current_amount += amount
+                    goal.save()
+                except Goal.DoesNotExist: pass
+            elif data["type"] == "Pago Deuda" and debt_id:
+                try:
+                    debt = Debt.get_by_id(debt_id)
+                    debt.current_balance -= amount
+                    debt.save()
+                except Debt.DoesNotExist: pass
 
             Transaction.create(
-                date=data["date"],
-                description=data["description"],
-                amount=amount,
-                type=data["type"],
-                category=data["category"],
-                goal=goal_id,
-                debt=debt_id,
-                account=data["account_id"],
+                date=data["date"], description=data["description"], amount=amount,
+                type=data["type"], category=data["category"], goal=goal_id,
+                debt=debt_id, account=data["account_id"],
             )
             self.view.show_notification("¡Transacción añadida!", "success")
 
@@ -426,7 +496,6 @@ class AppController:
             self.view.show_notification("El monto debe ser un número válido.", "error")
             return
 
-        # Revertir en cuenta anterior
         try:
             old_account = Account.get_by_id(transaction.account_id)
             if transaction.type == "Ingreso":
@@ -434,10 +503,8 @@ class AppController:
             else:
                 old_account.current_balance += transaction.amount
             old_account.save()
-        except Account.DoesNotExist:
-            pass
+        except Account.DoesNotExist: pass
 
-        # Aplicar en nueva cuenta
         try:
             new_account = Account.get_by_id(data["account_id"])
             if data["type"] == "Ingreso":
@@ -445,75 +512,55 @@ class AppController:
             else:
                 new_account.current_balance -= amount
             new_account.save()
-        except Account.DoesNotExist:
-            pass
+        except Account.DoesNotExist: pass
 
-        # Reversar/meta/deuda anteriores
         if transaction.goal_id:
             try:
                 old_goal = Goal.get_by_id(transaction.goal_id)
                 old_goal.current_amount -= transaction.amount
                 old_goal.save()
-            except Goal.DoesNotExist:
-                pass
+            except Goal.DoesNotExist: pass
         if transaction.debt_id:
             try:
                 old_debt = Debt.get_by_id(transaction.debt_id)
                 old_debt.current_balance += transaction.amount
                 old_debt.save()
-            except Debt.DoesNotExist:
-                pass
+            except Debt.DoesNotExist: pass
 
-        # Actualizar transacción
-        transaction.date = data["date"]
-        transaction.description = data["description"]
-        transaction.amount = amount
-        transaction.type = data["type"]
-        transaction.category = data["category"]
-        transaction.goal = data["goal_id"]
-        transaction.debt = data["debt_id"]
-        transaction.account = data["account_id"]
+        transaction.date, transaction.description, transaction.amount = data["date"], data["description"], amount
+        transaction.type, transaction.category = data["type"], data["category"]
+        transaction.goal, transaction.debt, transaction.account = data["goal_id"], data["debt_id"], data["account_id"]
 
-        # Aplicar meta/deuda nuevas
         if data["goal_id"]:
             try:
                 new_goal = Goal.get_by_id(data["goal_id"])
                 new_goal.current_amount += amount
                 new_goal.save()
-            except Goal.DoesNotExist:
-                pass
+            except Goal.DoesNotExist: pass
         if data["debt_id"]:
             try:
                 new_debt = Debt.get_by_id(data["debt_id"])
                 new_debt.current_balance -= amount
                 new_debt.save()
-            except Debt.DoesNotExist:
-                pass
+            except Debt.DoesNotExist: pass
 
         transaction.save()
         self.full_refresh()
         self.view.show_notification("Transacción actualizada.", "success")
 
     def edit_transaction_by_row(self, row, column, table_widget):
-        if not table_widget:
-            return
+        if not table_widget: return
         item = table_widget.item(row, 0)
-        if not item:
-            return
+        if not item: return
         transaction_id = item.data(Qt.ItemDataRole.UserRole)
-        if not transaction_id:
-            return
+        if not transaction_id: return
         try:
             transaction = Transaction.get_by_id(transaction_id)
             t_data = {
-                "id": transaction.id,
-                "date": transaction.date.strftime("%Y-%m-%d"),
-                "description": transaction.description,
-                "amount": transaction.amount,
-                "type": transaction.type,
-                "category": transaction.category,
-                "goal_id": transaction.goal_id,
-                "debt_id": transaction.debt_id,
+                "id": transaction.id, "date": transaction.date.strftime("%Y-%m-%d"),
+                "description": transaction.description, "amount": transaction.amount,
+                "type": transaction.type, "category": transaction.category,
+                "goal_id": transaction.goal_id, "debt_id": transaction.debt_id,
                 "account_id": transaction.account_id,
             }
             goals, debts, accounts = Goal.select(), Debt.select(), Account.select()
@@ -538,44 +585,27 @@ class AppController:
             self.load_recurring_rules()
             return
 
-        query = Transaction.select()
+        query = Transaction.select().join(Account, on=(Transaction.account == Account.id))
 
-        if tab_index == 1:
-            query = query.join(Goal).where(Transaction.goal.is_null(False))
-        elif tab_index == 2:
-            query = query.join(Debt).where(Transaction.debt.is_null(False))
-
-        # JOIN con Account siempre presente (seguro y simple)
-        query = query.join(Account, on=(Transaction.account == Account.id))
+        if tab_index == 1: query = query.join(Goal).where(Transaction.goal.is_null(False))
+        elif tab_index == 2: query = query.join(Debt).where(Transaction.debt.is_null(False))
 
         start_date, end_date = filters["start_date"], filters["end_date"]
         query = query.where((Transaction.date >= start_date) & (Transaction.date <= end_date))
 
-        if filters["search_text"]:
-            query = query.where(Transaction.description.contains(filters["search_text"]))
-        if filters["type"] != "Todos los Tipos":
-            query = query.where(Transaction.type == filters["type"])
-        if filters["category"] != "Todas las Categorías":
-            query = query.where(Transaction.category == filters["category"])
+        if filters["search_text"]: query = query.where(Transaction.description.contains(filters["search_text"]))
+        if filters["type"] != "Todos los Tipos": query = query.where(Transaction.type == filters["type"])
+        if filters["category"] != "Todas las Categorías": query = query.where(Transaction.category == filters["category"])
 
         sort_field = Transaction.date if filters["sort_by"] == "Fecha" else Transaction.amount
-        if filters["sort_order"] == "Descendente":
-            query = query.order_by(sort_field.desc())
-        else:
-            query = query.order_by(sort_field.asc())
+        query = query.order_by(sort_field.desc() if filters["sort_order"] == "Descendente" else sort_field.asc())
 
         transactions = list(query)
 
-        if tab_index == 0:
-            self.view.transactions_page.display_all_transactions(transactions)
-        elif tab_index == 1:
-            self.view.transactions_page.display_goal_transactions(transactions)
-        elif tab_index == 2:
-            self.view.transactions_page.display_debt_transactions(transactions)
+        if tab_index == 0: self.view.transactions_page.display_all_transactions(transactions)
+        elif tab_index == 1: self.view.transactions_page.display_goal_transactions(transactions)
+        elif tab_index == 2: self.view.transactions_page.display_debt_transactions(transactions)
 
-    # ------------------------------------------------------------------ #
-    # Presupuesto                                                         #
-    # ------------------------------------------------------------------ #
     def add_budget_entry(self):
         data = self.view.budget_page.get_form_data()
         if not data["description"] or not data["budgeted_amount"]:
@@ -587,10 +617,8 @@ class AppController:
             self.view.show_notification("El monto debe ser un número válido.", "error")
             return
         BudgetEntry.create(
-            description=data["description"],
-            category=data["category"],
-            type=data["type"],
-            budgeted_amount=amount,
+            description=data["description"], category=data["category"],
+            type=data["type"], budgeted_amount=amount,
         )
         self.view.budget_page.clear_form()
         self.full_refresh()
@@ -609,15 +637,12 @@ class AppController:
 
     def edit_budget_entry_by_row(self, row, column):
         entry_id = self.view.budget_page.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-        if not entry_id:
-            return
+        if not entry_id: return
         try:
             entry = BudgetEntry.get_by_id(entry_id)
             entry_data = {
-                "description": entry.description,
-                "budgeted_amount": entry.budgeted_amount,
-                "type": entry.type,
-                "category": entry.category,
+                "description": entry.description, "budgeted_amount": entry.budgeted_amount,
+                "type": entry.type, "category": entry.category,
             }
             dialog = EditBudgetEntryDialog(entry_data, self.view)
             if dialog.exec():
@@ -634,99 +659,69 @@ class AppController:
         except (ValueError, TypeError):
             self.view.show_notification("El monto debe ser un número válido.", "error")
             return
-        entry.description = data["description"]
-        entry.category = data["category"]
-        entry.type = data["type"]
+        entry.description, entry.category, entry.type = data["description"], data["category"], data["type"]
         entry.budgeted_amount = amount
         entry.save()
         self.full_refresh()
         self.view.show_notification("Entrada de presupuesto actualizada.", "success")
 
-    # ------------------------------------------------------------------ #
-    # Dashboard                                                           #
-    # ------------------------------------------------------------------ #
     def update_dashboard(self):
         filters = self.view.dashboard_page.get_selected_filters()
-        year = filters["year"]
-        months = filters["months"]
+        year, months = filters["year"], filters["months"]
 
         trans, total_income, total_expense = self._update_kpis(year, months)
         self._update_net_worth_chart()
 
-        budgeted_income = sum(
-            b.budgeted_amount
-            for b in BudgetEntry.select().where(BudgetEntry.type == "Ingreso Planeado")
-        )
-        budgeted_expense = sum(
-            b.budgeted_amount
-            for b in BudgetEntry.select().where(BudgetEntry.type == "Gasto Planeado")
-        )
+        budgeted_income = sum(b.budgeted_amount for b in BudgetEntry.select().where(BudgetEntry.type == "Ingreso Planeado"))
+        budgeted_expense = sum(b.budgeted_amount for b in BudgetEntry.select().where(BudgetEntry.type == "Gasto Planeado"))
         self.view.dashboard_page.update_budget_vs_real_cards(
             income_data={"budgeted_amount": budgeted_income, "real_amount": total_income},
             expense_data={"budgeted_amount": budgeted_expense, "real_amount": total_expense},
         )
         self._update_dashboard_widgets()
 
-        accounts = list(Account.select())
-        self.view.dashboard_page.update_accounts_card(accounts)
+        self.view.dashboard_page.update_accounts_card(list(Account.select()))
 
         if trans:
             self._update_expense_dist_chart(trans)
             self._update_budget_rule_chart(trans, total_income)
-
-            # Dona: comparación por tipo
+            
             expense_by_type = defaultdict(float)
             for t in trans:
-                if t.type in ["Gasto Fijo", "Gasto Variable", "Ahorro/Pago Meta/Deuda"]:
+                if t.type != "Ingreso":
                     expense_by_type[t.type] += t.amount
 
             if expense_by_type:
                 sorted_expense_type = sorted(expense_by_type.items(), key=lambda i: i[1], reverse=True)
-                cats = [i[0] for i in sorted_expense_type]
-                amounts = [i[1] for i in sorted_expense_type]
-                # >>> No usamos clear_... antes, para que el refresco sea inmediato
-                self.view.dashboard_page.update_expense_type_chart(cats, amounts)
+                self.view.dashboard_page.update_expense_type_chart([i[0] for i in sorted_expense_type], [i[1] for i in sorted_expense_type])
             else:
                 self.view.dashboard_page.clear_expense_type_chart()
         else:
             self.view.dashboard_page.clear_expense_dist_chart()
             self.view.dashboard_page.clear_budget_rule_chart()
             self.view.dashboard_page.clear_expense_type_chart()
-
-        # Fuerza repintado inmediato (reduce sensación de “lag”)
+            
         QCoreApplication.processEvents()
 
     def _update_dashboard_widgets(self):
         today = datetime.date.today()
         upcoming_payments = []
-
-        rules = RecurringTransaction.select().order_by(RecurringTransaction.day_of_month)
-        for rule in rules:
+        for rule in RecurringTransaction.select().order_by(RecurringTransaction.day_of_month):
             last_run = rule.last_processed_date or rule.start_date
             try:
                 next_due = last_run.replace(day=rule.day_of_month)
                 if next_due <= today:
                     next_due += relativedelta(months=1)
-                upcoming_payments.append(
-                    {"date": next_due, "description": rule.description, "amount": rule.amount}
-                )
-            except (ValueError, TypeError):
-                pass
-
+                upcoming_payments.append({"date": next_due, "description": rule.description, "amount": rule.amount})
+            except (ValueError, TypeError): pass
+        
         sorted_payments = sorted(upcoming_payments, key=lambda p: p["date"])
-        for payment in sorted_payments:
-            payment["date"] = payment["date"].strftime("%Y-%m-%d")
+        for p in sorted_payments: p["date"] = p["date"].strftime("%Y-%m-%d")
         self.view.dashboard_page.update_upcoming_payments(sorted_payments[:5])
 
-        main_goals_query = (
-            Goal.select()
-            .where(Goal.current_amount < Goal.target_amount)
-            .order_by((Goal.current_amount / Goal.target_amount).desc())
-            .limit(3)
-        )
         goals_data = [
-            {"name": goal.name, "current": goal.current_amount, "target": goal.target_amount}
-            for goal in main_goals_query
+            {"name": g.name, "current": g.current_amount, "target": g.target_amount}
+            for g in Goal.select().where(Goal.current_amount < Goal.target_amount).order_by((Goal.current_amount / Goal.target_amount).desc()).limit(3)
         ]
         self.view.dashboard_page.update_main_goals(goals_data)
 
@@ -737,19 +732,11 @@ class AppController:
 
         start = datetime.date(year, min(months), 1)
         last = max(months)
-        if last == 12:
-            end = datetime.date(year + 1, 1, 1) - datetime.timedelta(days=1)
-        else:
-            end = datetime.date(year, last + 1, 1) - datetime.timedelta(days=1)
-
+        end = datetime.date(year + 1, 1, 1) - datetime.timedelta(days=1) if last == 12 else datetime.date(year, last + 1, 1) - datetime.timedelta(days=1)
+        
         current = list(Transaction.select().where((Transaction.date >= start) & (Transaction.date <= end)))
-
         income = sum(t.amount for t in current if t.type == "Ingreso")
-        expense = sum(
-            t.amount
-            for t in current
-            if t.type.startswith("Gasto") or t.type == "Ahorro/Pago Meta/Deuda"
-        )
+        expense = sum(t.amount for t in current if t.type != "Ingreso")
         net = income - expense
 
         income_comp, expense_comp = None, None
@@ -758,15 +745,9 @@ class AppController:
             prev_start = prev_end.replace(day=1)
             prev = Transaction.select().where((Transaction.date >= prev_start) & (Transaction.date <= prev_end))
             prev_income = sum(t.amount for t in prev if t.type == "Ingreso")
-            prev_expense = sum(
-                t.amount
-                for t in prev
-                if t.type.startswith("Gasto") or t.type == "Ahorro/Pago Meta/Deuda"
-            )
-
-            def get_change(c, p):
-                return ((c - p) / p) * 100 if p > 0 else (100.0 if c > 0 else 0.0)
-
+            prev_expense = sum(t.amount for t in prev if t.type != "Ingreso")
+            
+            get_change = lambda c, p: ((c - p) / p) * 100 if p > 0 else (100.0 if c > 0 else 0.0)
             income_comp = get_change(income, prev_income)
             expense_comp = get_change(expense, prev_expense)
 
@@ -776,72 +757,44 @@ class AppController:
     def _update_budget_rule_chart(self, transactions, total_income):
         total_expense = sum(t.amount for t in transactions if t.type != "Ingreso")
         is_overdrawn = total_expense > total_income
-        if total_income == 0:
-            total_income = 1
+        if total_income == 0: total_income = 1
 
         spending = defaultdict(float)
         for t in transactions:
             if t.type != "Ingreso":
-                if t.type == "Ahorro/Pago Meta/Deuda":
-                    rule = "Crecimiento" if t.goal else ("Estabilidad" if t.debt else "Recompensas")
-                else:
-                    rule = CATEGORY_TO_RULE_MAPPING.get(t.category, "Recompensas")
+                if t.type == "Ahorro Meta": rule = "Crecimiento"
+                elif t.type == "Pago Deuda": rule = "Estabilidad"
+                else: rule = CATEGORY_TO_RULE_MAPPING.get(t.category, "Recompensas")
                 spending[rule] += t.amount
 
         budget_data = []
         for name, ideal in BUDGET_RULES.items():
             actual = spending.get(name, 0.0)
             percent_of_income = (actual / total_income) * 100 if total_income > 1 else 0
-
+            
             state = "good"
-            if is_overdrawn:
-                state = "critical"
-            elif percent_of_income > (ideal * 100) + 10:
-                state = "critical"
-            elif percent_of_income > ideal * 100:
-                state = "warning"
-
-            budget_data.append(
-                {
-                    "name": name,
-                    "ideal_percent": ideal * 100,
-                    "actual_percent": percent_of_income,
-                    "actual_amount": actual,
-                    "state": state,
-                    "is_overdrawn": is_overdrawn,
-                }
-            )
+            if is_overdrawn or percent_of_income > (ideal * 100) + 10: state = "critical"
+            elif percent_of_income > ideal * 100: state = "warning"
+            
+            budget_data.append({
+                "name": name, "ideal_percent": ideal * 100, "actual_percent": percent_of_income,
+                "actual_amount": actual, "state": state, "is_overdrawn": is_overdrawn,
+            })
         self.view.dashboard_page.update_budget_rule_chart(budget_data)
 
     def _update_net_worth_chart(self):
         today = datetime.date.today()
-        dates = []
-        values = []
+        dates, values = [], []
         for i in range(12, -1, -1):
             month_end = (today - datetime.timedelta(days=i * 30)).replace(day=1)
             next_m = month_end.replace(day=28) + datetime.timedelta(days=4)
             month_end = next_m - datetime.timedelta(days=next_m.day)
 
             total_balance = Account.select(fn.SUM(Account.initial_balance)).scalar() or 0.0
-            transactions_up_to_date = Transaction.select().where(Transaction.date <= month_end)
-            for t in transactions_up_to_date:
-                if t.type == "Ingreso":
-                    total_balance += t.amount
-                else:
-                    total_balance -= t.amount
+            for t in Transaction.select().where(Transaction.date <= month_end):
+                total_balance += t.amount if t.type == "Ingreso" else -t.amount
 
-            liabilities = sum(
-                (
-                    d.total_amount
-                    - sum(
-                        t.amount
-                        for t in Transaction.select().where(
-                            (Transaction.debt == d) & (Transaction.date <= month_end)
-                        )
-                    )
-                )
-                for d in Debt.select()
-            )
+            liabilities = sum(d.total_amount - sum(t.amount for t in Transaction.select().where((Transaction.debt == d) & (Transaction.date <= month_end))) for d in Debt.select())
             dates.append(int(month_end.strftime("%Y%m%d")))
             values.append(total_balance - liabilities)
 
@@ -853,13 +806,8 @@ class AppController:
             if t.type.startswith("Gasto"):
                 expenses[t.category] += t.amount
         sorted_exp = sorted(expenses.items(), key=lambda i: i[1], reverse=True)
-        cats = [i[0] for i in sorted_exp]
-        amounts = [i[1] for i in sorted_exp]
-        self.view.dashboard_page.update_expense_dist_chart(cats, amounts)
+        self.view.dashboard_page.update_expense_dist_chart([i[0] for i in sorted_exp], [i[1] for i in sorted_exp])
 
-    # ------------------------------------------------------------------ #
-    # Metas / Deudas                                                      #
-    # ------------------------------------------------------------------ #
     def add_goal(self):
         data = self.view.goals_page.get_goal_form_data()
         if not data["name"] or not data["target_amount"]:
@@ -881,17 +829,11 @@ class AppController:
             self.view.show_notification("Todos los campos son obligatorios.", "error")
             return
         try:
-            total = float(data["total_amount"])
-            min_pay = float(data["minimum_payment"])
+            total, min_pay = float(data["total_amount"]), float(data["minimum_payment"])
         except (ValueError, TypeError):
             self.view.show_notification("Los montos deben ser números válidos.", "error")
             return
-        Debt.create(
-            name=data["name"],
-            total_amount=total,
-            minimum_payment=min_pay,
-            current_balance=total,
-        )
+        Debt.create(name=data["name"], total_amount=total, minimum_payment=min_pay, current_balance=total)
         self.view.goals_page.clear_debt_form()
         self.full_refresh()
         self.view.show_notification("¡Deuda añadida!", "success")
@@ -924,15 +866,11 @@ class AppController:
     def edit_debt(self, debt_id):
         try:
             debt = Debt.get_by_id(debt_id)
-            d_data = {
-                "name": debt.name,
-                "total_amount": debt.total_amount,
-                "minimum_payment": debt.minimum_payment,
-            }
+            d_data = {"name": debt.name, "total_amount": debt.total_amount, "minimum_payment": debt.minimum_payment}
             dialog = EditGoalDebtDialog(d_data, "debt", self.view)
             if dialog.exec():
                 new_data = dialog.get_data()
-                if not new_data["name"] or not new_data["total_amount"] or not new_data["minimum_payment"]:
+                if not all(new_data.get(k) for k in ["name", "total_amount", "minimum_payment"]):
                     self.view.show_notification("Todos los campos son obligatorios.", "error")
                     return
                 debt.name = new_data["name"]
@@ -957,54 +895,25 @@ class AppController:
     def load_debts(self):
         self.view.goals_page.display_debts(Debt.select())
 
-    # ------------------------------------------------------------------ #
-    # Análisis                                                            #
-    # ------------------------------------------------------------------ #
     def update_analysis_view(self):
         total_account_balance = Account.select(fn.SUM(Account.current_balance)).scalar() or 0.0
-        portfolio_value = (
-            PortfolioAsset.select(fn.SUM(PortfolioAsset.total_quantity * PortfolioAsset.current_price)).scalar()
-            or 0.0
-        )
+        portfolio_value = (PortfolioAsset.select(fn.SUM(PortfolioAsset.total_quantity * PortfolioAsset.current_price)).scalar() or 0.0)
         total_assets = total_account_balance + portfolio_value
         total_liabilities = sum(d.current_balance for d in Debt.select())
-        self.view.analysis_page.update_net_worth_display(
-            total_assets, total_liabilities, total_assets - total_liabilities
-        )
+        self.view.analysis_page.update_net_worth_display(total_assets, total_liabilities, total_assets - total_liabilities)
         year = int(self.view.analysis_page.year_selector.currentText())
         self._generate_and_display_annual_report(year)
 
     def _generate_and_display_annual_report(self, year):
-        start = datetime.date(year, 1, 1)
-        end = datetime.date(year, 12, 31)
-        trans = Transaction.select().where(
-            (Transaction.date >= start)
-            & (Transaction.date <= end)
-            & (Transaction.type.startswith("Gasto"))
-        )
-        data = defaultdict(lambda: defaultdict(float))
-        cats = set()
-        monthly = defaultdict(float)
-        grand = 0.0
+        start, end = datetime.date(year, 1, 1), datetime.date(year, 12, 31)
+        trans = Transaction.select().where((Transaction.date.between(start, end)) & (Transaction.type.startswith("Gasto")))
+        data, cats, monthly, grand = defaultdict(lambda: defaultdict(float)), set(), defaultdict(float), 0.0
         for t in trans:
             data[t.category][t.date.month] += t.amount
             cats.add(t.category)
             monthly[t.date.month] += t.amount
             grand += t.amount
         self.view.analysis_page.display_annual_report(data, sorted(list(cats)), year, monthly, grand)
-
-    # ------------------------------------------------------------------ #
-    # Gasto rápido                                                        #
-    # ------------------------------------------------------------------ #
-    def show_quick_transaction_dialog(self):
-        accounts = list(Account.select())
-        if not accounts:
-            self.view.show_notification("Para un gasto rápido, primero debes crear una cuenta.", "error")
-            return
-        dialog = QuickTransactionDialog(accounts, self.view)
-        if dialog.exec():
-            data = dialog.get_data()
-            self.add_quick_transaction(data)
 
     def add_quick_transaction(self, data):
         if not data["description"] or not data["amount"]:
@@ -1023,47 +932,32 @@ class AppController:
             self.view.show_notification("La cuenta seleccionada no es válida.", "error")
             return
         Transaction.create(
-            date=datetime.date.today(),
-            description=data["description"],
-            amount=amount,
-            type="Gasto Variable",
-            category=data["category"],
-            account=data["account_id"],
+            date=datetime.date.today(), description=data["description"], amount=amount,
+            type="Gasto Variable", category=data["category"], account=data["account_id"],
         )
         self.view.show_notification("Gasto rápido añadido.", "success")
         self.full_refresh()
 
     def edit_recurring_transaction_by_row(self, row, column):
         rule_id = self.view.transactions_page.recurring_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-        if not rule_id:
-            return
+        if not rule_id: return
         try:
             rule = RecurringTransaction.get_by_id(rule_id)
             rule_data = {
-                "description": rule.description,
-                "amount": rule.amount,
-                "type": rule.type,
-                "category": rule.category,
-                "frequency": rule.frequency,
-                "day_of_month": rule.day_of_month,
-                "day_of_month_2": rule.day_of_month_2,
-                "month_of_year": rule.month_of_year,
+                "description": rule.description, "amount": rule.amount, "type": rule.type,
+                "category": rule.category, "frequency": rule.frequency, "day_of_month": rule.day_of_month,
+                "day_of_month_2": rule.day_of_month_2, "month_of_year": rule.month_of_year,
             }
             dialog = EditRecurringDialog(rule_data, self.view)
             if dialog.exec():
                 new_data = dialog.get_data()
-                try:
-                    amount = float(new_data["amount"])
+                try: amount = float(new_data["amount"])
                 except ValueError:
                     self.view.show_notification("El monto debe ser un número válido.", "error")
                     return
 
-                rule.description = new_data["description"]
-                rule.amount = amount
-                rule.type = new_data["type"]
-                rule.category = new_data["category"]
-                rule.frequency = new_data["frequency"]
-                rule.day_of_month = new_data["day_of_month"]
+                rule.description, rule.amount, rule.type = new_data["description"], amount, new_data["type"]
+                rule.category, rule.frequency, rule.day_of_month = new_data["category"], new_data["frequency"], new_data["day_of_month"]
                 rule.day_of_month_2 = new_data.get("day_of_month_2")
                 rule.month_of_year = new_data.get("month_of_year")
                 rule.last_processed_date = None

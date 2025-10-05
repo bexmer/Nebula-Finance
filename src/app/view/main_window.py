@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QPushButton, QStackedWidget, QButtonGroup, QFrame,
                                QGraphicsDropShadowEffect, QLabel)
 from PySide6.QtCore import QSize, Qt, QPropertyAnimation, QEasingCurve
@@ -13,6 +13,7 @@ from .transactions_view import TransactionsView
 from .goals_view import GoalsView
 from .analysis_view import AnalysisView
 from .portfolio_view import PortfolioView
+from .settings_view import SettingsView
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -55,8 +56,9 @@ class MainWindow(QMainWindow):
         self.btn_transactions = QPushButton("Transacciones")
         self.btn_goals = QPushButton("Metas y Deudas")
         self.btn_analysis = QPushButton("Análisis")
-        
-        buttons = [self.btn_dashboard, self.btn_portfolio, self.btn_accounts, self.btn_budget, self.btn_transactions, self.btn_goals, self.btn_analysis]
+        self.btn_settings = QPushButton("Configuración")
+
+        buttons = [self.btn_dashboard, self.btn_portfolio, self.btn_accounts, self.btn_budget, self.btn_transactions, self.btn_goals, self.btn_analysis, self.btn_settings]
         self.button_texts = {btn: btn.text() for btn in buttons}
         self.button_group = QButtonGroup(); self.button_group.setExclusive(True)
         for btn in buttons: 
@@ -83,11 +85,13 @@ class MainWindow(QMainWindow):
         self.transactions_page = TransactionsView()
         self.goals_page = GoalsView()
         self.analysis_page = AnalysisView()
+        self.settings_page = SettingsView()
         
         self.content_stack.addWidget(self.dashboard_page); self.content_stack.addWidget(self.portfolio_page)
         self.content_stack.addWidget(self.accounts_page); self.content_stack.addWidget(self.budget_page)
         self.content_stack.addWidget(self.transactions_page); self.content_stack.addWidget(self.goals_page)
         self.content_stack.addWidget(self.analysis_page)
+        self.content_stack.addWidget(self.settings_page)
         
         self.main_layout.addWidget(self.nav_panel); self.main_layout.addWidget(self.content_stack); self.setCentralWidget(main_widget)
         self.notification = Notification(self)
@@ -96,46 +100,6 @@ class MainWindow(QMainWindow):
         self.animation.setDuration(250)
         self.animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
         
-    def toggle_nav_panel(self):
-        self.is_nav_panel_collapsed = not self.is_nav_panel_collapsed
-        
-        end_width = self.nav_panel_collapsed_width if self.is_nav_panel_collapsed else self.nav_panel_expanded_width
-        
-        self.animation.setEndValue(end_width)
-        self.animation.start()
-        
-        self.update_panel_state()
-
-    def update_panel_state(self):
-        if self.is_nav_panel_collapsed:
-            self.logo_label.setFixedSize(40, 40)
-            font = self.logo_label.font(); font.setPointSize(14)
-            self.logo_label.setFont(font)
-            
-            for btn in self.button_group.buttons():
-                btn.setText("")
-                btn.setToolTip(self.button_texts.get(btn))
-                btn.setProperty("collapsed", True)
-                btn.style().polish(btn)
-            
-            self.toggle_button.setToolTip("Expandir Menú")
-
-        else:
-            self.logo_label.setFixedSize(60, 60)
-            font = self.logo_label.font(); font.setPointSize(22)
-            self.logo_label.setFont(font)
-            
-            for btn in self.button_group.buttons():
-                btn.setText(self.button_texts.get(btn))
-                btn.setToolTip("")
-                btn.setProperty("collapsed", False)
-                btn.style().polish(btn)
-            
-            self.toggle_button.setToolTip("Colapsar Menú")
-        
-        self.update_theme_icons()
-
-    # --- INICIO DE LA SOLUCIÓN: Conexiones de botones restauradas ---
     def set_controller(self, controller):
         self.controller = controller
         self.btn_dashboard.setChecked(True)
@@ -144,10 +108,11 @@ class MainWindow(QMainWindow):
         self.btn_dashboard.clicked.connect(lambda: self.content_stack.setCurrentIndex(0))
         self.btn_portfolio.clicked.connect(lambda: (self.content_stack.setCurrentIndex(1), self.controller.load_portfolio()))
         self.btn_accounts.clicked.connect(lambda: (self.content_stack.setCurrentIndex(2), self.controller.load_accounts()))
-        self.btn_budget.clicked.connect(lambda: (self.content_stack.setCurrentIndex(3), self.controller.full_refresh())) # full_refresh para actualizar datos
+        self.btn_budget.clicked.connect(lambda: (self.content_stack.setCurrentIndex(3), self.controller.full_refresh()))
         self.btn_transactions.clicked.connect(lambda: (self.content_stack.setCurrentIndex(4), self.controller.load_transactions()))
         self.btn_goals.clicked.connect(lambda: (self.content_stack.setCurrentIndex(5), self.controller.full_refresh()))
         self.btn_analysis.clicked.connect(lambda: (self.content_stack.setCurrentIndex(6), self.controller.update_analysis_view()))
+        self.btn_settings.clicked.connect(lambda: (self.content_stack.setCurrentIndex(7), self.controller.load_parameters()))
         
         # Conexiones de los botones de acción
         self.theme_button.clicked.connect(self.toggle_theme)
@@ -173,12 +138,49 @@ class MainWindow(QMainWindow):
         self.goals_page.edit_goal_requested.connect(self.controller.edit_goal); self.goals_page.delete_goal_requested.connect(self.controller.delete_goal)
         self.goals_page.edit_debt_requested.connect(self.controller.edit_debt); self.goals_page.delete_debt_requested.connect(self.controller.delete_debt)
         
+        # --- INICIO DE LA CORRECCIÓN ---
+        # Se conecta el doble clic para cada tabla dentro de cada pestaña de configuración
+        self.settings_page.transaction_types_tab.table.cellDoubleClicked.connect(self.controller.edit_parameter_by_row)
+        self.settings_page.account_types_tab.table.cellDoubleClicked.connect(self.controller.edit_parameter_by_row)
+        self.settings_page.categories_tab.table.cellDoubleClicked.connect(self.controller.edit_parameter_by_row)
+        # --- FIN DE LA CORRECCIÓN ---
+
         self.controller.full_refresh()
         self.dashboard_page.set_default_month_filter()
         self.update_theme_icons()
-    # --- FIN DE LA SOLUCIÓN ---
+        
+    def toggle_nav_panel(self):
+        self.is_nav_panel_collapsed = not self.is_nav_panel_collapsed
+        end_width = self.nav_panel_collapsed_width if self.is_nav_panel_collapsed else self.nav_panel_expanded_width
+        self.animation.setEndValue(end_width)
+        self.animation.start()
+        self.update_panel_state()
 
-    def show_notification(self, message, m_type='success'): self.notification.show_message(message, m_type)
+    def update_panel_state(self):
+        if self.is_nav_panel_collapsed:
+            self.logo_label.setFixedSize(40, 40)
+            font = self.logo_label.font(); font.setPointSize(14)
+            self.logo_label.setFont(font)
+            for btn in self.button_group.buttons():
+                btn.setText("")
+                btn.setToolTip(self.button_texts.get(btn))
+                btn.setProperty("collapsed", True)
+                btn.style().polish(btn)
+            self.toggle_button.setToolTip("Expandir Menú")
+        else:
+            self.logo_label.setFixedSize(60, 60)
+            font = self.logo_label.font(); font.setPointSize(22)
+            self.logo_label.setFont(font)
+            for btn in self.button_group.buttons():
+                btn.setText(self.button_texts.get(btn))
+                btn.setToolTip("")
+                btn.setProperty("collapsed", False)
+                btn.style().polish(btn)
+            self.toggle_button.setToolTip("Colapsar Menú")
+        self.update_theme_icons()
+
+    def show_notification(self, message, m_type='success'):
+        self.notification.show_message(message, m_type)
 
     def toggle_theme(self):
         self.is_dark_mode = not self.is_dark_mode
@@ -197,13 +199,8 @@ class MainWindow(QMainWindow):
 
     def update_theme_icons(self):
         icon_color = "#979ba5"
-        
-        if self.is_dark_mode:
-            active_color = "#191A23"
-            theme_icon_color = "#EAEAEA"
-        else:
-            active_color = "#EAEAEA"
-            theme_icon_color = "#364765"
+        active_color = "#191A23" if self.is_dark_mode else "#EAEAEA"
+        theme_icon_color = "#EAEAEA" if self.is_dark_mode else "#364765"
             
         theme_icon = 'fa5s.sun' if self.is_dark_mode else 'fa5s.moon'
         toggle_icon_name = 'fa5s.angle-double-right' if self.is_nav_panel_collapsed else 'fa5s.angle-double-left'
@@ -218,5 +215,8 @@ class MainWindow(QMainWindow):
         self.btn_transactions.setIcon(qta.icon('fa5s.exchange-alt', color=icon_color, color_active=active_color))
         self.btn_goals.setIcon(qta.icon('fa5s.bullseye', color=icon_color, color_active=active_color))
         self.btn_analysis.setIcon(qta.icon('fa5s.chart-pie', color=icon_color, color_active=active_color))
+        self.btn_settings.setIcon(qta.icon('fa5s.cog', color=icon_color, color_active=active_color))
 
-    def resizeEvent(self, event): self.notification.hide(); super().resizeEvent(event)
+    def resizeEvent(self, event):
+        self.notification.hide()
+        super().resizeEvent(event)

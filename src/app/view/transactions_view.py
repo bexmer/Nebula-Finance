@@ -8,7 +8,6 @@ class TransactionsView(QWidget):
     def __init__(self):
         super().__init__()
         
-        # --- INICIO DE LA SOLUCIÓN: Layout principal vertical y título ---
         main_container_layout = QVBoxLayout(self)
         main_container_layout.setContentsMargins(20, 20, 20, 20)
         main_container_layout.setSpacing(20)
@@ -22,7 +21,6 @@ class TransactionsView(QWidget):
 
         content_layout = QHBoxLayout()
         main_container_layout.addLayout(content_layout, 1)
-        # --- FIN DE LA SOLUCIÓN ---
         
         form_card = QFrame(); form_card.setObjectName("Card"); form_card.setFixedWidth(350)
         self.form_layout = QFormLayout(form_card)
@@ -32,8 +30,8 @@ class TransactionsView(QWidget):
         self.description_input = QLineEdit()
         self.amount_input = QLineEdit()
         self.account_input = QComboBox()
-        self.type_input = QComboBox(); self.type_input.addItems(["Ingreso", "Gasto Fijo", "Gasto Variable", "Ahorro/Pago Meta/Deuda"])
-        self.category_input = QComboBox(); self.category_input.addItems(["Nómina", "Freelance", "Otros Ingresos", "Vivienda", "Servicios", "Transporte", "Comida", "Ocio", "Salud", "Educación", "Ahorro", "Pago Deuda", "Otros Gastos"])
+        self.type_input = QComboBox()
+        self.category_input = QComboBox()
         
         self.goal_combo = QComboBox(); self.debt_combo = QComboBox()
         self.goal_label = QLabel("Asignar a Meta:"); self.debt_label = QLabel("Asignar a Deuda:")
@@ -79,9 +77,8 @@ class TransactionsView(QWidget):
         table_card = QFrame(); table_card.setObjectName("Card"); table_layout = QVBoxLayout(table_card)
         filter_bar_layout = QGridLayout()
         self.search_input = QLineEdit(); self.search_input.setPlaceholderText("Buscar por descripción...")
-        self.type_filter = QComboBox(); self.type_filter.addItems(["Todos los Tipos", "Ingreso", "Gasto Fijo", "Gasto Variable", "Ahorro/Pago Meta/Deuda"])
-        self.category_filter = QComboBox(); self.category_filter.addItem("Todas las Categorías")
-        self.category_filter.addItems(sorted(["Nómina", "Freelance", "Otros Ingresos", "Vivienda", "Servicios", "Transporte", "Comida", "Ocio", "Salud", "Educación", "Ahorro", "Pago Deuda", "Otros Gastos"]))
+        self.type_filter = QComboBox()
+        self.category_filter = QComboBox()
         self.sort_by_combo = QComboBox(); self.sort_by_combo.addItems(["Fecha", "Monto"])
         self.sort_order_combo = QComboBox(); self.sort_order_combo.addItems(["Descendente", "Ascendente"])
         self.start_date_filter = QDateEdit(QDate.currentDate().addMonths(-1)); self.start_date_filter.setCalendarPopup(True)
@@ -104,9 +101,7 @@ class TransactionsView(QWidget):
         table_layout.addWidget(self.tabs)
         self.delete_button = QPushButton("Eliminar Selección"); table_layout.addWidget(self.delete_button, 0, Qt.AlignmentFlag.AlignRight)
         
-        # --- INICIO DE LA SOLUCIÓN: Widgets añadidos al content_layout ---
         content_layout.addWidget(form_card); content_layout.addWidget(table_card, 1)
-        # --- FIN DE LA SOLUCIÓN ---
 
     def _toggle_recurring_fields(self, checked=None):
         if checked is None: checked = self.recurring_checkbox.isChecked()
@@ -126,8 +121,14 @@ class TransactionsView(QWidget):
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch); return table
 
     def _toggle_assignment_combos(self, text):
-        is_assignment = (text == "Ahorro/Pago Meta/Deuda"); self.goal_label.setVisible(is_assignment)
-        self.goal_combo.setVisible(is_assignment); self.debt_label.setVisible(is_assignment); self.debt_combo.setVisible(is_assignment)
+        show_goals = (text == "Ahorro Meta")
+        show_debts = (text == "Pago Deuda")
+        
+        self.goal_label.setVisible(show_goals)
+        self.goal_combo.setVisible(show_goals)
+        
+        self.debt_label.setVisible(show_debts)
+        self.debt_combo.setVisible(show_debts)
     
     def display_recurring_rules(self, rules, next_dates):
         self.recurring_table.setRowCount(0)
@@ -167,9 +168,9 @@ class TransactionsView(QWidget):
         self.debt_combo.addItem("Ninguna", userData=None); [self.debt_combo.addItem(d.name, userData=d.id) for d in debts]
 
     def get_form_data(self):
-        goal_id = self.goal_combo.currentData(); debt_id = self.debt_combo.currentData()
-        if self.type_input.currentText() != "Ahorro/Pago Meta/Deuda": goal_id, debt_id = None, None
-        elif self.goal_combo.currentIndex() > 0: debt_id = None
+        goal_id = self.goal_combo.currentData() if self.type_input.currentText() == "Ahorro Meta" else None
+        debt_id = self.debt_combo.currentData() if self.type_input.currentText() == "Pago Deuda" else None
+
         data = {
             "date": self.date_input.date().toPython(), "description": self.description_input.text(), "amount": self.amount_input.text(),
             "type": self.type_input.currentText(), "category": self.category_input.currentText(), "goal_id": goal_id, "debt_id": debt_id,
