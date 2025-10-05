@@ -22,19 +22,25 @@ def seed_initial_parameters():
             {'group': 'Tipo de Transacción', 'value': 'Ahorro Meta', 'is_deletable': False, 'budget_rule': 'Crecimiento'},
             {'group': 'Tipo de Transacción', 'value': 'Pago Deuda', 'is_deletable': False, 'budget_rule': 'Estabilidad'},
 
-            # Categorías (sin regla de presupuesto)
-            {'group': 'Categoría', 'value': 'Nómina', 'is_deletable': True, 'budget_rule': None},
-            {'group': 'Categoría', 'value': 'Comida', 'is_deletable': True, 'budget_rule': None},
-            {'group': 'Categoría', 'value': 'Transporte', 'is_deletable': True, 'budget_rule': None},
-            {'group': 'Categoría', 'value': 'Vivienda', 'is_deletable': True, 'budget_rule': None},
-            {'group': 'Categoría', 'value': 'Ocio', 'is_deletable': True, 'budget_rule': None},
-            {'group': 'Categoría', 'value': 'Salud', 'is_deletable': True, 'budget_rule': None},
+            # Categorías
+            {'group': 'Categoría', 'value': 'Nómina', 'is_deletable': True},
+            {'group': 'Categoría', 'value': 'Comida', 'is_deletable': True},
+            {'group': 'Categoría', 'value': 'Transporte', 'is_deletable': True},
+            {'group': 'Categoría', 'value': 'Vivienda', 'is_deletable': True},
+            {'group': 'Categoría', 'value': 'Ocio', 'is_deletable': True},
+            {'group': 'Categoría', 'value': 'Salud', 'is_deletable': True},
 
-            # Tipos de Cuenta (sin regla de presupuesto)
-            {'group': 'Tipo de Cuenta', 'value': 'Cuenta de Ahorros', 'is_deletable': True, 'budget_rule': None},
-            {'group': 'Tipo de Cuenta', 'value': 'Cuenta Corriente', 'is_deletable': True, 'budget_rule': None},
-            {'group': 'Tipo de Cuenta', 'value': 'Tarjeta de Crédito', 'is_deletable': True, 'budget_rule': None},
-            {'group': 'Tipo de Cuenta', 'value': 'Efectivo', 'is_deletable': True, 'budget_rule': None},
+            # Tipos de Cuenta
+            {'group': 'Tipo de Cuenta', 'value': 'Cuenta de Ahorros', 'is_deletable': True},
+            {'group': 'Tipo de Cuenta', 'value': 'Cuenta Corriente', 'is_deletable': True},
+            {'group': 'Tipo de Cuenta', 'value': 'Tarjeta de Crédito', 'is_deletable': True},
+            {'group': 'Tipo de Cuenta', 'value': 'Efectivo', 'is_deletable': True},
+
+            # Reglas de Presupuesto
+            {'group': 'Regla de Presupuesto', 'value': 'Esenciales', 'is_deletable': True, 'numeric_value': 0.50},
+            {'group': 'Regla de Presupuesto', 'value': 'Crecimiento', 'is_deletable': True, 'numeric_value': 0.20},
+            {'group': 'Regla de Presupuesto', 'value': 'Estabilidad', 'is_deletable': True, 'numeric_value': 0.15},
+            {'group': 'Regla de Presupuesto', 'value': 'Recompensas', 'is_deletable': True, 'numeric_value': 0.15},
         ]
         Parameter.insert_many(core_parameters).execute()
         print("Initial parameters seeded.")

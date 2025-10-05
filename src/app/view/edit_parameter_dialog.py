@@ -11,19 +11,16 @@ class EditParameterDialog(QDialog):
 
         self.value_input = QLineEdit(param_data['value'])
         
-        # Si el parámetro no es editable, el campo de valor se hace de solo lectura.
         if not param_data['is_deletable']:
             self.value_input.setReadOnly(True)
 
         form_layout.addRow("Grupo:", QLabel(param_data['group']))
-        form_layout.addRow("Valor:", self.value_input)
+        form_layout.addRow("Nombre:", self.value_input)
 
         self.budget_rule_input = None
         if param_data['group'] == 'Tipo de Transacción':
             self.budget_rule_input = QComboBox()
-            self.budget_rule_input.addItems(["(Ninguna)", "Esenciales", "Crecimiento", "Estabilidad", "Recompensas"])
-            current_rule = param_data.get('budget_rule') or "(Ninguna)"
-            self.budget_rule_input.setCurrentText(current_rule)
+            self.budget_rule_input.addItems(["(Ninguna)"]) # Se llenará dinámicamente
             form_layout.addRow("Regla de Presupuesto:", self.budget_rule_input)
 
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)

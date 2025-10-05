@@ -1,4 +1,4 @@
-from peewee import CharField, BooleanField
+from peewee import CharField, BooleanField, FloatField
 from .base_model import BaseModel
 
 class Parameter(BaseModel):
@@ -8,4 +8,5 @@ class Parameter(BaseModel):
     group = CharField()
     value = CharField()
     is_deletable = BooleanField(default=True)
-    budget_rule = CharField(null=True) # Nuevo campo para la regla de presupuesto
+    budget_rule = CharField(null=True) 
+    numeric_value = FloatField(null=True)

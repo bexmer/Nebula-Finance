@@ -16,45 +16,16 @@ from app.view.edit_account_dialog import EditAccountDialog
 from app.view.edit_recurring_dialog import EditRecurringDialog
 from app.view.quick_transaction_dialog import QuickTransactionDialog
 from app.view.edit_parameter_dialog import EditParameterDialog
+from app.view.edit_budget_rule_dialog import EditBudgetRuleDialog
 
 import datetime
 from collections import defaultdict
 from peewee import JOIN, fn
 from dateutil.relativedelta import relativedelta
 
-BUDGET_RULES = {
-    "Esenciales": 0.50,
-    "Crecimiento": 0.25,
-    "Estabilidad": 0.15,
-    "Recompensas": 0.10,
-}
-
 class AppController:
     def __init__(self, view):
         self.view = view
-
-        # Conexiones de la interfaz
-        self.view.dashboard_page.year_filter.currentTextChanged.connect(self.update_dashboard)
-        for action in self.view.dashboard_page.month_actions:
-            action.triggered.connect(self.update_dashboard)
-        self.view.dashboard_page.all_year_action.triggered.connect(self.update_dashboard)
-        self.view.analysis_page.year_selector.currentTextChanged.connect(self.update_analysis_view)
-        
-        # Conexiones para cada pestaña de configuración
-        self.view.settings_page.transaction_types_tab.add_button.clicked.connect(
-            lambda: self.add_parameter('Tipo de Transacción')
-        )
-        self.view.settings_page.account_types_tab.add_button.clicked.connect(
-            lambda: self.add_parameter('Tipo de Cuenta')
-        )
-        self.view.settings_page.categories_tab.add_button.clicked.connect(
-            lambda: self.add_parameter('Categoría')
-        )
-
-        self.view.settings_page.transaction_types_tab.delete_button.clicked.connect(self.delete_parameter)
-        self.view.settings_page.account_types_tab.delete_button.clicked.connect(self.delete_parameter)
-        self.view.settings_page.categories_tab.delete_button.clicked.connect(self.delete_parameter)
-
 
     def full_refresh(self):
         self.process_recurring_transactions()
@@ -73,17 +44,18 @@ class AppController:
         transaction_types = list(Parameter.select().where(Parameter.group == 'Tipo de Transacción'))
         account_types = list(Parameter.select().where(Parameter.group == 'Tipo de Cuenta'))
         categories = list(Parameter.select().where(Parameter.group == 'Categoría'))
+        budget_rules = list(Parameter.select().where(Parameter.group == 'Regla de Presupuesto'))
 
         self.view.settings_page.display_transaction_types(transaction_types)
         self.view.settings_page.display_account_types(account_types)
         self.view.settings_page.display_categories(categories)
+        self.view.settings_page.display_budget_rules(budget_rules)
 
-    def add_parameter(self, group_name):
-        current_tab = self.view.settings_page.tabs.currentWidget()
-        data = self.view.settings_page.get_form_data(current_tab)
+    def add_parameter(self, group_name, tab_widget):
+        data = self.view.settings_page.get_form_data(tab_widget)
         
         if not data["value"]:
-            self.view.show_notification("El valor es obligatorio.", "error")
+            self.view.show_notification("El nombre es obligatorio.", "error")
             return
 
         Parameter.create(
@@ -92,12 +64,12 @@ class AppController:
             budget_rule=data.get('budget_rule')
         )
         
-        self.view.settings_page.clear_form(current_tab)
+        self.view.settings_page.clear_form(tab_widget)
         self.full_refresh()
         self.view.show_notification("Parámetro añadido con éxito.", "success")
 
-    def delete_parameter(self):
-        parameter_id = self.view.settings_page.get_selected_parameter_id()
+    def delete_parameter(self, table):
+        parameter_id = self.view.settings_page.get_selected_parameter_id(table)
         if not parameter_id: return
         
         param_to_delete = Parameter.get_by_id(parameter_id)
@@ -105,15 +77,12 @@ class AppController:
             self.view.show_notification("Este es un parámetro esencial y no se puede eliminar.", "error")
             return
 
-        if QMessageBox.question(self.view, "Confirmar", "¿Eliminar este parámetro?") == QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(self.view, "Confirmar", f"¿Eliminar el parámetro '{param_to_delete.value}'?") == QMessageBox.StandardButton.Yes:
             param_to_delete.delete_instance()
             self.full_refresh()
             self.view.show_notification("Parámetro eliminado.", "success")
-    
+
     def _cascade_parameter_update(self, group, old_value, new_value):
-        """
-        Actualiza todas las tablas que usan un parámetro cuando este cambia.
-        """
         if group == 'Categoría':
             Transaction.update(category=new_value).where(Transaction.category == old_value).execute()
             BudgetEntry.update(category=new_value).where(BudgetEntry.category == old_value).execute()
@@ -125,41 +94,49 @@ class AppController:
             BudgetEntry.update(type=new_value).where(BudgetEntry.type == old_value).execute()
             RecurringTransaction.update(type=new_value).where(RecurringTransaction.type == old_value).execute()
 
-    def edit_parameter_by_row(self, row, column):
-        param_id = self.view.settings_page.get_selected_parameter_id()
+    def edit_parameter_by_row(self, row, column, table):
+        if not isinstance(table, QTableWidget):
+            return
+
+        param_id = self.view.settings_page.get_selected_parameter_id(table)
         if not param_id: return
         
         try:
             param = Parameter.get_by_id(param_id)
-            
             param_data = {
-                'value': param.value, 
-                'group': param.group, 
-                'is_deletable': param.is_deletable,
-                'budget_rule': param.budget_rule
+                'value': param.value, 'group': param.group, 
+                'is_deletable': param.is_deletable, 'budget_rule': param.budget_rule
             }
+
             dialog = EditParameterDialog(param_data, self.view)
-            
+            if param.group == 'Tipo de Transacción':
+                rule_names = [p.value for p in Parameter.select().where(Parameter.group == 'Regla de Presupuesto')]
+                combo = dialog.budget_rule_input
+                combo.clear(); combo.addItem("(Ninguna)"); combo.addItems(rule_names)
+                combo.setCurrentText(param.budget_rule or "(Ninguna)")
+
             if dialog.exec():
                 new_data = dialog.get_data()
                 new_value = new_data["value"]
-                
                 if not new_value:
-                    self.view.show_notification("El valor no puede estar vacío.", "error")
+                    self.view.show_notification("El nombre no puede estar vacío.", "error")
                     return
                 
                 old_value = param.value
-                
                 if old_value != new_value:
-                    self._cascade_parameter_update(param.group, old_value, new_value)
-                
-                param.value = new_value
+                    if param.is_deletable:
+                        self._cascade_parameter_update(param.group, old_value, new_value)
+                        param.value = new_value
+                    else:
+                        self.view.show_notification("No se puede cambiar el nombre de un parámetro esencial.", "warning")
+
                 if 'budget_rule' in new_data:
                     param.budget_rule = new_data['budget_rule']
+                
                 param.save()
                 
                 self.full_refresh()
-                self.view.show_notification("Parámetro y registros asociados actualizados.", "success")
+                self.view.show_notification("Parámetro actualizado.", "success")
 
         except Parameter.DoesNotExist:
             self.view.show_notification("El parámetro no fue encontrado.", "error")
@@ -168,37 +145,114 @@ class AppController:
         categories = [p.value for p in Parameter.select().where(Parameter.group == 'Categoría')]
         transaction_types = [p.value for p in Parameter.select().where(Parameter.group == 'Tipo de Transacción')]
         account_types = [p.value for p in Parameter.select().where(Parameter.group == 'Tipo de Cuenta')]
-
-        # --- INICIO DE LA CORRECCIÓN ---
-        # Unificar los tipos de transacción en la vista de presupuesto
-        budget_transaction_types = [p.value for p in Parameter.select().where(Parameter.group == 'Tipo de Transacción') if p.value.startswith('Ingreso') or p.value.startswith('Gasto')]
+        budget_rule_names = [p.value for p in Parameter.select().where(Parameter.group == 'Regla de Presupuesto')]
         
+        self.view.settings_page.update_budget_rules_combo(budget_rule_names)
+
+        budget_transaction_types = [p for p in transaction_types if p.startswith('Ingreso') or p.startswith('Gasto')]
         self.view.budget_page.type_input.clear()
         self.view.budget_page.type_input.addItems(budget_transaction_types)
-        # --- FIN DE LA CORRECCIÓN ---
 
-        # Actualizar vista de Transacciones
-        self.view.transactions_page.category_input.clear()
-        self.view.transactions_page.category_input.addItems(categories)
-        self.view.transactions_page.type_input.clear()
-        self.view.transactions_page.type_input.addItems(transaction_types)
+        self.view.transactions_page.category_input.clear(); self.view.transactions_page.category_input.addItems(categories)
+        self.view.transactions_page.type_input.clear(); self.view.transactions_page.type_input.addItems(transaction_types)
         
-        self.view.transactions_page.category_filter.clear()
-        self.view.transactions_page.category_filter.addItem("Todas las Categorías")
-        self.view.transactions_page.category_filter.addItems(sorted(categories))
+        self.view.transactions_page.category_filter.clear(); self.view.transactions_page.category_filter.addItem("Todas las Categorías"); self.view.transactions_page.category_filter.addItems(sorted(categories))
+        self.view.transactions_page.type_filter.clear(); self.view.transactions_page.type_filter.addItem("Todos los Tipos"); self.view.transactions_page.type_filter.addItems(transaction_types)
+        
+        self.view.budget_page.category_input.clear(); self.view.budget_page.category_input.addItems(categories)
+        self.view.accounts_page.type_input.clear(); self.view.accounts_page.type_input.addItems(account_types)
 
-        self.view.transactions_page.type_filter.clear()
-        self.view.transactions_page.type_filter.addItem("Todos los Tipos")
-        self.view.transactions_page.type_filter.addItems(transaction_types)
+    def add_budget_rule(self):
+        data = self.view.settings_page.get_budget_rule_form_data()
+        if not data["value"] or data["percentage"] <= 0:
+            self.view.show_notification("El nombre y un porcentaje mayor a cero son obligatorios.", "error")
+            return
+        
+        Parameter.create(group='Regla de Presupuesto', value=data["value"], numeric_value=data["percentage"] / 100.0, is_deletable=True)
+        self.view.settings_page.clear_budget_rule_form()
+        self.full_refresh()
+        self.view.show_notification("Regla de presupuesto añadida.", "success")
 
-        # Actualizar vista de Presupuesto
-        self.view.budget_page.category_input.clear()
-        self.view.budget_page.category_input.addItems(categories)
+    def delete_budget_rule(self):
+        table = self.view.settings_page.transaction_types_tab.budget_rule_table
+        rule_id = self.view.settings_page.get_selected_parameter_id(table)
+        if not rule_id: return
 
-        # Actualizar vista de Cuentas
-        self.view.accounts_page.type_input.clear()
-        self.view.accounts_page.type_input.addItems(account_types)
+        rule_to_delete = Parameter.get_by_id(rule_id)
+        if QMessageBox.question(self.view, "Confirmar", f"¿Eliminar la regla '{rule_to_delete.value}'?") == QMessageBox.StandardButton.Yes:
+            Parameter.update(budget_rule=None).where(Parameter.budget_rule == rule_to_delete.value).execute()
+            rule_to_delete.delete_instance()
+            self.full_refresh()
+            self.view.show_notification("Regla eliminada.", "success")
 
+    def edit_budget_rule(self, row, column):
+        table = self.view.settings_page.transaction_types_tab.budget_rule_table
+        rule_id = self.view.settings_page.get_selected_parameter_id(table)
+        if not rule_id: return
+
+        try:
+            rule = Parameter.get_by_id(rule_id)
+            rule_data = {'value': rule.value, 'numeric_value': rule.numeric_value or 0}
+            dialog = EditBudgetRuleDialog(rule_data, self.view)
+
+            if dialog.exec():
+                new_data = dialog.get_data()
+                try:
+                    percentage = float(new_data["percentage"])
+                    if not new_data["value"] or percentage <= 0:
+                        self.view.show_notification("El nombre y un porcentaje válido son requeridos.", "error")
+                        return
+                except (ValueError, TypeError):
+                    self.view.show_notification("El porcentaje debe ser un número válido.", "error")
+                    return
+                
+                old_name = rule.value
+                new_name = new_data["value"]
+                if old_name != new_name:
+                    Parameter.update(budget_rule=new_name).where(Parameter.budget_rule == old_name).execute()
+                
+                rule.value = new_name
+                rule.numeric_value = percentage / 100.0
+                rule.save()
+                self.full_refresh()
+                self.view.show_notification("Regla de presupuesto actualizada.", "success")
+        except Parameter.DoesNotExist:
+            self.view.show_notification("La regla no fue encontrada.", "error")
+    
+    def _update_budget_rule_chart(self, transactions, total_income):
+        if total_income == 0: total_income = 1
+
+        spending_by_rule = defaultdict(float)
+        
+        type_to_rule_map = {p.value: p.budget_rule for p in Parameter.select().where(Parameter.group == 'Tipo de Transacción')}
+        
+        for t in transactions:
+            if t.type in type_to_rule_map and type_to_rule_map[t.type]:
+                spending_by_rule[type_to_rule_map[t.type]] += t.amount
+
+        budget_data = []
+        
+        budget_rules_from_db = Parameter.select().where(Parameter.group == 'Regla de Presupuesto')
+        
+        for rule in budget_rules_from_db:
+            name = rule.value
+            ideal = rule.numeric_value if rule.numeric_value is not None else 0
+            actual = spending_by_rule.get(name, 0.0)
+            percent_of_income = (actual / total_income) * 100 if total_income > 1 else 0
+            
+            state = "good"
+            if percent_of_income > (ideal * 100):
+                state = "critical"
+            elif percent_of_income > ideal * 100 * 0.8: # Advertencia al 80% del límite
+                state = "warning"
+            
+            budget_data.append({
+                "name": name, "ideal_percent": ideal * 100, "actual_percent": percent_of_income,
+                "actual_amount": actual, "state": state
+            })
+        
+        self.view.dashboard_page.update_budget_rule_chart(budget_data)
+    
     def show_quick_transaction_dialog(self):
         accounts = list(Account.select())
         if not accounts:
@@ -697,12 +751,9 @@ class AppController:
 
         trans, total_income, total_expense = self._update_kpis(year, months)
         self._update_net_worth_chart()
-
-        # --- INICIO DE LA CORRECCIÓN ---
-        # Ahora se utilizan los tipos de transacción dinámicos
+        
         budgeted_income = sum(b.budgeted_amount for b in BudgetEntry.select().where(BudgetEntry.type.startswith("Ingreso")))
         budgeted_expense = sum(b.budgeted_amount for b in BudgetEntry.select().where(BudgetEntry.type.startswith("Gasto")))
-        # --- FIN DE LA CORRECCIÓN ---
         
         self.view.dashboard_page.update_budget_vs_real_cards(
             income_data={"budgeted_amount": budgeted_income, "real_amount": total_income},
@@ -718,7 +769,7 @@ class AppController:
             
             expense_by_type = defaultdict(float)
             for t in trans:
-                if t.type != "Ingreso":
+                if not t.type.startswith("Ingreso"):
                     expense_by_type[t.type] += t.amount
 
             if expense_by_type:
@@ -766,7 +817,7 @@ class AppController:
         
         current = list(Transaction.select().where((Transaction.date >= start) & (Transaction.date <= end)))
         income = sum(t.amount for t in current if t.type == "Ingreso")
-        expense = sum(t.amount for t in current if t.type != "Ingreso")
+        expense = sum(t.amount for t in current if not t.type.startswith("Ingreso"))
         net = income - expense
 
         income_comp, expense_comp = None, None
@@ -775,7 +826,7 @@ class AppController:
             prev_start = prev_end.replace(day=1)
             prev = Transaction.select().where((Transaction.date >= prev_start) & (Transaction.date <= prev_end))
             prev_income = sum(t.amount for t in prev if t.type == "Ingreso")
-            prev_expense = sum(t.amount for t in prev if t.type != "Ingreso")
+            prev_expense = sum(t.amount for t in prev if not t.type.startswith("Ingreso"))
             
             get_change = lambda c, p: ((c - p) / p) * 100 if p > 0 else (100.0 if c > 0 else 0.0)
             income_comp = get_change(income, prev_income)
@@ -783,41 +834,6 @@ class AppController:
 
         self.view.dashboard_page.update_kpis(income, expense, net, income_comp, expense_comp)
         return current, income, expense
-
-    def _update_budget_rule_chart(self, transactions, total_income):
-        if total_income == 0: total_income = 1
-
-        spending_by_rule = defaultdict(float)
-        
-        # --- INICIO DE LA CORRECCIÓN ---
-        # Mapeo dinámico de tipo de transacción a regla de presupuesto
-        type_to_rule_map = {p.value: p.budget_rule for p in Parameter.select().where(Parameter.group == 'Tipo de Transacción')}
-        
-        for t in transactions:
-            if t.type in type_to_rule_map and type_to_rule_map[t.type]:
-                spending_by_rule[type_to_rule_map[t.type]] += t.amount
-        # --- FIN DE LA CORRECCIÓN ---
-
-        budget_data = []
-        for name, ideal in BUDGET_RULES.items():
-            actual = spending_by_rule.get(name, 0.0)
-            percent_of_income = (actual / total_income) * 100 if total_income > 1 else 0
-            
-            state = "good"
-            # --- INICIO DE LA CORRECCIÓN ---
-            # El estado "critical" ahora depende solo del porcentaje de la regla
-            if percent_of_income > (ideal * 100) + 10:
-                state = "critical"
-            # --- FIN DE LA CORRECCIÓN ---
-            elif percent_of_income > ideal * 100:
-                state = "warning"
-            
-            budget_data.append({
-                "name": name, "ideal_percent": ideal * 100, "actual_percent": percent_of_income,
-                "actual_amount": actual, "state": state, "is_overdrawn": False,  # Ya no se usa
-            })
-        self.view.dashboard_page.update_budget_rule_chart(budget_data)
-
 
     def _update_net_worth_chart(self):
         today = datetime.date.today()
@@ -1004,3 +1020,4 @@ class AppController:
                 self.view.show_notification("Regla recurrente actualizada.", "success")
         except RecurringTransaction.DoesNotExist:
             self.view.show_notification("La regla no fue encontrada.", "error")
+

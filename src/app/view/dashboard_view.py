@@ -497,12 +497,8 @@ class DashboardView(QWidget):
 
         progress_bar = QProgressBar()
         progress_bar.setTextVisible(False)
-
-        if item_data['is_overdrawn']:
-            progress_bar.setValue(100)
-        else:
-            progress_bar.setValue(min(100, int(item_data['actual_percent'])))
-
+        
+        progress_bar.setValue(min(100, int(item_data['actual_percent'])))
         progress_bar.setProperty("state", item_data['state'])
         progress_bar.style().polish(progress_bar)
 
