@@ -689,16 +689,18 @@ class DashboardView(QWidget):
         plot_widget.clear()
         if not month_labels: return
         
+        # --- INICIO DE LA CORRECCIÓN ---
+        # Se preparan las etiquetas para el eje X con su posición
         x_ticks = [list(enumerate(month_labels))]
         axis = plot_widget.getAxis('bottom')
         axis.setTicks(x_ticks)
-
-        # --- CORRECCIÓN PARA ROTAR LAS ETIQUETAS ---
-        # Accedemos a los TextItems generados internamente después de setTicks
-        if hasattr(axis, '_tickStrings'):
-            for tick in axis._tickStrings:
-                tick.setAngle(-45)
         
+        # Se rotan las etiquetas del eje X para que no se superpongan
+        axis.setTextPen(self.fg_color)
+        axis.setTickFont(QFont("Segoe UI", 8))
+        axis.setTickAngle(-45) # <-- Esta es la línea que corrige el problema
+        # --- FIN DE LA CORRECCIÓN ---
+
         income_bars = pg.BarGraphItem(x=[i - 0.2 for i in range(len(month_labels))], height=income_data, width=0.4, brush=QColor("#98C379"))
         expense_bars = pg.BarGraphItem(x=[i + 0.2 for i in range(len(month_labels))], height=expense_data, width=0.4, brush=QColor("#E06C75"))
         

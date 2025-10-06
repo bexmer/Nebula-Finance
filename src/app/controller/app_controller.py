@@ -294,18 +294,20 @@ class AppController:
     def _generate_and_display_budget_analysis(self, year):
         start_date, end_date = datetime.date(year, 1, 1), datetime.date(year, 12, 31)
         
-        # --- INICIO DE LA CORRECCIÓN ---
+        # --- INICIO DE LA CORRECCIÓN DEFINITIVA ---
         type_to_rule_map = {}
-        # Se realiza un JOIN para obtener la regla asociada de forma segura,
-        # manejando los casos en que la regla ya no exista (es NULL).
+        # Esta consulta utiliza un LEFT JOIN para obtener los parámetros incluso 
+        # si su regla de presupuesto ha sido eliminada (el enlace está "roto").
         query = (Parameter
                  .select(Parameter, BudgetRule)
                  .join(BudgetRule, on=(Parameter.budget_rule == BudgetRule.id), join_type=JOIN.LEFT_OUTER)
                  .where(Parameter.group == 'Tipo de Transacción'))
         
+        # Al iterar, Peewee ahora sabrá que `p.budget_rule` puede ser `None` si la regla no existe, 
+        # evitando el error y cumpliendo con la lógica de "Ninguna".
         for p in query:
             type_to_rule_map[p.value] = p.budget_rule
-        # --- FIN DE LA CORRECCIÓN ---
+        # --- FIN DE LA CORRECCIÓN DEFINITIVA ---
 
         rules = list(BudgetRule.select())
 
@@ -316,7 +318,7 @@ class AppController:
 
         analysis_data = []
         for rule in rules:
-            # Esta lógica ahora funcionará correctamente
+            # Esta lógica ahora funcionará correctamente con el mapa corregido.
             types_for_rule = [p for p, r in type_to_rule_map.items() if r == rule]
             
             monthly_budget = 0.0
