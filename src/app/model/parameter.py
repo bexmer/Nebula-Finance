@@ -1,5 +1,6 @@
-from peewee import CharField, BooleanField, FloatField
+from peewee import CharField, BooleanField, ForeignKeyField
 from .base_model import BaseModel
+from .budget_rule import BudgetRule # <-- AÑADIR ESTA LÍNEA
 
 class Parameter(BaseModel):
     """
@@ -8,5 +9,5 @@ class Parameter(BaseModel):
     group = CharField()
     value = CharField()
     is_deletable = BooleanField(default=True)
-    budget_rule = CharField(null=True) 
-    numeric_value = FloatField(null=True)
+    # --- CAMBIO: De CharField a ForeignKeyField ---
+    budget_rule = ForeignKeyField(BudgetRule, backref='parameters', null=True, on_delete='SET NULL')

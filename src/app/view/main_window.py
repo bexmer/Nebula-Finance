@@ -121,10 +121,12 @@ class MainWindow(QMainWindow):
         
         self.update_panel_state()
 
+
     def set_controller(self, controller):
         self.controller = controller
         self.btn_dashboard.setChecked(True)
 
+        # Conexiones para cambiar de vista
         self.btn_dashboard.clicked.connect(lambda: self.content_stack.setCurrentIndex(0))
         self.btn_portfolio.clicked.connect(lambda: (self.content_stack.setCurrentIndex(1), self.controller.load_portfolio()))
         self.btn_accounts.clicked.connect(lambda: (self.content_stack.setCurrentIndex(2), self.controller.load_accounts()))
@@ -134,51 +136,83 @@ class MainWindow(QMainWindow):
         self.btn_analysis.clicked.connect(lambda: (self.content_stack.setCurrentIndex(6), self.controller.update_analysis_view()))
         self.btn_settings.clicked.connect(lambda: (self.content_stack.setCurrentIndex(7), self.controller.load_parameters()))
         
+        # Conexiones de los botones de acción generales
         self.theme_button.clicked.connect(self.toggle_theme)
+        self.dashboard_page.year_filter.currentTextChanged.connect(self.controller.update_dashboard)
+        for action in self.dashboard_page.month_actions:
+            action.triggered.connect(self.controller.update_dashboard)
+        self.dashboard_page.all_year_action.triggered.connect(self.controller.update_dashboard)
+        self.analysis_page.year_selector.currentTextChanged.connect(self.controller.update_analysis_view)
+        
+        # Conexiones Dashboard
         self.dashboard_page.quick_add_button.clicked.connect(self.controller.show_quick_transaction_dialog)
+
+        # Conexiones Portafolio
         self.portfolio_page.add_trade_button.clicked.connect(self.controller.add_trade)
+        
+        # Conexiones Cuentas
         self.accounts_page.add_button.clicked.connect(self.controller.add_account)
         self.accounts_page.delete_button.clicked.connect(self.controller.delete_account)
         self.accounts_page.table.cellDoubleClicked.connect(self.controller.edit_account_by_row)
+
+        # Conexiones Presupuesto
         self.budget_page.add_button.clicked.connect(self.controller.add_budget_entry)
         self.budget_page.delete_button.clicked.connect(self.controller.delete_budget_entry)
         self.budget_page.table.cellDoubleClicked.connect(self.controller.edit_budget_entry_by_row)
+        
+        # Conexiones Transacciones
         self.transactions_page.add_button.clicked.connect(self.controller.add_transaction)
         self.transactions_page.delete_button.clicked.connect(self.controller.delete_transaction)
         self.transactions_page.recurring_table.cellDoubleClicked.connect(self.controller.edit_recurring_transaction_by_row)
-        self.transactions_page.all_table.cellDoubleClicked.connect(lambda r, c, table=self.transactions_page.all_table: self.controller.edit_transaction_by_row(r, c, table))
-        self.transactions_page.goals_table.cellDoubleClicked.connect(lambda r, c, table=self.transactions_page.goals_table: self.controller.edit_transaction_by_row(r, c, table))
-        self.transactions_page.debts_table.cellDoubleClicked.connect(lambda r, c, table=self.transactions_page.debts_table: self.controller.edit_transaction_by_row(r, c, table))
-        self.transactions_page.search_input.textChanged.connect(self.controller.filter_transactions); self.transactions_page.type_filter.currentTextChanged.connect(self.controller.filter_transactions)
-        self.transactions_page.category_filter.currentTextChanged.connect(self.controller.filter_transactions); self.transactions_page.sort_by_combo.currentTextChanged.connect(self.controller.filter_transactions)
-        self.transactions_page.sort_order_combo.currentTextChanged.connect(self.controller.filter_transactions); self.transactions_page.start_date_filter.dateChanged.connect(self.controller.filter_transactions)
-        self.transactions_page.end_date_filter.dateChanged.connect(self.controller.filter_transactions); self.transactions_page.tabs.currentChanged.connect(self.controller.filter_transactions)
-        self.goals_page.add_goal_button.clicked.connect(self.controller.add_goal); self.goals_page.add_debt_button.clicked.connect(self.controller.add_debt)
-        self.goals_page.edit_goal_requested.connect(self.controller.edit_goal); self.goals_page.delete_goal_requested.connect(self.controller.delete_goal)
-        self.goals_page.edit_debt_requested.connect(self.controller.edit_debt); self.goals_page.delete_debt_requested.connect(self.controller.delete_debt)
+        self.transactions_page.all_table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_transaction_by_row(r, c, self.transactions_page.all_table))
+        self.transactions_page.goals_table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_transaction_by_row(r, c, self.transactions_page.goals_table))
+        self.transactions_page.debts_table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_transaction_by_row(r, c, self.transactions_page.debts_table))
+        self.transactions_page.search_input.textChanged.connect(self.controller.filter_transactions)
+        self.transactions_page.type_filter.currentTextChanged.connect(self.controller.filter_transactions)
+        self.transactions_page.category_filter.currentTextChanged.connect(self.controller.filter_transactions)
+        self.transactions_page.sort_by_combo.currentTextChanged.connect(self.controller.filter_transactions)
+        self.transactions_page.sort_order_combo.currentTextChanged.connect(self.controller.filter_transactions)
+        self.transactions_page.start_date_filter.dateChanged.connect(self.controller.filter_transactions)
+        self.transactions_page.end_date_filter.dateChanged.connect(self.controller.filter_transactions)
+        self.transactions_page.tabs.currentChanged.connect(self.controller.filter_transactions)
         
+        # Conexiones Metas y Deudas
+        self.goals_page.add_goal_button.clicked.connect(self.controller.add_goal)
+        self.goals_page.add_debt_button.clicked.connect(self.controller.add_debt)
+        self.goals_page.edit_goal_requested.connect(self.controller.edit_goal)
+        self.goals_page.delete_goal_requested.connect(self.controller.delete_goal)
+        self.goals_page.edit_debt_requested.connect(self.controller.edit_debt)
+        self.goals_page.delete_debt_requested.connect(self.controller.delete_debt)
+        
+        # --- CONEXIONES CORREGIDAS PARA CONFIGURACIÓN ---
+        # Pestaña Especial: Tipos de Transacción y Reglas
         tt_tab = self.settings_page.transaction_types_tab
-        tt_tab.add_button.clicked.connect(lambda: self.controller.add_parameter('Tipo de Transacción', tt_tab))
-        tt_tab.delete_button.clicked.connect(lambda: self.controller.delete_parameter(tt_tab.table))
-        tt_tab.table.cellDoubleClicked.connect(lambda r, c, table=tt_tab.table: self.controller.edit_parameter_by_row(r, c, table))
-        tt_tab.add_rule_button.clicked.connect(self.controller.add_budget_rule)
-        tt_tab.delete_rule_button.clicked.connect(self.controller.delete_budget_rule)
-        tt_tab.budget_rule_table.cellDoubleClicked.connect(self.controller.edit_budget_rule)
+        tt_tab.param_add_button.clicked.connect(lambda: self.controller.add_parameter('Tipo de Transacción'))
+        tt_tab.param_delete_button.clicked.connect(self.controller.delete_parameter)
+        tt_tab.param_table.cellDoubleClicked.connect(
+            lambda r, c: self.controller.edit_parameter_by_row(r, c, tt_tab.param_table)
+        )
+        tt_tab.rule_add_button.clicked.connect(self.controller.add_budget_rule)
+        tt_tab.rule_delete_button.clicked.connect(self.controller.delete_budget_rule)
+        tt_tab.rule_table.cellDoubleClicked.connect(self.controller.edit_budget_rule_by_row)
 
-        acc_tab = self.settings_page.account_types_tab
-        acc_tab.add_button.clicked.connect(lambda: self.controller.add_parameter('Tipo de Cuenta', acc_tab))
-        acc_tab.delete_button.clicked.connect(lambda: self.controller.delete_parameter(acc_tab.table))
-        acc_tab.table.cellDoubleClicked.connect(lambda r, c, table=acc_tab.table: self.controller.edit_parameter_by_row(r, c, table))
+        # Otras pestañas de Configuración
+        self.settings_page.account_types_tab.add_button.clicked.connect(lambda: self.controller.add_parameter('Tipo de Cuenta'))
+        self.settings_page.account_types_tab.delete_button.clicked.connect(self.controller.delete_parameter)
+        self.settings_page.account_types_tab.table.cellDoubleClicked.connect(
+            lambda r, c: self.controller.edit_parameter_by_row(r, c, self.settings_page.account_types_tab.table)
+        )
 
-        cat_tab = self.settings_page.categories_tab
-        cat_tab.add_button.clicked.connect(lambda: self.controller.add_parameter('Categoría', cat_tab))
-        cat_tab.delete_button.clicked.connect(lambda: self.controller.delete_parameter(cat_tab.table))
-        cat_tab.table.cellDoubleClicked.connect(lambda r, c, table=cat_tab.table: self.controller.edit_parameter_by_row(r, c, table))
-
+        self.settings_page.categories_tab.add_button.clicked.connect(lambda: self.controller.add_parameter('Categoría'))
+        self.settings_page.categories_tab.delete_button.clicked.connect(self.controller.delete_parameter)
+        self.settings_page.categories_tab.table.cellDoubleClicked.connect(
+            lambda r, c: self.controller.edit_parameter_by_row(r, c, self.settings_page.categories_tab.table)
+        )
+        
         self.controller.full_refresh()
         self.dashboard_page.set_default_month_filter()
         self.update_theme_icons()
-        
+
     def toggle_nav_panel(self):
         self.is_nav_panel_collapsed = not self.is_nav_panel_collapsed
         end_width = self.nav_panel_collapsed_width if self.is_nav_panel_collapsed else self.nav_panel_expanded_width
@@ -295,4 +329,3 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, event):
         self.notification.hide()
         super().resizeEvent(event)
-
