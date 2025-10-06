@@ -167,9 +167,15 @@ class SettingsView(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, param.id)
             table.setItem(row, 0, item)
             if display_rule:
-                rule_name = param.budget_rule.name if param.budget_rule else "(Ninguna)"
+                rule_name = "(Ninguna)"
+                try:
+                    if param.budget_rule:
+                        rule_name = param.budget_rule.name
+                except Exception:
+                    # Si la regla no se encuentra, simplemente se mostrará "(Ninguna)"
+                    pass
                 table.setItem(row, 1, QTableWidgetItem(rule_name))
-
+                
     def display_budget_rules(self, table, rules):
         table.setRowCount(0)
         for row, rule in enumerate(rules):

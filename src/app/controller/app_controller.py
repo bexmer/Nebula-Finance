@@ -162,14 +162,37 @@ class AppController:
         try:
             param = Parameter.get_by_id(param_id)
             
+            # --- INICIO DE LA CORRECCIÓN #1: Obtener la regla de forma segura ---
+            current_rule_name = None
+            try:
+                if param.budget_rule:
+                    current_rule_name = param.budget_rule.name
+            except BudgetRule.DoesNotExist:
+                # La regla asociada no existe, la tratamos como nula
+                pass
+            
             param_data = {
                 'value': param.value, 
                 'group': param.group, 
                 'is_deletable': param.is_deletable,
-                'budget_rule': param.budget_rule.name if param.budget_rule else None
+                'budget_rule': current_rule_name # Usamos el nombre seguro que obtuvimos
             }
             dialog = EditParameterDialog(param_data, self.view)
             
+            # --- INICIO DE LA CORRECCIÓN #2: Poblar el ComboBox ---
+            if dialog.budget_rule_input:
+                all_rules = list(BudgetRule.select())
+                dialog.budget_rule_input.clear()
+                dialog.budget_rule_input.addItem("(Ninguna)")
+                dialog.budget_rule_input.addItems([rule.name for rule in all_rules])
+                
+                # Establecemos la regla actual del parámetro en el ComboBox
+                if current_rule_name:
+                    index = dialog.budget_rule_input.findText(current_rule_name)
+                    if index >= 0:
+                        dialog.budget_rule_input.setCurrentIndex(index)
+            # --- FIN DE LAS CORRECCIONES ---
+
             if dialog.exec():
                 new_data = dialog.get_data()
                 new_value = new_data["value"]
@@ -195,6 +218,7 @@ class AppController:
 
         except Parameter.DoesNotExist:
             self.view.show_notification("El parámetro no fue encontrado.", "error")
+
     
     def _cascade_parameter_update(self, group, old_value, new_value):
         if group == 'Categoría':
@@ -306,7 +330,13 @@ class AppController:
         # Al iterar, Peewee ahora sabrá que `p.budget_rule` puede ser `None` si la regla no existe, 
         # evitando el error y cumpliendo con la lógica de "Ninguna".
         for p in query:
-            type_to_rule_map[p.value] = p.budget_rule
+            try:
+                # Esto intentará cargar la regla, pero ahora estamos preparados para el error
+                rule = p.budget_rule
+                type_to_rule_map[p.value] = rule
+            except BudgetRule.DoesNotExist:
+                # Si la regla no existe, asignamos 'None' y continuamos
+                type_to_rule_map[p.value] = None
         # --- FIN DE LA CORRECCIÓN DEFINITIVA ---
 
         rules = list(BudgetRule.select())
