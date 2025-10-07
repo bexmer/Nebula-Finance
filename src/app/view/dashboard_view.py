@@ -7,6 +7,7 @@ from PySide6.QtGui import QAction, QFont, QColor, QBrush
 import pyqtgraph as pg
 import qtawesome as qta
 from datetime import datetime
+from dateutil.relativedelta import relativedelta
 
 
 # ---------------- Tarjeta de crédito ----------------
@@ -90,13 +91,13 @@ class CreditCardWidget(QFrame):
         self.visibility_button.setIcon(qta.icon(icon_name, color='white'))
 
 
+
 class TimeAxisItem(pg.AxisItem):
     def tickStrings(self, values, scale, spacing):
         try:
             return [datetime.fromtimestamp(v).strftime('%b %Y') for v in values]
         except Exception:
             return ['' for v in values]
-
 
 # ==========================
 #        DASHBOARD
@@ -105,8 +106,11 @@ class DashboardView(QWidget):
     def __init__(self):
         super().__init__()
         pg.setConfigOption('background', 'transparent')
-
-        self.fg_color = '#364765'  # actualizado por update_chart_themes
+        
+        # Se inicializa el estado del tema para evitar el error al crear los widgets
+        self.is_dark_mode = True 
+        
+        self.fg_color = '#364765'
 
         # -------- Header --------
         main_layout = QVBoxLayout(self)
@@ -123,6 +127,7 @@ class DashboardView(QWidget):
         self.year_filter.addItems([str(y) for y in range(current_year - 5, current_year + 2)])
         self.year_filter.setCurrentText(str(current_year))
         self.month_filter_button = QPushButton("Mes Actual")
+        self.month_filter_button.setObjectName("FilterButton")
         self._create_month_menu()
         header_layout.addWidget(QLabel("Año:"))
         header_layout.addWidget(self.year_filter)
@@ -131,9 +136,9 @@ class DashboardView(QWidget):
         main_layout.addLayout(header_layout)
 
         # -------- Cards --------
-        self.income_kpi = self._create_kpi_card("Ganancias", "$0.00")
-        self.expense_kpi = self._create_kpi_card("Gastos", "$0.00")
-        self.net_kpi = self._create_kpi_card("Ahorro Neto", "$0.00")
+        self.income_kpi = self._create_kpi_card("Ganancias", "$0.00", "fa5s.long-arrow-alt-up")
+        self.expense_kpi = self._create_kpi_card("Gastos", "$0.00", "fa5s.long-arrow-alt-down")
+        self.net_kpi = self._create_kpi_card("Ahorro Neto", "$0.00", "fa5s.wallet")
 
         self.switchable_chart_card = self._create_switchable_chart_card()
 
@@ -148,7 +153,7 @@ class DashboardView(QWidget):
         )
         self._legend_widgets = []
 
-        # -------- Layout original restaurado --------
+        # -------- Layout --------
         purple_main_layout = QHBoxLayout()
         purple_main_layout.setSpacing(15)
         main_layout.addLayout(purple_main_layout, 1)
@@ -189,15 +194,17 @@ class DashboardView(QWidget):
         kpi_layout.addWidget(self.income_kpi)
         kpi_layout.addWidget(self.expense_kpi)
         kpi_layout.addWidget(self.net_kpi)
-        green_top_left_layout.addLayout(kpi_layout, 1)
+        green_top_left_layout.addLayout(kpi_layout, 0) # Stretch factor 0 para que no crezca
         
-        green_top_left_layout.addWidget(self.switchable_chart_card, 2)
+        green_top_left_layout.addWidget(self.switchable_chart_card, 1) # Stretch factor 1 para que crezca
 
         budget_vs_real_layout = QHBoxLayout()
         budget_vs_real_layout.addWidget(self.budget_income_card)
         budget_vs_real_layout.addWidget(self.budget_expense_card)
-        green_bottom_left_layout.addLayout(budget_vs_real_layout)
-        green_bottom_left_layout.addWidget(self.main_goals_card)
+        
+        # Layout ajustado para que las metas ocupen más espacio
+        green_bottom_left_layout.addLayout(budget_vs_real_layout, 0)
+        green_bottom_left_layout.addWidget(self.main_goals_card, 1)
 
         purple_right_layout.addWidget(self.accounts_card, 1)
         purple_right_layout.addWidget(self.expense_type_chart_card, 2)
@@ -290,22 +297,44 @@ class DashboardView(QWidget):
         self.quick_add_button.move(self.width() - button_size.width() - 20,
                                    self.height() - button_size.height() - 20)
 
-    def _create_kpi_card(self, title, default_value):
+    def _create_kpi_card(self, title, default_value, icon_name):
         card = QFrame()
         card.setObjectName("KPI_Card")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(15, 10, 15, 10)
         layout.setSpacing(4)
+
+        top_layout = QHBoxLayout()
+        icon_label = QLabel()
+        icon_label.setObjectName("KPI_Icon")
+        icon_label.setFixedSize(32, 32)
+        icon_label.setPixmap(qta.icon(icon_name, color='white').pixmap(QSize(16, 16)))
+        
         title_label = QLabel(title)
         title_label.setObjectName("KPI_Title")
+        
+        top_layout.addWidget(icon_label)
+        top_layout.addWidget(title_label)
+        top_layout.addStretch()
+
         value_label = QLabel(default_value)
         value_label.setObjectName("KPI_Value")
+        value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
         comparison_label = QLabel("")
         comparison_label.setObjectName("KPI_Comparison")
-        layout.addWidget(title_label)
+        comparison_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        layout.addLayout(top_layout)
+        layout.addStretch()
         layout.addWidget(value_label)
         layout.addWidget(comparison_label)
-        card.value_label, card.comparison_label = value_label, comparison_label
+        layout.addStretch()
+        
+        card.value_label = value_label
+        card.comparison_label = comparison_label
+        card.icon_label = icon_label
+
         return card
 
     def _create_metric_card(self, title):
@@ -503,13 +532,13 @@ class DashboardView(QWidget):
         return widget
 
     def update_chart_themes(self, is_dark_mode):
+        self.is_dark_mode = is_dark_mode
         self.fg_color = '#FFFFFF' if is_dark_mode else '#364765'
+        pg.setConfigOption('foreground', self.fg_color)
         axis_pen = pg.mkPen(color=self.fg_color)
         plot_widgets_to_theme = [
-            self.net_worth_plot,
-            self.cash_flow_plot,
-            self.expense_dist_card.plot_widget,
-            self.expense_type_chart_card.plot_widget
+            self.net_worth_plot, self.cash_flow_plot,
+            self.expense_dist_card.plot_widget, self.expense_type_chart_card.plot_widget
         ]
         for pw in plot_widgets_to_theme:
             if pw and pw != self.expense_type_chart_card.plot_widget:
@@ -517,6 +546,10 @@ class DashboardView(QWidget):
                 pw.getPlotItem().getAxis('left').setTextPen(self.fg_color)
                 pw.getPlotItem().getAxis('bottom').setPen(axis_pen)
                 pw.getPlotItem().getAxis('bottom').setTextPen(self.fg_color)
+        
+        self.income_kpi.icon_label.setPixmap(qta.icon("fa5s.long-arrow-alt-up", color='white').pixmap(QSize(16, 16)))
+        self.expense_kpi.icon_label.setPixmap(qta.icon("fa5s.long-arrow-alt-down", color='white').pixmap(QSize(16, 16)))
+        self.net_kpi.icon_label.setPixmap(qta.icon("fa5s.wallet", color='white').pixmap(QSize(16, 16)))
 
     def _create_month_menu(self):
         self.month_menu = QMenu(self)
@@ -557,7 +590,7 @@ class DashboardView(QWidget):
         plot_widget.clear()
         if dates and values:
             timestamps = [datetime.strptime(str(d), "%Y%m%d").timestamp() for d in dates]
-            pen_color = '#61AFEF' if self.fg_color == '#FFFFFF' else '#364765'
+            pen_color = '#61AFEF' if pg.getConfigOption('foreground') == '#FFFFFF' else '#364765'
             plot_widget.plot(timestamps, values, pen=pg.mkPen(color=pen_color, width=3))
 
     def _format_k(self, n):
@@ -573,7 +606,7 @@ class DashboardView(QWidget):
             axis = plot_widget.getAxis('bottom')
             axis.setTicks(x_ticks)
             axis.setTickFont(QFont("Segoe UI", 8))
-            is_dark = (self.fg_color == '#FFFFFF')
+            is_dark = (pg.getConfigOption('foreground') == '#FFFFFF')
             hex_colors = ["#61AFEF", "#E5C07B", "#98C379", "#C678DD", "#E06C75", "#ABB2BF"] if is_dark else ["#3B82F6", "#F59E0B", "#22C55E", "#8B5CF6", "#EF4444", "#9CA3AF"]
             brushes = [QBrush(QColor(hex_colors[i % len(hex_colors)])) for i in range(len(amounts))]
             bar_chart = pg.BarGraphItem(x=range(len(categories)), height=amounts, width=0.6, brushes=brushes)
@@ -600,7 +633,7 @@ class DashboardView(QWidget):
         card = self.expense_type_chart_card
         pw = card.plot_widget
         legend = getattr(card, "legend_layout", None)
-        is_dark = (self.fg_color == '#FFFFFF')
+        is_dark = (pg.getConfigOption('foreground') == '#FFFFFF')
         fg_hex = "#FFFFFF" if is_dark else "#0F172A"
         fg_sub_hex = "#E5E7EB" if is_dark else "#6B7280"
         card_bg = card.palette().window().color()
@@ -689,13 +722,12 @@ class DashboardView(QWidget):
         plot_widget.clear()
         if not month_labels: return
         
-        # Se preparan las etiquetas para el eje X con su posición
         x_ticks = [list(enumerate(month_labels))]
         axis = plot_widget.getAxis('bottom')
         axis.setTicks(x_ticks)
         
         # Se aplican los estilos al eje
-        axis.setTextPen(self.fg_color)
+        axis.setTextPen(pg.getConfigOption('foreground'))
         axis.setTickFont(QFont("Segoe UI", 8))
 
         income_bars = pg.BarGraphItem(x=[i - 0.2 for i in range(len(month_labels))], height=income_data, width=0.4, brush=QColor("#98C379"))

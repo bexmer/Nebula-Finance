@@ -1,9 +1,11 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, 
                                QTableWidget, QTableWidgetItem, QComboBox, QHeaderView, QTabWidget,
-                               QGridLayout) # <-- AQUÍ ESTÁ LA CORRECCIÓN
+                               QGridLayout, QPushButton, QMenu)
 from PySide6.QtCore import Qt, QDate
-from PySide6.QtGui import QFont, QBrush, QColor
+from PySide6.QtGui import QFont, QBrush, QColor, QAction
 import pyqtgraph as pg
+from dateutil.relativedelta import relativedelta
+import datetime
 
 class AnalysisView(QWidget):
     def __init__(self):
@@ -13,7 +15,7 @@ class AnalysisView(QWidget):
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(20)
         
-        # --- Cabecera con selector de año ---
+        # --- Cabecera con selector de año y mes ---
         header_layout = QHBoxLayout()
         title_label = QLabel("Análisis Financiero")
         title_label.setObjectName("DashboardTitle")
@@ -23,16 +25,22 @@ class AnalysisView(QWidget):
         self.year_selector.addItems([str(y) for y in range(current_year - 5, current_year + 2)])
         self.year_selector.setCurrentText(str(current_year))
         
+        self.month_filter_button = QPushButton("Todo el Año")
+        self.month_filter_button.setObjectName("FilterButton")
+        self._create_month_menu()
+        
         header_layout.addWidget(title_label)
         header_layout.addStretch()
         header_layout.addWidget(QLabel("Año:"))
         header_layout.addWidget(self.year_selector)
+        header_layout.addWidget(QLabel("Mes:"))
+        header_layout.addWidget(self.month_filter_button)
         main_layout.addLayout(header_layout)
 
         # --- Patrimonio Neto ---
         net_worth_card = QFrame(); net_worth_card.setObjectName("Card")
         net_worth_layout = QVBoxLayout(net_worth_card)
-        net_worth_grid = QGridLayout() # Esta línea ahora funcionará
+        net_worth_grid = QGridLayout()
         self.total_assets_label = QLabel("$0.00"); self.total_assets_label.setObjectName("KPI_Value")
         self.total_liabilities_label = QLabel("$0.00"); self.total_liabilities_label.setObjectName("KPI_Value")
         self.net_worth_label = QLabel("$0.00"); self.net_worth_label.setObjectName("KPI_Value")
@@ -42,16 +50,13 @@ class AnalysisView(QWidget):
         net_worth_layout.addLayout(net_worth_grid)
         main_layout.addWidget(net_worth_card)
 
-
         # --- Pestañas ---
         self.tabs = QTabWidget()
         main_layout.addWidget(self.tabs, 1)
 
-        # --- Pestaña 1: Reporte Anual ---
         self.annual_report_tab = self._create_annual_report_tab()
         self.tabs.addTab(self.annual_report_tab, "Reporte Anual de Gastos")
 
-        # --- Pestaña 2: Análisis de Presupuesto ---
         self.budget_analysis_tab = self._create_budget_analysis_tab()
         self.tabs.addTab(self.budget_analysis_tab, "Análisis de Presupuesto")
 
@@ -69,14 +74,12 @@ class AnalysisView(QWidget):
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0,0,0,0); layout.setSpacing(15)
 
-        # Contenedor superior para la tabla
         table_card = QFrame(); table_card.setObjectName("Card")
         table_layout = QVBoxLayout(table_card)
         table_layout.addWidget(QLabel("<b>Comparativa Anual: Presupuesto vs. Real por Reglas</b>"))
         self.budget_comparison_table = QTableWidget()
         table_layout.addWidget(self.budget_comparison_table)
         
-        # Contenedor inferior para los gráficos
         charts_container = QHBoxLayout()
         charts_container.setSpacing(15)
         
@@ -106,11 +109,63 @@ class AnalysisView(QWidget):
         card.plot_widget = plot_widget
         return card
 
+    def _create_month_menu(self):
+        self.month_menu = QMenu(self)
+        self.month_actions = []
+        months = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+        
+        self.all_year_action = QAction("Todo el Año", self)
+        self.all_year_action.setCheckable(True)
+        self.all_year_action.setChecked(True)
+        self.month_menu.addAction(self.all_year_action)
+        self.month_menu.addSeparator()
+
+        for i, month in enumerate(months):
+            action = QAction(month, self)
+            action.setCheckable(True)
+            action.setData(i + 1)
+            action.setChecked(True)
+            self.month_actions.append(action)
+            self.month_menu.addAction(action)
+
+        self.month_filter_button.setMenu(self.month_menu)
+        self.all_year_action.triggered.connect(self._handle_all_year_selection)
+        for a in self.month_actions:
+            a.triggered.connect(self._update_month_button_text)
+
+    def _handle_all_year_selection(self):
+        is_checked = self.all_year_action.isChecked()
+        for action in self.month_actions:
+            action.setChecked(is_checked)
+        self._update_month_button_text()
+
+    def _update_month_button_text(self):
+        selected_months = [a.text() for a in self.month_actions if a.isChecked()]
+        
+        if len(selected_months) == 12:
+            self.month_filter_button.setText("Todo el Año")
+            self.all_year_action.setChecked(True)
+        elif len(selected_months) == 1:
+            self.month_filter_button.setText(selected_months[0])
+            self.all_year_action.setChecked(False)
+        elif not selected_months:
+            self.month_filter_button.setText("Ningún Mes")
+            self.all_year_action.setChecked(False)
+        else:
+            self.month_filter_button.setText(f"{len(selected_months)} Meses")
+            self.all_year_action.setChecked(False)
+
+        self.year_selector.currentTextChanged.emit(self.year_selector.currentText())
+
+    def get_selected_filters(self):
+        year = int(self.year_selector.currentText())
+        months = [a.data() for a in self.month_actions if a.isChecked()]
+        return {"year": year, "months": months}
+
     def update_net_worth_display(self, total_assets, total_liabilities, net_worth):
         self.total_assets_label.setText(f"${total_assets:,.2f}")
         self.total_liabilities_label.setText(f"${total_liabilities:,.2f}")
         self.net_worth_label.setText(f"${net_worth:,.2f}")
-
 
     def display_annual_report(self, data, categories, year, monthly_totals, grand_total):
         months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
@@ -160,7 +215,6 @@ class AnalysisView(QWidget):
 
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
-        # Actualizar Gráficos
         rules = [d['rule'] for d in analysis_data]
         budget_values = [d['budget'] for d in analysis_data]
         real_values = [d['real'] for d in analysis_data]
@@ -175,12 +229,12 @@ class AnalysisView(QWidget):
         x_ticks = [list(enumerate(rules))]
         plot_widget.getAxis('bottom').setTicks(x_ticks)
         
-        if values2: # Gráfico comparativo
+        if values2:
             bar1 = pg.BarGraphItem(x=[i - 0.2 for i in range(len(rules))], height=values1, width=0.4, brush=QColor("#3B82F6"), name='Presupuesto')
             bar2 = pg.BarGraphItem(x=[i + 0.2 for i in range(len(rules))], height=values2, width=0.4, brush=QColor("#22C55E"), name='Real')
             plot_widget.addItem(bar1)
             plot_widget.addItem(bar2)
-        else: # Gráfico simple
+        else:
             bar = pg.BarGraphItem(x=range(len(rules)), height=values1, width=0.6, brush=QColor("#8B5CF6"))
             plot_widget.addItem(bar)
         

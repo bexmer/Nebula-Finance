@@ -41,6 +41,94 @@ class AppController:
         self.load_budget_entries()
         self.load_portfolio()
         self.load_parameters()
+        
+    # --- NUEVA LÓGICA DE PAGINACIÓN Y ELIMINACIÓN ---
+
+    def load_paginated_data(self, page=1):
+        """Carga los datos para la vista actual con paginación."""
+        current_view_name = self.view.get_current_view_name()
+        view_widget = getattr(self.view, f"{current_view_name}_page", None)
+        
+        if not view_widget or not hasattr(view_widget, 'get_pagination_controls'):
+            return
+
+        controls = view_widget.get_pagination_controls()
+        items_per_page = controls['items_per_page']
+        
+        query, display_method = None, None
+
+        if current_view_name == 'accounts':
+            query = Account.select()
+            display_method = view_widget.display_accounts
+        elif current_view_name == 'budget':
+            query = BudgetEntry.select().order_by(BudgetEntry.type, BudgetEntry.description)
+            display_method = view_widget.display_budget_entries
+        # Agrega aquí otras vistas como 'portfolio', etc.
+
+        if query and display_method:
+            total_items = query.count()
+            total_pages = (total_items + items_per_page - 1) // items_per_page
+            
+            paginated_query = query.paginate(page, items_per_page)
+            display_method(list(paginated_query))
+            
+            view_widget.update_pagination_ui(page, total_pages, total_items)
+
+    def change_page(self, direction):
+        """Cambia a la página siguiente o anterior."""
+        current_view_name = self.view.get_current_view_name()
+        current_page = self.current_pages.get(current_view_name, 1)
+        new_page = current_page + direction
+        self.load_paginated_data(page=new_page)
+
+    def change_items_per_page(self):
+        """Recarga los datos cuando el usuario cambia el número de items por página."""
+        self.load_paginated_data(page=1) # Volvemos a la página 1
+
+    def delete_selected_items(self):
+        """Elimina los items marcados con un checkbox en la vista actual."""
+        current_view_name = self.view.get_current_view_name()
+        view_widget = getattr(self.view, f"{current_view_name}_page", None)
+        
+        if not view_widget or not hasattr(view_widget, 'get_checked_ids'): return
+
+        ids_to_delete = view_widget.get_checked_ids()
+        if not ids_to_delete:
+            self.view.show_notification("No hay elementos seleccionados.", "error")
+            return
+        
+    def delete_selected_items(self):
+        """Elimina todos los items seleccionados con checkbox en la tabla activa."""
+        current_view_name = self.view.get_current_view_name()
+        view_widget = getattr(self.view, f"{current_view_name}_page", None)
+        
+        if not view_widget or not hasattr(view_widget, 'get_checked_ids'):
+            return
+
+        ids_to_delete = view_widget.get_checked_ids()
+        if not ids_to_delete:
+            self.view.show_notification("No hay elementos seleccionados para eliminar.", "error")
+            return
+
+        model_map = {
+            'accounts': Account,
+            'budget': BudgetEntry,
+            'transactions': Transaction,
+            'portfolio': PortfolioAsset
+            # Agrega otros modelos aquí
+        }
+        model = model_map.get(current_view_name)
+
+        if not model: return
+        
+        if QMessageBox.question(self.view, "Confirmar", f"¿Estás seguro de que quieres eliminar {len(ids_to_delete)} elementos?") == QMessageBox.StandardButton.Yes:
+            # Aquí podrías añadir lógicas complejas (ej. no eliminar cuentas con transacciones)
+            query = model.delete().where(model.id.in_(ids_to_delete))
+            deleted_rows = query.execute()
+            
+            self.full_refresh()
+            self.view.show_notification(f"{deleted_rows} elementos eliminados.", "success")
+
 
     # --- MÉTODOS PARA REGLAS DE PRESUPUESTO ---
     
@@ -238,32 +326,42 @@ class AppController:
         account_types = [p.value for p in Parameter.select().where(Parameter.group == 'Tipo de Cuenta')]
         budget_transaction_types = [p.value for p in Parameter.select().where(Parameter.group == 'Tipo de Transacción') if p.value.startswith('Ingreso') or p.value.startswith('Gasto')]
         
+        # Poblar ComboBox de la página de presupuesto
         self.view.budget_page.type_input.clear()
         self.view.budget_page.type_input.addItems(budget_transaction_types)
+        self.view.budget_page.category_input.clear()
+        self.view.budget_page.category_input.addItems(categories)
+
+        # Poblar ComboBox del formulario de transacciones
         self.view.transactions_page.category_input.clear()
         self.view.transactions_page.category_input.addItems(categories)
         self.view.transactions_page.type_input.clear()
         self.view.transactions_page.type_input.addItems(transaction_types)
-        self.view.transactions_page.category_filter.clear()
-        self.view.transactions_page.category_filter.addItem("Todas las Categorías")
-        self.view.transactions_page.category_filter.addItems(sorted(categories))
-        self.view.transactions_page.type_filter.clear()
-        self.view.transactions_page.type_filter.addItem("Todos los Tipos")
-        self.view.transactions_page.type_filter.addItems(transaction_types)
-        self.view.budget_page.category_input.clear()
-        self.view.budget_page.category_input.addItems(categories)
+
+        # Usamos el nuevo método para poblar los menús de los botones de filtro
+        self.view.transactions_page.update_menu_items(
+            self.view.transactions_page.type_filter_button,
+            ["Todos los Tipos"] + sorted(transaction_types)
+        )
+        self.view.transactions_page.update_menu_items(
+            self.view.transactions_page.category_filter_button,
+            ["Todas las Categorías"] + sorted(categories)
+        )
+
+        # Poblar ComboBox de la página de cuentas
         self.view.accounts_page.type_input.clear()
         self.view.accounts_page.type_input.addItems(account_types)
 
     def _update_cash_flow_chart(self):
         today = datetime.date.today()
-        start_date = (today - relativedelta(months=11)).replace(day=1)
+        # Mantenemos la consulta de 12 meses para tener todos los datos disponibles
+        start_date_query = (today - relativedelta(months=11)).replace(day=1)
 
         query = (Transaction
                  .select(fn.strftime('%Y-%m', Transaction.date).alias('month'),
                          fn.SUM(Transaction.amount).alias('total'),
                          Transaction.type)
-                 .where(Transaction.date >= start_date)
+                 .where(Transaction.date >= start_date_query)
                  .group_by(fn.strftime('%Y-%m', Transaction.date), Transaction.type)
                  .order_by(fn.strftime('%Y-%m', Transaction.date)))
 
@@ -275,13 +373,17 @@ class AppController:
                 monthly_data[row.month]['expense'] += row.total
 
         month_labels, income_data, expense_data = [], [], []
-        for i in range(6):
-            current_month_date = (start_date + relativedelta(months=i))
+        
+        # --- INICIO DE LA CORRECCIÓN ---
+        # Iteramos hacia atrás 5 meses desde el mes actual (6 meses en total)
+        for i in range(5, -1, -1):
+            current_month_date = today - relativedelta(months=i)
             month_key = current_month_date.strftime('%Y-%m')
             
             month_labels.append(current_month_date.strftime('%b-%y'))
             income_data.append(monthly_data[month_key]['income'])
             expense_data.append(monthly_data[month_key]['expense'])
+        # --- FIN DE LA CORRECCIÓN ---
 
         self.view.dashboard_page.update_cash_flow_chart(month_labels, income_data, expense_data)
 
@@ -315,29 +417,27 @@ class AppController:
         self.view.dashboard_page.update_budget_rule_chart(budget_data)
 
     # --- MÉTODOS DE ANÁLISIS (MODIFICADO) ---
-    def _generate_and_display_budget_analysis(self, year):
-        start_date, end_date = datetime.date(year, 1, 1), datetime.date(year, 12, 31)
+    def _generate_and_display_budget_analysis(self, year, months):
+        if not months:
+            self.view.analysis_page.display_budget_analysis([])
+            return
+
+        start_date = datetime.date(year, min(months), 1)
+        last_month_num = max(months)
+        next_month_start = (datetime.date(year, last_month_num, 1) + relativedelta(months=1))
+        end_date = next_month_start - relativedelta(days=1)
         
-        # --- INICIO DE LA CORRECCIÓN DEFINITIVA ---
         type_to_rule_map = {}
-        # Esta consulta utiliza un LEFT JOIN para obtener los parámetros incluso 
-        # si su regla de presupuesto ha sido eliminada (el enlace está "roto").
         query = (Parameter
-                 .select(Parameter, BudgetRule)
-                 .join(BudgetRule, on=(Parameter.budget_rule == BudgetRule.id), join_type=JOIN.LEFT_OUTER)
-                 .where(Parameter.group == 'Tipo de Transacción'))
-        
-        # Al iterar, Peewee ahora sabrá que `p.budget_rule` puede ser `None` si la regla no existe, 
-        # evitando el error y cumpliendo con la lógica de "Ninguna".
+                .select(Parameter, BudgetRule)
+                .join(BudgetRule, on=(Parameter.budget_rule == BudgetRule.id), join_type=JOIN.LEFT_OUTER)
+                .where(Parameter.group == 'Tipo de Transacción'))
         for p in query:
             try:
-                # Esto intentará cargar la regla, pero ahora estamos preparados para el error
                 rule = p.budget_rule
                 type_to_rule_map[p.value] = rule
             except BudgetRule.DoesNotExist:
-                # Si la regla no existe, asignamos 'None' y continuamos
                 type_to_rule_map[p.value] = None
-        # --- FIN DE LA CORRECCIÓN DEFINITIVA ---
 
         rules = list(BudgetRule.select())
 
@@ -347,8 +447,8 @@ class AppController:
         ).scalar() or 0.0
 
         analysis_data = []
+        num_months = len(months)
         for rule in rules:
-            # Esta lógica ahora funcionará correctamente con el mapa corregido.
             types_for_rule = [p for p, r in type_to_rule_map.items() if r == rule]
             
             monthly_budget = 0.0
@@ -356,21 +456,22 @@ class AppController:
                 monthly_budget = BudgetEntry.select(fn.SUM(BudgetEntry.budgeted_amount)).where(
                     BudgetEntry.type << types_for_rule
                 ).scalar() or 0.0
-            annual_budget = monthly_budget * 12
+            
+            period_budget = monthly_budget * num_months
 
-            annual_real = 0.0
+            period_real = 0.0
             if types_for_rule:
-                annual_real = Transaction.select(fn.SUM(Transaction.amount)).where(
+                period_real = Transaction.select(fn.SUM(Transaction.amount)).where(
                     (Transaction.date.between(start_date, end_date)) &
                     (Transaction.type << types_for_rule)
                 ).scalar() or 0.0
             
-            income_percentage = (annual_real / total_real_income) * 100 if total_real_income > 0 else 0
+            income_percentage = (period_real / total_real_income) * 100 if total_real_income > 0 else 0
 
             analysis_data.append({
                 'rule': rule.name,
-                'budget': annual_budget,
-                'real': annual_real,
+                'budget': period_budget,
+                'real': period_real,
                 'income_percentage': income_percentage
             })
         
@@ -1085,13 +1186,23 @@ class AppController:
         total_liabilities = sum(d.current_balance for d in Debt.select())
         self.view.analysis_page.update_net_worth_display(total_assets, total_liabilities, total_assets - total_liabilities)
         
-        year = int(self.view.analysis_page.year_selector.currentText())
-        self._generate_and_display_annual_report(year)
-        self._generate_and_display_budget_analysis(year)
+        filters = self.view.analysis_page.get_selected_filters()
+        year, months = filters["year"], filters["months"]
+        
+        self._generate_and_display_annual_report(year, months)
+        self._generate_and_display_budget_analysis(year, months)
 
-    def _generate_and_display_annual_report(self, year):
-        start, end = datetime.date(year, 1, 1), datetime.date(year, 12, 31)
-        trans = Transaction.select().where((Transaction.date.between(start, end)) & (Transaction.type.startswith("Gasto")))
+    def _generate_and_display_annual_report(self, year, months):
+        if not months:
+            self.view.analysis_page.display_annual_report({}, [], year, {}, 0.0)
+            return
+
+        start_date = datetime.date(year, min(months), 1)
+        last_month_num = max(months)
+        next_month_start = (datetime.date(year, last_month_num, 1) + relativedelta(months=1))
+        end_date = next_month_start - relativedelta(days=1)
+
+        trans = Transaction.select().where((Transaction.date.between(start_date, end_date)) & (Transaction.type.startswith("Gasto")))
         data, cats, monthly, grand = defaultdict(lambda: defaultdict(float)), set(), defaultdict(float), 0.0
         for t in trans:
             data[t.category][t.date.month] += t.amount
@@ -1099,6 +1210,7 @@ class AppController:
             monthly[t.date.month] += t.amount
             grand += t.amount
         self.view.analysis_page.display_annual_report(data, sorted(list(cats)), year, monthly, grand)
+
 
     def add_quick_transaction(self, data):
         if not data["description"] or not data["amount"]:

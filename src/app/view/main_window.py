@@ -160,21 +160,21 @@ class MainWindow(QMainWindow):
         self.budget_page.delete_button.clicked.connect(self.controller.delete_budget_entry)
         self.budget_page.table.cellDoubleClicked.connect(self.controller.edit_budget_entry_by_row)
         
-        # Conexiones Transacciones
+        # --- INICIO DE LA CORRECCIÓN ---
+        # Conexiones Transacciones (actualizadas para los nuevos botones de filtro)
         self.transactions_page.add_button.clicked.connect(self.controller.add_transaction)
         self.transactions_page.delete_button.clicked.connect(self.controller.delete_transaction)
         self.transactions_page.recurring_table.cellDoubleClicked.connect(self.controller.edit_recurring_transaction_by_row)
         self.transactions_page.all_table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_transaction_by_row(r, c, self.transactions_page.all_table))
         self.transactions_page.goals_table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_transaction_by_row(r, c, self.transactions_page.goals_table))
         self.transactions_page.debts_table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_transaction_by_row(r, c, self.transactions_page.debts_table))
+        
+        # Las señales que disparan el filtro ahora son estas:
         self.transactions_page.search_input.textChanged.connect(self.controller.filter_transactions)
-        self.transactions_page.type_filter.currentTextChanged.connect(self.controller.filter_transactions)
-        self.transactions_page.category_filter.currentTextChanged.connect(self.controller.filter_transactions)
-        self.transactions_page.sort_by_combo.currentTextChanged.connect(self.controller.filter_transactions)
-        self.transactions_page.sort_order_combo.currentTextChanged.connect(self.controller.filter_transactions)
         self.transactions_page.start_date_filter.dateChanged.connect(self.controller.filter_transactions)
         self.transactions_page.end_date_filter.dateChanged.connect(self.controller.filter_transactions)
         self.transactions_page.tabs.currentChanged.connect(self.controller.filter_transactions)
+        # --- FIN DE LA CORRECCIÓN ---
         
         # Conexiones Metas y Deudas
         self.goals_page.add_goal_button.clicked.connect(self.controller.add_goal)
@@ -184,8 +184,7 @@ class MainWindow(QMainWindow):
         self.goals_page.edit_debt_requested.connect(self.controller.edit_debt)
         self.goals_page.delete_debt_requested.connect(self.controller.delete_debt)
         
-        # --- CONEXIONES CORREGIDAS PARA CONFIGURACIÓN ---
-        # Pestaña Especial: Tipos de Transacción y Reglas
+        # Conexiones Configuración
         tt_tab = self.settings_page.transaction_types_tab
         tt_tab.param_add_button.clicked.connect(lambda: self.controller.add_parameter('Tipo de Transacción'))
         tt_tab.param_delete_button.clicked.connect(self.controller.delete_parameter)
@@ -196,7 +195,6 @@ class MainWindow(QMainWindow):
         tt_tab.rule_delete_button.clicked.connect(self.controller.delete_budget_rule)
         tt_tab.rule_table.cellDoubleClicked.connect(self.controller.edit_budget_rule_by_row)
 
-        # Otras pestañas de Configuración
         self.settings_page.account_types_tab.add_button.clicked.connect(lambda: self.controller.add_parameter('Tipo de Cuenta'))
         self.settings_page.account_types_tab.delete_button.clicked.connect(self.controller.delete_parameter)
         self.settings_page.account_types_tab.table.cellDoubleClicked.connect(
