@@ -176,6 +176,14 @@ class MainWindow(QMainWindow):
         self.transactions_page.tabs.currentChanged.connect(self.controller.filter_transactions)
         # --- FIN DE LA CORRECCIÓN ---
         
+        budget_page = self.budget_page
+        budget_page.add_button.clicked.connect(self.controller.add_budget_entry)
+        budget_page.delete_button.clicked.connect(self.controller.delete_selected_items)
+        budget_page.table.cellDoubleClicked.connect(self.controller.edit_budget_entry_by_row)
+        budget_page.prev_button.clicked.connect(lambda: self.controller.change_page(-1))
+        budget_page.next_button.clicked.connect(lambda: self.controller.change_page(1))
+        budget_page.items_per_page_combo.currentTextChanged.connect(self.controller.change_items_per_page)
+        
         # Conexiones Metas y Deudas
         self.goals_page.add_goal_button.clicked.connect(self.controller.add_goal)
         self.goals_page.add_debt_button.clicked.connect(self.controller.add_debt)

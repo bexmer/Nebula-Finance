@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QMessageBox, QTableWidget
+from PySide6.QtWidgets import QMessageBox, QTableWidget, QDialog
 from PySide6.QtCore import QDate, Qt, QCoreApplication
 from app.model.transaction import Transaction
 from app.model.goal import Goal
@@ -82,32 +82,6 @@ class AppController:
         """Recarga los datos cuando el usuario cambia el número de items por página."""
         self.load_paginated_data(page=1) # Volvemos a la página 1
 
-    def delete_selected_items(self):
-        current_view_name = self.view.get_current_view_name()
-        view_widget = getattr(self.view, f"{current_view_name}_page", None)
-        
-        if not view_widget or not hasattr(view_widget, 'get_checked_ids'): return
-
-        ids_to_delete = view_widget.get_checked_ids()
-        if not ids_to_delete:
-            self.view.show_notification("No hay elementos seleccionados.", "error")
-            return
-
-        model_map = {
-            'transactions': Transaction,
-            'accounts': Account,
-            'budget': BudgetEntry
-            # Añade aquí otros modelos para las demás tablas
-        }
-        model = model_map.get(current_view_name)
-        
-        if not model: return
-        
-        if QMessageBox.question(self.view, "Confirmar", f"¿Eliminar {len(ids_to_delete)} elementos?") == QMessageBox.StandardButton.Yes:
-            deleted_rows = model.delete().where(model.id.in_(ids_to_delete)).execute()
-            self.full_refresh() # O una recarga más específica
-            self.view.show_notification(f"{deleted_rows} elementos eliminados.", "success")
-            
     def get_current_view_name(self):
         current_index = self.content_stack.currentIndex()
         view_map = {
@@ -729,8 +703,8 @@ class AppController:
             )
             self.view.show_notification("Regla de transacción recurrente añadida.", "success")
         else:
-            if not data["account_id"]:
-                self.view.show_notification("Debe seleccionar una cuenta.", "error")
+            if not data["account_id"] or data["account_id"] == -1:
+                self.view.show_notification("Debe seleccionar una cuenta válida.", "error")
                 return
             if not data["description"] or not data["amount"]:
                 self.view.show_notification("Descripción y Monto son obligatorios.", "error")
@@ -940,16 +914,16 @@ class AppController:
             return
         try:
             amount = float(data["budgeted_amount"])
-        except (ValueError, TypeError):
-            self.view.show_notification("El monto debe ser un número válido.", "error")
-            return
-        BudgetEntry.create(
-            description=data["description"], category=data["category"],
-            type=data["type"], budgeted_amount=amount,
-        )
-        self.view.budget_page.clear_form()
-        self.full_refresh()
-        self.view.show_notification("Entrada de presupuesto añadida.", "success")
+            BudgetEntry.create(
+                description=data["description"], category=data["category"],
+                type=data["type"], budgeted_amount=amount,
+                due_date=data["due_date"] # Guarda la nueva fecha
+            )
+            self.view.budget_page.clear_form()
+            self.load_paginated_data()
+            self.view.show_notification("Entrada de presupuesto añadida.", "success")
+        except ValueError:
+            self.view.show_notification("El monto debe ser un número.", "error")
 
     def delete_budget_entry(self):
         entry_id = self.view.budget_page.get_selected_entry_id()
@@ -963,19 +937,41 @@ class AppController:
         self.view.budget_page.display_budget_entries(entries)
 
     def edit_budget_entry_by_row(self, row, column):
-        entry_id = self.view.budget_page.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-        if not entry_id: return
         try:
+            table = self.view.budget_page.table
+            entry_id = table.item(row, 1).data(Qt.ItemDataRole.UserRole)
             entry = BudgetEntry.get_by_id(entry_id)
             entry_data = {
-                "description": entry.description, "budgeted_amount": entry.budgeted_amount,
-                "type": entry.type, "category": entry.category,
+                'description': entry.description,
+                'budgeted_amount': entry.budgeted_amount,
+                'type': entry.type,
+                'category': entry.category,
+                'due_date': entry.due_date # Pasa la fecha al diálogo de edición
             }
+
             dialog = EditBudgetEntryDialog(entry_data, self.view)
-            if dialog.exec():
-                self.update_budget_entry(entry, dialog.get_data())
-        except BudgetEntry.DoesNotExist:
-            self.view.show_notification("Entrada no encontrada.", "error")
+            
+            # Poblar los ComboBox del diálogo
+            types = [p.value for p in Parameter.select().where(Parameter.group == 'Tipo de Transacción') if p.value.startswith('Ingreso') or p.value.startswith('Gasto')]
+            categories = [p.value for p in Parameter.select().where(Parameter.group == 'Categoría')]
+            dialog.type_input.addItems(types)
+            dialog.category_input.addItems(categories)
+            dialog.type_input.setCurrentText(entry.type)
+            dialog.category_input.setCurrentText(entry.category)
+
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                new_data = dialog.get_data()
+                entry.description = new_data['description']
+                entry.budgeted_amount = float(new_data['budgeted_amount'])
+                entry.type = new_data['type']
+                entry.category = new_data['category']
+                entry.due_date = new_data['due_date'] # Guarda la fecha editada
+                entry.save()
+                self.load_paginated_data()
+                self.view.show_notification("Entrada de presupuesto actualizada.", "success")
+        except (BudgetEntry.DoesNotExist, AttributeError):
+            self.view.show_notification("No se pudo editar la entrada seleccionada.", "error")
+
 
     def update_budget_entry(self, entry, data):
         if not data["description"] or not data["budgeted_amount"]:
@@ -1134,7 +1130,9 @@ class AppController:
             return
         try:
             total = float(data["total_amount"])
-            Debt.create(name=data["name"], total_amount=total, current_balance=total)
+            minimum_payment_text = data.get("minimum_payment", "0")
+            minimum_payment = float(minimum_payment_text) if minimum_payment_text else 0.0
+            Debt.create(name=data["name"], total_amount=total, current_balance=total, minimum_payment=minimum_payment)
             self.view.goals_page.clear_debt_form()
             self.load_goals_and_debts()
             self.view.show_notification("Deuda añadida.", "success")

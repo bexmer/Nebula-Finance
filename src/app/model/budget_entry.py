@@ -1,12 +1,13 @@
-from peewee import CharField, FloatField
+from peewee import CharField, FloatField, DateField
 from .base_model import BaseModel
+import datetime
 
 class BudgetEntry(BaseModel):
     """
-    Representa una entrada de presupuesto mensual planeada,
-    ya sea un ingreso o un gasto recurrente.
+    Representa una entrada de presupuesto mensual planeada.
     """
     description = CharField()
     category = CharField()
-    type = CharField()  # 'Ingreso Planeado' o 'Gasto Planeado'
+    type = CharField()
     budgeted_amount = FloatField()
+    due_date = DateField(default=datetime.date.today)

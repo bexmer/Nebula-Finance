@@ -249,7 +249,10 @@ class TransactionsView(QWidget):
 
     def update_accounts_list(self, accounts):
         self.account_input.clear()
-        for acc in accounts: self.account_input.addItem(f"{acc.name} (${acc.current_balance:,.2f})", userData=acc.id)
+        if not accounts:
+            self.account_input.addItem("No hay cuentas disponibles", userData=-1)
+        else:
+            for acc in accounts: self.account_input.addItem(f"{acc.name} (${acc.current_balance:,.2f})", userData=acc.id)
 
     def update_goal_and_debt_lists(self, goals, debts):
         self.goal_combo.clear(); self.debt_combo.clear()

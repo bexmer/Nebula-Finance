@@ -124,10 +124,12 @@ class GoalsView(QWidget):
         else: # Deuda
             self.debt_name_input = QLineEdit()
             self.debt_total_input = QLineEdit()
+            self.debt_minimum_payment_input = QLineEdit()
             self.add_debt_button = QPushButton("Añadir Deuda")
             self.add_debt_button.setObjectName("PrimaryAction")
             layout.addRow("Nombre de la Deuda:", self.debt_name_input)
             layout.addRow("Monto Total:", self.debt_total_input)
+            layout.addRow("Pago Mínimo:", self.debt_minimum_payment_input)
             layout.addRow(self.add_debt_button)
             
         return card
@@ -182,7 +184,8 @@ class GoalsView(QWidget):
     def get_debt_form_data(self):
         return {
             "name": self.debt_name_input.text(),
-            "total_amount": self.debt_total_input.text()
+            "total_amount": self.debt_total_input.text(),
+            "minimum_payment": self.debt_minimum_payment_input.text()
         }
     
     def clear_goal_form(self):
@@ -192,3 +195,4 @@ class GoalsView(QWidget):
     def clear_debt_form(self):
         self.debt_name_input.clear()
         self.debt_total_input.clear()
+        self.debt_minimum_payment_input.clear()
