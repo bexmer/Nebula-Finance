@@ -186,7 +186,7 @@ class MainWindow(QMainWindow):
         
         # Conexiones Metas y Deudas
         self.goals_page.add_goal_button.clicked.connect(self.controller.add_goal)
-        self.goals_page.add_debt_button.clicked.connect(self.controller.add_debt)
+        self.goals_page.add_debt_button.clicked.connect(self.controller.add_debt) # <-- AÑADIR ESTA LÍNEA
         self.goals_page.edit_goal_requested.connect(self.controller.edit_goal)
         self.goals_page.delete_goal_requested.connect(self.controller.delete_goal)
         self.goals_page.edit_debt_requested.connect(self.controller.edit_debt)

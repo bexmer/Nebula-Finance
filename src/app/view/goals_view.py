@@ -23,8 +23,8 @@ class GoalItem(QFrame):
         percentage = (goal_data['current'] / goal_data['target'] * 100) if goal_data['target'] > 0 else 0
         self.progress_bar.setValue(int(percentage))
         self.progress_bar.setTextVisible(False)
-        self.progress_bar.setProperty("state", "good")
-        self.progress_bar.style().polish(self.progress_bar)
+        self.progress_bar.setProperty("state", "good") # Se aplica el estado
+        self.progress_bar.style().polish(self.progress_bar) # Se fuerza la actualización del estilo
 
         amounts_text = f"${goal_data['current']:,.2f} de ${goal_data['target']:,.2f}"
         self.amounts_label = QLabel(amounts_text)
@@ -71,16 +71,13 @@ class GoalsView(QWidget):
         header_layout.addWidget(title_label)
         main_layout.addLayout(header_layout)
         
-        # --- Contenedor Principal ---
         content_layout = QHBoxLayout()
         main_layout.addLayout(content_layout, 1)
 
-        # --- Columna Izquierda: Formularios ---
         form_container = QWidget()
         form_container.setFixedWidth(350)
         form_layout = QVBoxLayout(form_container)
-        form_layout.setContentsMargins(0, 0, 0, 0)
-        form_layout.setSpacing(20)
+        form_layout.setContentsMargins(0, 0, 0, 0); form_layout.setSpacing(20)
 
         self.goal_form_card = self._create_form_card("Añadir Nueva Meta")
         self.debt_form_card = self._create_form_card("Añadir Nueva Deuda")
@@ -89,11 +86,9 @@ class GoalsView(QWidget):
         form_layout.addWidget(self.debt_form_card)
         form_layout.addStretch()
 
-        # --- Columna Derecha: Listas ---
         list_container = QWidget()
         list_layout = QHBoxLayout(list_container)
-        list_layout.setContentsMargins(0, 0, 0, 0)
-        list_layout.setSpacing(20)
+        list_layout.setContentsMargins(0, 0, 0, 0); list_layout.setSpacing(20)
 
         self.goals_list_card = self._create_list_card("Metas Activas")
         self.debts_list_card = self._create_list_card("Deudas Activas")
@@ -105,55 +100,40 @@ class GoalsView(QWidget):
         content_layout.addWidget(list_container, 1)
 
     def _create_form_card(self, title):
-        card = QFrame()
-        card.setObjectName("Card")
-        layout = QFormLayout(card)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(10)
-
+        card = QFrame(); card.setObjectName("Card")
+        layout = QFormLayout(card); layout.setContentsMargins(15, 15, 15, 15); layout.setSpacing(10)
         layout.addRow(QLabel(f"<b>{title}</b>"))
 
         if "Meta" in title:
             self.goal_name_input = QLineEdit()
             self.goal_target_input = QLineEdit()
-            self.add_goal_button = QPushButton("Añadir Meta")
-            self.add_goal_button.setObjectName("PrimaryAction")
+            self.add_goal_button = QPushButton("Añadir Meta"); self.add_goal_button.setObjectName("PrimaryAction")
             layout.addRow("Nombre de la Meta:", self.goal_name_input)
             layout.addRow("Monto Objetivo:", self.goal_target_input)
             layout.addRow(self.add_goal_button)
-        else: # Deuda
+        else:
             self.debt_name_input = QLineEdit()
             self.debt_total_input = QLineEdit()
-            self.debt_minimum_payment_input = QLineEdit()
-            self.add_debt_button = QPushButton("Añadir Deuda")
-            self.add_debt_button.setObjectName("PrimaryAction")
+            self.debt_min_payment_input = QLineEdit() # Campo nuevo
+            self.add_debt_button = QPushButton("Añadir Deuda"); self.add_debt_button.setObjectName("PrimaryAction")
             layout.addRow("Nombre de la Deuda:", self.debt_name_input)
             layout.addRow("Monto Total:", self.debt_total_input)
-            layout.addRow("Pago Mínimo:", self.debt_minimum_payment_input)
+            layout.addRow("Pago Mínimo:", self.debt_min_payment_input) # Campo nuevo
             layout.addRow(self.add_debt_button)
-            
         return card
 
     def _create_list_card(self, title):
-        card = QFrame()
-        card.setObjectName("Card")
+        card = QFrame(); card.setObjectName("Card")
         layout = QVBoxLayout(card)
         layout.addWidget(QLabel(f"<b>{title}</b>"))
-        
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_content = QWidget()
-        list_layout = QVBoxLayout(scroll_content)
-        list_layout.setSpacing(10)
-        list_layout.addStretch()
+        scroll_area = QScrollArea(); scroll_area.setWidgetResizable(True)
+        scroll_content = QWidget(); list_layout = QVBoxLayout(scroll_content)
+        list_layout.setSpacing(10); list_layout.addStretch()
         scroll_area.setWidget(scroll_content)
         layout.addWidget(scroll_area)
         
-        if "Metas" in title:
-            self.goals_list_layout = list_layout
-        else:
-            self.debts_list_layout = list_layout
-            
+        if "Metas" in title: self.goals_list_layout = list_layout
+        else: self.debts_list_layout = list_layout
         return card
 
     def display_goals(self, goals_data):
@@ -166,33 +146,21 @@ class GoalsView(QWidget):
 
     def display_debts(self, debts):
         self._clear_layout(self.debts_list_layout)
-        # Aquí puedes implementar una lógica similar para las deudas
+        # Puedes implementar aquí una lógica similar a la de GoalItem para las deudas
         
     def _clear_layout(self, layout):
         while layout.count() > 1:
             item = layout.takeAt(0)
-            widget = item.widget()
-            if widget:
-                widget.deleteLater()
+            if item.widget(): item.widget().deleteLater()
 
     def get_goal_form_data(self):
-        return {
-            "name": self.goal_name_input.text(),
-            "target_amount": self.goal_target_input.text()
-        }
+        return {"name": self.goal_name_input.text(), "target_amount": self.goal_target_input.text()}
 
     def get_debt_form_data(self):
-        return {
-            "name": self.debt_name_input.text(),
-            "total_amount": self.debt_total_input.text(),
-            "minimum_payment": self.debt_minimum_payment_input.text()
-        }
+        return {"name": self.debt_name_input.text(), "total_amount": self.debt_total_input.text(), "minimum_payment": self.debt_min_payment_input.text()}
     
     def clear_goal_form(self):
-        self.goal_name_input.clear()
-        self.goal_target_input.clear()
+        self.goal_name_input.clear(); self.goal_target_input.clear()
 
     def clear_debt_form(self):
-        self.debt_name_input.clear()
-        self.debt_total_input.clear()
-        self.debt_minimum_payment_input.clear()
+        self.debt_name_input.clear(); self.debt_total_input.clear(); self.debt_min_payment_input.clear()

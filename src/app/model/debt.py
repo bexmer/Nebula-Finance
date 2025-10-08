@@ -5,6 +5,4 @@ class Debt(BaseModel):
     name = CharField()
     total_amount = FloatField()
     current_balance = FloatField()
-    # CORRECCIÓN: El nombre del campo ahora es el correcto.
-    minimum_payment = FloatField()
-
+    minimum_payment = FloatField(default=0.0) # Añadimos un valor por defecto

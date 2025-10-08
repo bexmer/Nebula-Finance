@@ -876,21 +876,20 @@ class AppController:
         accounts = list(Account.select())
         self.view.transactions_page.update_accounts_list(accounts)
 
-    def filter_transactions(self):
-        filters = self.view.transactions_page.get_filters()
+    def filter_transactions(self, page=1):
+        view_widget = self.view.transactions_page
+        filters = view_widget.get_filters()
         tab_index = filters["current_tab_index"]
-
-        if tab_index == 3: # Pestaña de Recurrentes
+        
+        if tab_index == 3:
             query = RecurringTransaction.select()
-            return
         else:
-            query = Transaction.select() # SIEMPRE empezamos la consulta desde Transaction
-            
-            if tab_index == 1: # Metas
+            query = Transaction.select()
+            if tab_index == 1:
                 query = query.join(Goal, on=(Transaction.goal == Goal.id)).where(Transaction.goal.is_null(False))
-            elif tab_index == 2: # Deudas
+            elif tab_index == 2:
                 query = query.join(Debt, on=(Transaction.debt == Debt.id)).where(Transaction.debt.is_null(False))
-
+        
         start_date, end_date = filters["start_date"], filters["end_date"]
         query = query.where(Transaction.date.between(start_date, end_date))
 
@@ -1118,41 +1117,43 @@ class AppController:
             target = float(data["target_amount"])
             Goal.create(name=data["name"], target_amount=target, current_amount=0)
             self.view.goals_page.clear_goal_form()
-            self.load_goals_and_debts()
+            self.load_goals_and_debts() # Refresca la lista de metas
             self.view.show_notification("Meta añadida.", "success")
         except ValueError:
             self.view.show_notification("El monto debe ser un número.", "error")
 
     def add_debt(self):
         data = self.view.goals_page.get_debt_form_data()
-        if not data["name"] or not data["total_amount"]:
-            self.view.show_notification("Nombre y Monto son obligatorios.", "error")
+        if not all(data.values()):
+            self.view.show_notification("Todos los campos son obligatorios.", "error")
             return
         try:
             total = float(data["total_amount"])
-            minimum_payment_text = data.get("minimum_payment", "0")
-            minimum_payment = float(minimum_payment_text) if minimum_payment_text else 0.0
-            Debt.create(name=data["name"], total_amount=total, current_balance=total, minimum_payment=minimum_payment)
+            min_payment = float(data["minimum_payment"])
+            Debt.create(
+                name=data["name"], 
+                total_amount=total, 
+                current_balance=total,
+                minimum_payment=min_payment
+            )
             self.view.goals_page.clear_debt_form()
-            self.load_goals_and_debts()
+            self.load_goals_and_debts() # Refresca la lista de deudas
             self.view.show_notification("Deuda añadida.", "success")
         except ValueError:
-            self.view.show_notification("El monto debe ser un número.", "error")
+            self.view.show_notification("Los montos deben ser números.", "error")
+        
+
 
     def edit_goal(self, goal_id):
         try:
             goal = Goal.get_by_id(goal_id)
-            g_data = {"name": goal.name, "target_amount": goal.target_amount}
-            dialog = EditGoalDebtDialog(g_data, "goal", self.view)
+            dialog = EditGoalDebtDialog(is_goal=True, data={'name': goal.name, 'target_amount': goal.target_amount})
             if dialog.exec():
                 new_data = dialog.get_data()
-                if not new_data["name"] or not new_data["target_amount"]:
-                    self.view.show_notification("Todos los campos son obligatorios.", "error")
-                    return
-                goal.name = new_data["name"]
-                goal.target_amount = float(new_data["target_amount"])
+                goal.name = new_data['name']
+                goal.target_amount = float(new_data['target_amount'])
                 goal.save()
-                self.full_refresh()
+                self.load_goals_and_debts() # <-- LÍNEA CLAVE DE REFRESCO
                 self.view.show_notification("Meta actualizada.", "success")
         except (Goal.DoesNotExist, ValueError):
             self.view.show_notification("No se pudo editar la meta.", "error")
@@ -1184,16 +1185,15 @@ class AppController:
             self.view.show_notification("No se pudo editar la deuda.", "error")
             
     def load_goals_and_debts(self):
+        """Carga las metas y deudas, calculando la proyección para las metas."""
         goals = Goal.select()
         goals_data = []
         today = datetime.date.today()
 
         for goal in goals:
             projected_date_str = "Añade aportes para proyectar"
-            
             if goal.current_amount > 0:
                 first_transaction = Transaction.select(fn.MIN(Transaction.date)).where(Transaction.goal == goal).scalar()
-                
                 if first_transaction:
                     start_date = datetime.date.fromisoformat(str(first_transaction))
                     days_saving = (today - start_date).days
@@ -1218,13 +1218,14 @@ class AppController:
         debts = Debt.select()
         self.view.goals_page.display_goals(goals_data)
         self.view.goals_page.display_debts(list(debts))
-        self.load_transactions_dependencies()
+        self.load_transactions_dependencies() # Esta llamada ahora funcionará
 
     def load_transactions_dependencies(self):
         """Carga las listas de metas y deudas en los menús desplegables de la página de transacciones."""
         goals = Goal.select()
         debts = Debt.select()
         self.view.transactions_page.update_goal_and_debt_lists(goals, debts)
+        
     def delete_debt(self, debt_id):
         if QMessageBox.question(self.view, "Confirmar", "¿Eliminar deuda?") == QMessageBox.StandardButton.Yes:
             Transaction.update(debt=None).where(Transaction.debt == debt_id).execute()
