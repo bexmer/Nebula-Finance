@@ -106,6 +106,7 @@ class TransactionsView(QWidget):
         action_bar.addWidget(self.select_all_checkbox)
         action_bar.addStretch()
         self.delete_button = QPushButton("Eliminar Selección")
+        action_bar.addWidget(self.delete_button)
         table_layout.addLayout(action_bar)
         
         self.tabs = QTabWidget()

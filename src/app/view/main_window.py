@@ -132,7 +132,7 @@ class MainWindow(QMainWindow):
         self.btn_accounts.clicked.connect(lambda: (self.content_stack.setCurrentIndex(2), self.controller.load_accounts()))
         self.btn_budget.clicked.connect(lambda: (self.content_stack.setCurrentIndex(3), self.controller.full_refresh()))
         self.btn_transactions.clicked.connect(lambda: (self.content_stack.setCurrentIndex(4), self.controller.load_transactions()))
-        self.btn_goals.clicked.connect(lambda: (self.content_stack.setCurrentIndex(5), self.controller.full_refresh()))
+        self.btn_goals.clicked.connect(lambda: (self.content_stack.setCurrentIndex(5), self.controller.load_goals_and_debts()))
         self.btn_analysis.clicked.connect(lambda: (self.content_stack.setCurrentIndex(6), self.controller.update_analysis_view()))
         self.btn_settings.clicked.connect(lambda: (self.content_stack.setCurrentIndex(7), self.controller.load_parameters()))
         
@@ -163,7 +163,7 @@ class MainWindow(QMainWindow):
         # --- INICIO DE LA CORRECCIÓN ---
         # Conexiones Transacciones (actualizadas para los nuevos botones de filtro)
         self.transactions_page.add_button.clicked.connect(self.controller.add_transaction)
-        self.transactions_page.delete_button.clicked.connect(self.controller.delete_transaction)
+        self.transactions_page.delete_button.clicked.connect(self.controller.delete_selected_items)
         self.transactions_page.recurring_table.cellDoubleClicked.connect(self.controller.edit_recurring_transaction_by_row)
         self.transactions_page.all_table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_transaction_by_row(r, c, self.transactions_page.all_table))
         self.transactions_page.goals_table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_transaction_by_row(r, c, self.transactions_page.goals_table))
@@ -210,6 +210,20 @@ class MainWindow(QMainWindow):
         self.controller.full_refresh()
         self.dashboard_page.set_default_month_filter()
         self.update_theme_icons()
+        
+    def get_current_view_name(self):
+        current_index = self.content_stack.currentIndex()
+        view_map = {
+            0: 'dashboard',
+            1: 'portfolio',
+            2: 'accounts',
+            3: 'budget',
+            4: 'transactions',
+            5: 'goals',
+            6: 'analysis',
+            7: 'settings'
+        }
+        return view_map.get(current_index)
 
     def toggle_nav_panel(self):
         self.is_nav_panel_collapsed = not self.is_nav_panel_collapsed

@@ -30,17 +30,14 @@ class AppController:
         # El constructor ahora está limpio. Todas las conexiones se manejan en main_window.py
 
     def full_refresh(self):
+        """Refresca todos los datos de la aplicación."""
         self.process_recurring_transactions()
         self.load_parameters_to_views()
-        self.load_accounts()
-        self.load_transactions()
         self.update_dashboard()
-        self.load_goals()
-        self.load_debts()
-        self.update_analysis_view()
-        self.load_budget_entries()
-        self.load_portfolio()
-        self.load_parameters()
+        self.load_goals_and_debts() # Unificamos la llamada a la función correcta
+        self.load_accounts()
+        self.filter_transactions()
+
         
     # --- NUEVA LÓGICA DE PAGINACIÓN Y ELIMINACIÓN ---
 
@@ -86,7 +83,6 @@ class AppController:
         self.load_paginated_data(page=1) # Volvemos a la página 1
 
     def delete_selected_items(self):
-        """Elimina los items marcados con un checkbox en la vista actual."""
         current_view_name = self.view.get_current_view_name()
         view_widget = getattr(self.view, f"{current_view_name}_page", None)
         
@@ -96,6 +92,29 @@ class AppController:
         if not ids_to_delete:
             self.view.show_notification("No hay elementos seleccionados.", "error")
             return
+
+        model_map = {
+            'transactions': Transaction,
+            'accounts': Account,
+            'budget': BudgetEntry
+            # Añade aquí otros modelos para las demás tablas
+        }
+        model = model_map.get(current_view_name)
+        
+        if not model: return
+        
+        if QMessageBox.question(self.view, "Confirmar", f"¿Eliminar {len(ids_to_delete)} elementos?") == QMessageBox.StandardButton.Yes:
+            deleted_rows = model.delete().where(model.id.in_(ids_to_delete)).execute()
+            self.full_refresh() # O una recarga más específica
+            self.view.show_notification(f"{deleted_rows} elementos eliminados.", "success")
+            
+    def get_current_view_name(self):
+        current_index = self.content_stack.currentIndex()
+        view_map = {
+            0: 'dashboard', 1: 'portfolio', 2: 'accounts', 3: 'budget',
+            4: 'transactions', 5: 'goals', 6: 'analysis', 7: 'settings'
+        }
+        return view_map.get(current_index)
         
     def delete_selected_items(self):
         """Elimina todos los items seleccionados con checkbox en la tabla activa."""
@@ -887,17 +906,19 @@ class AppController:
         filters = self.view.transactions_page.get_filters()
         tab_index = filters["current_tab_index"]
 
-        if tab_index == 3:
-            self.load_recurring_rules()
+        if tab_index == 3: # Pestaña de Recurrentes
+            query = RecurringTransaction.select()
             return
-
-        query = Transaction.select().join(Account, on=(Transaction.account == Account.id))
-
-        if tab_index == 1: query = query.join(Goal).where(Transaction.goal.is_null(False))
-        elif tab_index == 2: query = query.join(Debt).where(Transaction.debt.is_null(False))
+        else:
+            query = Transaction.select() # SIEMPRE empezamos la consulta desde Transaction
+            
+            if tab_index == 1: # Metas
+                query = query.join(Goal, on=(Transaction.goal == Goal.id)).where(Transaction.goal.is_null(False))
+            elif tab_index == 2: # Deudas
+                query = query.join(Debt, on=(Transaction.debt == Debt.id)).where(Transaction.debt.is_null(False))
 
         start_date, end_date = filters["start_date"], filters["end_date"]
-        query = query.where((Transaction.date >= start_date) & (Transaction.date <= end_date))
+        query = query.where(Transaction.date.between(start_date, end_date))
 
         if filters["search_text"]: query = query.where(Transaction.description.contains(filters["search_text"]))
         if filters["type"] != "Todos los Tipos": query = query.where(Transaction.type == filters["type"])
@@ -1095,32 +1116,30 @@ class AppController:
     def add_goal(self):
         data = self.view.goals_page.get_goal_form_data()
         if not data["name"] or not data["target_amount"]:
-            self.view.show_notification("Todos los campos son obligatorios.", "error")
+            self.view.show_notification("Nombre y Monto son obligatorios.", "error")
             return
         try:
             target = float(data["target_amount"])
-        except (ValueError, TypeError):
-            self.view.show_notification("El monto debe ser un número válido.", "error")
-            return
-        Goal.create(name=data["name"], target_amount=target, current_amount=0)
-        self.view.goals_page.clear_goal_form()
-        self.full_refresh()
-        self.view.show_notification("¡Meta añadida!", "success")
+            Goal.create(name=data["name"], target_amount=target, current_amount=0)
+            self.view.goals_page.clear_goal_form()
+            self.load_goals_and_debts()
+            self.view.show_notification("Meta añadida.", "success")
+        except ValueError:
+            self.view.show_notification("El monto debe ser un número.", "error")
 
     def add_debt(self):
         data = self.view.goals_page.get_debt_form_data()
-        if not data["name"] or not data["total_amount"] or not data["minimum_payment"]:
-            self.view.show_notification("Todos los campos son obligatorios.", "error")
+        if not data["name"] or not data["total_amount"]:
+            self.view.show_notification("Nombre y Monto son obligatorios.", "error")
             return
         try:
-            total, min_pay = float(data["total_amount"]), float(data["minimum_payment"])
-        except (ValueError, TypeError):
-            self.view.show_notification("Los montos deben ser números válidos.", "error")
-            return
-        Debt.create(name=data["name"], total_amount=total, minimum_payment=min_pay, current_balance=total)
-        self.view.goals_page.clear_debt_form()
-        self.full_refresh()
-        self.view.show_notification("¡Deuda añadida!", "success")
+            total = float(data["total_amount"])
+            Debt.create(name=data["name"], total_amount=total, current_balance=total)
+            self.view.goals_page.clear_debt_form()
+            self.load_goals_and_debts()
+            self.view.show_notification("Deuda añadida.", "success")
+        except ValueError:
+            self.view.show_notification("El monto debe ser un número.", "error")
 
     def edit_goal(self, goal_id):
         try:
@@ -1165,7 +1184,49 @@ class AppController:
                 self.view.show_notification("Deuda actualizada.", "success")
         except (Debt.DoesNotExist, ValueError):
             self.view.show_notification("No se pudo editar la deuda.", "error")
+            
+    def load_goals_and_debts(self):
+        goals = Goal.select()
+        goals_data = []
+        today = datetime.date.today()
 
+        for goal in goals:
+            projected_date_str = "Añade aportes para proyectar"
+            
+            if goal.current_amount > 0:
+                first_transaction = Transaction.select(fn.MIN(Transaction.date)).where(Transaction.goal == goal).scalar()
+                
+                if first_transaction:
+                    start_date = datetime.date.fromisoformat(str(first_transaction))
+                    days_saving = (today - start_date).days
+                    if days_saving <= 0: days_saving = 1
+                    
+                    avg_daily_savings = goal.current_amount / days_saving
+                    
+                    if avg_daily_savings > 0:
+                        remaining_amount = goal.target_amount - goal.current_amount
+                        if remaining_amount > 0:
+                            days_to_go = remaining_amount / avg_daily_savings
+                            projected_date = today + datetime.timedelta(days=int(days_to_go))
+                            projected_date_str = f"Proyección: {projected_date.strftime('%b %Y')}"
+                        else:
+                            projected_date_str = "¡Meta Completada!"
+            
+            goals_data.append({
+                'id': goal.id, 'name': goal.name, 'current': goal.current_amount,
+                'target': goal.target_amount, 'projected_date': projected_date_str
+            })
+
+        debts = Debt.select()
+        self.view.goals_page.display_goals(goals_data)
+        self.view.goals_page.display_debts(list(debts))
+        self.load_transactions_dependencies()
+
+    def load_transactions_dependencies(self):
+        """Carga las listas de metas y deudas en los menús desplegables de la página de transacciones."""
+        goals = Goal.select()
+        debts = Debt.select()
+        self.view.transactions_page.update_goal_and_debt_lists(goals, debts)
     def delete_debt(self, debt_id):
         if QMessageBox.question(self.view, "Confirmar", "¿Eliminar deuda?") == QMessageBox.StandardButton.Yes:
             Transaction.update(debt=None).where(Transaction.debt == debt_id).execute()
