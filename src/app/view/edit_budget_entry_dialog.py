@@ -1,5 +1,9 @@
+# Reemplaza todo el contenido de este archivo con el siguiente código corregido:
+
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit, 
-                               QComboBox, QDialogButtonBox)
+                               QComboBox, QDialogButtonBox, QDateEdit)
+from PySide6.QtCore import QDate
+import datetime
 
 class EditBudgetEntryDialog(QDialog):
     """
@@ -17,17 +21,25 @@ class EditBudgetEntryDialog(QDialog):
         self.amount_input = QLineEdit(str(entry_data['budgeted_amount']))
         
         self.type_input = QComboBox()
-        self.type_input.addItems(["Ingreso Planeado", "Gasto Planeado"])
-        self.type_input.setCurrentText(entry_data['type'])
+        # Los items se añaden desde el controlador
         
         self.category_input = QComboBox()
-        self.category_input.addItems(["Nómina", "Freelance", "Otros Ingresos", "Vivienda", "Servicios", "Transporte", "Comida", "Ocio", "Salud", "Educación", "Ahorro", "Pago Deuda", "Otros Gastos"])
-        self.category_input.setCurrentText(entry_data['category'])
+        # Los items se añaden desde el controlador
+
+        # --- INICIO DE LA SOLUCIÓN ---
+        # Asegurarse de que la fecha es un objeto QDate para el widget
+        due_date = entry_data.get('due_date', datetime.date.today())
+        if isinstance(due_date, datetime.date):
+             due_date = QDate(due_date.year, due_date.month, due_date.day)
+        self.date_input = QDateEdit(due_date)
+        self.date_input.setCalendarPopup(True)
+        # --- FIN DE LA SOLUCIÓN ---
 
         form_layout.addRow("Descripción:", self.description_input)
         form_layout.addRow("Monto Presupuestado:", self.amount_input)
         form_layout.addRow("Tipo:", self.type_input)
         form_layout.addRow("Categoría:", self.category_input)
+        form_layout.addRow("Fecha Estimada:", self.date_input)
 
         # Botones de Guardar y Cancelar
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
@@ -39,10 +51,12 @@ class EditBudgetEntryDialog(QDialog):
 
     def get_data(self):
         """Devuelve los datos actualizados del formulario."""
+        # --- INICIO DE LA SOLUCIÓN ---
         return {
             "description": self.description_input.text(),
             "budgeted_amount": self.amount_input.text(),
             "type": self.type_input.currentText(),
-            "category": self.category_input.currentText()
+            "category": self.category_input.currentText(),
+            "due_date": self.date_input.date().toPython() # Devolver el objeto de fecha
         }
-
+        # --- FIN DE LA SOLUCIÓN ---

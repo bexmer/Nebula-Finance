@@ -1,48 +1,51 @@
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QLineEdit, QHBoxLayout, QPushButton
+from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit, 
+                               QDialogButtonBox)
 
 class EditGoalDebtDialog(QDialog):
-    def __init__(self, is_goal=True, data=None, parent=None):
+    def __init__(self, data, item_type="goal", parent=None):
         super().__init__(parent)
+        self.item_type = item_type
+        is_goal = (self.item_type == "goal")
         self.setWindowTitle(f"Editar {'Meta' if is_goal else 'Deuda'}")
         
-        self.data = data if data else {}
-        self.is_goal = is_goal
-
         main_layout = QVBoxLayout(self)
         form_layout = QFormLayout()
 
-        self.name_input = QLineEdit(self.data.get('name', ''))
-        amount_label = f"Monto {'Objetivo' if is_goal else 'Total'}:"
-        self.amount_input = QLineEdit(str(self.data.get('target_amount' if is_goal else 'total_amount', '')))
-
+        # Campo para el nombre
+        self.name_input = QLineEdit(data.get('name', ''))
         form_layout.addRow("Nombre:", self.name_input)
+
+        # Campo para el monto (objetivo o total)
+        amount_label = f"Monto {'Objetivo' if is_goal else 'Total'}:"
+        self.amount_input = QLineEdit(str(data.get('target_amount' if is_goal else 'total_amount', '')))
         form_layout.addRow(amount_label, self.amount_input)
 
-        button_layout = QHBoxLayout()
-        self.save_button = QPushButton("Guardar")
-        self.cancel_button = QPushButton("Cancelar")
-        button_layout.addStretch()
-        button_layout.addWidget(self.cancel_button)
-        button_layout.addWidget(self.save_button)
+        # --- INICIO DE LA SOLUCIÓN ---
+        # Añadir el campo para pago mínimo solo si es una deuda
+        self.min_payment_input = None
+        if not is_goal:
+            self.min_payment_input = QLineEdit(str(data.get('minimum_payment', '')))
+            form_layout.addRow("Pago Mínimo:", self.min_payment_input)
+        # --- FIN DE LA SOLUCIÓN ---
+
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
 
         main_layout.addLayout(form_layout)
-        main_layout.addLayout(button_layout)
+        main_layout.addWidget(button_box)
 
-        # --- INICIO DE LA CORRECCIÓN ---
-        # Conectamos a funciones explícitas en lugar de los slots por defecto
-        self.save_button.clicked.connect(self.save_and_close)
-        self.cancel_button.clicked.connect(self.cancel_and_close)
-        # --- FIN DE LA CORRECCIÓN ---
-
-    def save_and_close(self):
-        self.done(QDialog.DialogCode.Accepted)
-
-    def cancel_and_close(self):
-        self.done(QDialog.DialogCode.Rejected)
-    
     def get_data(self):
-        key = 'target_amount' if self.is_goal else 'total_amount'
-        return {
-            'name': self.name_input.text(),
-            key: self.amount_input.text()
-        }
+        is_goal = (self.item_type == "goal")
+        data = {'name': self.name_input.text()}
+        
+        # --- INICIO DE LA SOLUCIÓN ---
+        # Devolver los datos correctos según si es meta o deuda
+        if is_goal:
+            data['target_amount'] = self.amount_input.text()
+        else:
+            data['total_amount'] = self.amount_input.text()
+            if self.min_payment_input:
+                data['minimum_payment'] = self.min_payment_input.text()
+        return data
+        # --- FIN DE LA SOLUCIÓN ---

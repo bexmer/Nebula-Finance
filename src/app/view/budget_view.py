@@ -91,7 +91,9 @@ class BudgetView(QWidget):
         return widget
         
     def display_budget_entries(self, entries):
+        
         self.table.setRowCount(0)
+        self.table.clearContents()
         for row, entry in enumerate(entries):
             self.table.insertRow(row)
             check_item = QTableWidgetItem()
@@ -99,6 +101,7 @@ class BudgetView(QWidget):
             check_item.setCheckState(Qt.CheckState.Unchecked)
             check_item.setData(Qt.ItemDataRole.UserRole, entry.id)
             self.table.setItem(row, 0, check_item)
+            
             self.table.setItem(row, 1, QTableWidgetItem(entry.due_date.strftime('%Y-%m-%d')))
             self.table.setItem(row, 2, QTableWidgetItem(entry.description))
             self.table.setItem(row, 3, QTableWidgetItem(entry.category))

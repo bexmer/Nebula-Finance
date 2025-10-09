@@ -129,25 +129,21 @@ class MainWindow(QMainWindow):
         # Conexiones para cambiar de vista
         self.btn_dashboard.clicked.connect(lambda: self.content_stack.setCurrentIndex(0))
         self.btn_portfolio.clicked.connect(lambda: (self.content_stack.setCurrentIndex(1), self.controller.load_portfolio()))
-        self.btn_accounts.clicked.connect(lambda: (self.content_stack.setCurrentIndex(2), self.controller.load_accounts()))
-        self.btn_budget.clicked.connect(lambda: (self.content_stack.setCurrentIndex(3), self.controller.full_refresh()))
+        self.btn_accounts.clicked.connect(lambda: (self.content_stack.setCurrentIndex(2), self.controller.load_paginated_data()))
+        self.btn_budget.clicked.connect(lambda: (self.content_stack.setCurrentIndex(3), self.controller.load_paginated_data()))
         self.btn_transactions.clicked.connect(lambda: (self.content_stack.setCurrentIndex(4), self.controller.load_transactions()))
         self.btn_goals.clicked.connect(lambda: (self.content_stack.setCurrentIndex(5), self.controller.load_goals_and_debts()))
         self.btn_analysis.clicked.connect(lambda: (self.content_stack.setCurrentIndex(6), self.controller.update_analysis_view()))
         self.btn_settings.clicked.connect(lambda: (self.content_stack.setCurrentIndex(7), self.controller.load_parameters()))
         
-        # Conexiones de los botones de acción generales
+        # Conexiones Generales
         self.theme_button.clicked.connect(self.toggle_theme)
         self.dashboard_page.year_filter.currentTextChanged.connect(self.controller.update_dashboard)
         for action in self.dashboard_page.month_actions:
             action.triggered.connect(self.controller.update_dashboard)
         self.dashboard_page.all_year_action.triggered.connect(self.controller.update_dashboard)
         self.analysis_page.year_selector.currentTextChanged.connect(self.controller.update_analysis_view)
-        
-        # Conexiones Dashboard
         self.dashboard_page.quick_add_button.clicked.connect(self.controller.show_quick_transaction_dialog)
-
-        # Conexiones Portafolio
         self.portfolio_page.add_trade_button.clicked.connect(self.controller.add_trade)
         
         # Conexiones Cuentas
@@ -155,27 +151,7 @@ class MainWindow(QMainWindow):
         self.accounts_page.delete_button.clicked.connect(self.controller.delete_account)
         self.accounts_page.table.cellDoubleClicked.connect(self.controller.edit_account_by_row)
 
-        # Conexiones Presupuesto
-        self.budget_page.add_button.clicked.connect(self.controller.add_budget_entry)
-        self.budget_page.delete_button.clicked.connect(self.controller.delete_budget_entry)
-        self.budget_page.table.cellDoubleClicked.connect(self.controller.edit_budget_entry_by_row)
-        
-        # --- INICIO DE LA CORRECCIÓN ---
-        # Conexiones Transacciones (actualizadas para los nuevos botones de filtro)
-        self.transactions_page.add_button.clicked.connect(self.controller.add_transaction)
-        self.transactions_page.delete_button.clicked.connect(self.controller.delete_selected_items)
-        self.transactions_page.recurring_table.cellDoubleClicked.connect(self.controller.edit_recurring_transaction_by_row)
-        self.transactions_page.all_table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_transaction_by_row(r, c, self.transactions_page.all_table))
-        self.transactions_page.goals_table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_transaction_by_row(r, c, self.transactions_page.goals_table))
-        self.transactions_page.debts_table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_transaction_by_row(r, c, self.transactions_page.debts_table))
-        
-        # Las señales que disparan el filtro ahora son estas:
-        self.transactions_page.search_input.textChanged.connect(self.controller.filter_transactions)
-        self.transactions_page.start_date_filter.dateChanged.connect(self.controller.filter_transactions)
-        self.transactions_page.end_date_filter.dateChanged.connect(self.controller.filter_transactions)
-        self.transactions_page.tabs.currentChanged.connect(self.controller.filter_transactions)
-        # --- FIN DE LA CORRECCIÓN ---
-        
+        # --- INICIO DE LA SOLUCIÓN: Conexiones de Presupuesto limpias ---
         budget_page = self.budget_page
         budget_page.add_button.clicked.connect(self.controller.add_budget_entry)
         budget_page.delete_button.clicked.connect(self.controller.delete_selected_items)
@@ -183,10 +159,24 @@ class MainWindow(QMainWindow):
         budget_page.prev_button.clicked.connect(lambda: self.controller.change_page(-1))
         budget_page.next_button.clicked.connect(lambda: self.controller.change_page(1))
         budget_page.items_per_page_combo.currentTextChanged.connect(self.controller.change_items_per_page)
+        # --- FIN DE LA SOLUCIÓN ---
+        
+        # Conexiones Transacciones
+        transactions_page = self.transactions_page
+        transactions_page.add_button.clicked.connect(self.controller.add_transaction)
+        transactions_page.delete_button.clicked.connect(self.controller.delete_selected_items)
+        transactions_page.recurring_table.cellDoubleClicked.connect(self.controller.edit_recurring_transaction_by_row)
+        transactions_page.all_table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_transaction_by_row(r, c, transactions_page.all_table))
+        transactions_page.goals_table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_transaction_by_row(r, c, transactions_page.goals_table))
+        transactions_page.debts_table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_transaction_by_row(r, c, transactions_page.debts_table))
+        transactions_page.search_input.textChanged.connect(self.controller.filter_transactions)
+        transactions_page.start_date_filter.dateChanged.connect(self.controller.filter_transactions)
+        transactions_page.end_date_filter.dateChanged.connect(self.controller.filter_transactions)
+        transactions_page.tabs.currentChanged.connect(self.controller.filter_transactions)
         
         # Conexiones Metas y Deudas
         self.goals_page.add_goal_button.clicked.connect(self.controller.add_goal)
-        self.goals_page.add_debt_button.clicked.connect(self.controller.add_debt) # <-- AÑADIR ESTA LÍNEA
+        self.goals_page.add_debt_button.clicked.connect(self.controller.add_debt)
         self.goals_page.edit_goal_requested.connect(self.controller.edit_goal)
         self.goals_page.delete_goal_requested.connect(self.controller.delete_goal)
         self.goals_page.edit_debt_requested.connect(self.controller.edit_debt)
@@ -196,24 +186,18 @@ class MainWindow(QMainWindow):
         tt_tab = self.settings_page.transaction_types_tab
         tt_tab.param_add_button.clicked.connect(lambda: self.controller.add_parameter('Tipo de Transacción'))
         tt_tab.param_delete_button.clicked.connect(self.controller.delete_parameter)
-        tt_tab.param_table.cellDoubleClicked.connect(
-            lambda r, c: self.controller.edit_parameter_by_row(r, c, tt_tab.param_table)
-        )
+        tt_tab.param_table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_parameter_by_row(r, c, tt_tab.param_table))
         tt_tab.rule_add_button.clicked.connect(self.controller.add_budget_rule)
         tt_tab.rule_delete_button.clicked.connect(self.controller.delete_budget_rule)
         tt_tab.rule_table.cellDoubleClicked.connect(self.controller.edit_budget_rule_by_row)
 
         self.settings_page.account_types_tab.add_button.clicked.connect(lambda: self.controller.add_parameter('Tipo de Cuenta'))
         self.settings_page.account_types_tab.delete_button.clicked.connect(self.controller.delete_parameter)
-        self.settings_page.account_types_tab.table.cellDoubleClicked.connect(
-            lambda r, c: self.controller.edit_parameter_by_row(r, c, self.settings_page.account_types_tab.table)
-        )
+        self.settings_page.account_types_tab.table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_parameter_by_row(r, c, self.settings_page.account_types_tab.table))
 
         self.settings_page.categories_tab.add_button.clicked.connect(lambda: self.controller.add_parameter('Categoría'))
         self.settings_page.categories_tab.delete_button.clicked.connect(self.controller.delete_parameter)
-        self.settings_page.categories_tab.table.cellDoubleClicked.connect(
-            lambda r, c: self.controller.edit_parameter_by_row(r, c, self.settings_page.categories_tab.table)
-        )
+        self.settings_page.categories_tab.table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_parameter_by_row(r, c, self.settings_page.categories_tab.table))
         
         self.controller.full_refresh()
         self.dashboard_page.set_default_month_filter()
