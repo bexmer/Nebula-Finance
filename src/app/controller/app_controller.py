@@ -454,10 +454,10 @@ class AppController:
             if QMessageBox.question(self.view, "Confirmar", f"¿Estás seguro de que quieres eliminar la cuenta '{account_to_delete.name}'?") == QMessageBox.StandardButton.Yes:
                 account_to_delete.delete_instance()
                 
-                # --- INICIO DE LA SOLUCIÓN ---
-                # Llamamos al método de recarga para la vista paginada
-                self.load_paginated_data()
-                # --- FIN DE LA SOLUCIÓN ---
+                # --- INICIO DE LA SOLUCIÓN CORRECTA ---
+                # Llamamos a la función correcta para recargar las cuentas
+                self.load_accounts()
+                # --- FIN DE LA SOLUCIÓN CORRECTA ---
 
                 self.view.show_notification("Cuenta eliminada.", "success")
                 

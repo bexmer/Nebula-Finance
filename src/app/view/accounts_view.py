@@ -70,5 +70,10 @@ class AccountsView(QWidget):
             self.table.item(row, 0).setData(Qt.ItemDataRole.UserRole, account.id)
 
     def get_selected_account_id(self):
-        selected_items = self.table.selectedItems()
-        return selected_items[0].data(Qt.ItemDataRole.UserRole) if selected_items else None
+        current_row = self.table.currentRow()
+        if current_row >= 0:
+            item = self.table.item(current_row, 0) # El ID está en la primera columna
+            if item:
+                return item.data(Qt.ItemDataRole.UserRole)
+        return None
+    
