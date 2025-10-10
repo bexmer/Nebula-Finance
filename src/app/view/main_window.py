@@ -162,6 +162,8 @@ class MainWindow(QMainWindow):
         budget_page.prev_button.clicked.connect(lambda: self.controller.change_page(-1))
         budget_page.next_button.clicked.connect(lambda: self.controller.change_page(1))
         budget_page.items_per_page_combo.currentTextChanged.connect(self.controller.change_items_per_page)
+        budget_page.type_input.currentTextChanged.connect(self.controller.update_category_dropdowns)
+
         
         # Conexiones Transacciones
         transactions_page = self.transactions_page
@@ -175,6 +177,8 @@ class MainWindow(QMainWindow):
         transactions_page.start_date_filter.dateChanged.connect(self.controller.filter_transactions)
         transactions_page.end_date_filter.dateChanged.connect(self.controller.filter_transactions)
         transactions_page.tabs.currentChanged.connect(self.controller.filter_transactions)
+        transactions_page.type_input.currentTextChanged.connect(self.controller.update_category_dropdowns)
+
         
         # Conexiones Metas y Deudas
         goals_page = self.goals_page

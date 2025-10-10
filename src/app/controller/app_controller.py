@@ -30,7 +30,6 @@ class AppController:
         self.current_pages = {} # Para manejar la paginación de cada vista
 
     def full_refresh(self):
-        # Esta función llama a todas las demás para un refresco completo
         self.process_recurring_transactions()
         self.load_parameters()
         self.load_parameters_to_views()
@@ -124,22 +123,24 @@ class AppController:
         account_types = list(Parameter.select().where(Parameter.group == 'Tipo de Cuenta'))
         categories = list(Parameter.select().where(Parameter.group == 'Categoría'))
         budget_rules = list(BudgetRule.select())
+        
         self.view.settings_page.display_parameters(self.view.settings_page.transaction_types_tab.param_table, transaction_types, True)
         self.view.settings_page.display_parameters(self.view.settings_page.account_types_tab.table, account_types, False)
-        self.view.settings_page.display_parameters(self.view.settings_page.categories_tab.table, categories, False)
+        self.view.settings_page.display_parameters(self.view.settings_page.categories_tab.table, categories, False) # display_rule es False para categorías
+        
         self.view.settings_page.display_budget_rules(self.view.settings_page.transaction_types_tab.rule_table, budget_rules)
         self.view.settings_page.update_budget_rule_combo(budget_rules)
 
     def add_parameter(self, group_name):
-        if group_name == 'Tipo de Transacción':
-            tab = self.view.settings_page.transaction_types_tab
-            value = tab.param_value_input.text()
-            budget_rule_id = tab.param_budget_rule_input.currentData()
+        if group_name == 'Categoría':
+            tab = self.view.settings_page.categories_tab
+            value = tab.value_input.text()
+            parent_id = tab.parent_type_input.currentData()
             if not value:
                 self.view.show_notification("El nombre es obligatorio.", "error")
                 return
-            Parameter.create(value=value, group=group_name, budget_rule=budget_rule_id)
-            tab.param_value_input.clear()
+            Parameter.create(value=value, group=group_name, parent=parent_id)
+            tab.value_input.clear()
         else:
             current_tab = self.view.settings_page.tabs.currentWidget()
             data = {"value": current_tab.value_input.text()}
@@ -173,40 +174,58 @@ class AppController:
         if not param_id: return
         try:
             param = Parameter.get_by_id(param_id)
-            current_rule_name = None
-            try:
-                if param.budget_rule:
-                    current_rule_name = param.budget_rule.name
-            except BudgetRule.DoesNotExist:
-                pass
-            param_data = {'value': param.value, 'group': param.group, 'is_deletable': param.is_deletable, 'budget_rule': current_rule_name}
+            
+            param_data = {
+                'value': param.value, 
+                'group': param.group, 
+                'is_deletable': param.is_deletable
+            }
             dialog = EditParameterDialog(param_data, self.view)
+
+            # Si es una CATEGORÍA, poblamos el ComboBox de tipos padre
+            if param.group == 'Categoría':
+                transaction_types = list(Parameter.select().where(Parameter.group == 'Tipo de Transacción'))
+                dialog.populate_parent_types(transaction_types, param.parent_id)
+
             if dialog.budget_rule_input:
                 all_rules = list(BudgetRule.select())
                 dialog.budget_rule_input.clear()
                 dialog.budget_rule_input.addItem("(Ninguna)")
                 dialog.budget_rule_input.addItems([rule.name for rule in all_rules])
+                current_rule_name = None
+                try:
+                    if param.budget_rule: current_rule_name = param.budget_rule.name
+                except BudgetRule.DoesNotExist: pass
                 if current_rule_name:
                     index = dialog.budget_rule_input.findText(current_rule_name)
-                    if index >= 0:
-                        dialog.budget_rule_input.setCurrentIndex(index)
+                    if index >= 0: dialog.budget_rule_input.setCurrentIndex(index)
+            
             if dialog.exec():
                 new_data = dialog.get_data()
                 new_value = new_data["value"]
                 if not new_value:
                     self.view.show_notification("El valor no puede estar vacío.", "error")
                     return
+                
                 old_value = param.value
                 if old_value != new_value:
                     self._cascade_parameter_update(param.group, old_value, new_value)
+                
                 param.value = new_value
+                
+                # Guardamos el nuevo padre si existe
+                if 'parent_id' in new_data:
+                    param.parent = new_data['parent_id']
+                    
                 if 'budget_rule' in new_data:
                     rule_name = new_data['budget_rule']
                     rule = BudgetRule.get_or_none(BudgetRule.name == rule_name)
                     param.budget_rule = rule
+                
                 param.save()
                 self.full_refresh()
                 self.view.show_notification("Parámetro y registros asociados actualizados.", "success")
+                
         except Parameter.DoesNotExist:
             self.view.show_notification("El parámetro no fue encontrado.", "error")
 
@@ -225,7 +244,8 @@ class AppController:
 
     def load_parameters_to_views(self, *args):
         categories = [p.value for p in Parameter.select().where(Parameter.group == 'Categoría')]
-        transaction_types = [p.value for p in Parameter.select().where(Parameter.group == 'Tipo de Transacción')]
+        transaction_types_params = list(Parameter.select().where(Parameter.group == 'Tipo de Transacción'))
+        transaction_types = [p.value for p in transaction_types_params]
         account_types = [p.value for p in Parameter.select().where(Parameter.group == 'Tipo de Cuenta')]
         budget_transaction_types = [p.value for p in Parameter.select().where(Parameter.group == 'Tipo de Transacción') if p.value.startswith('Ingreso') or p.value.startswith('Gasto')]
         self.view.budget_page.type_input.clear()
@@ -240,8 +260,11 @@ class AppController:
         self.view.transactions_page.update_menu_items(self.view.transactions_page.category_filter_button, ["Todas las Categorías"] + sorted(categories))
         self.view.accounts_page.type_input.clear()
         self.view.accounts_page.type_input.addItems(account_types)
+        self.view.settings_page.update_parent_type_combo(transaction_types_params)
+
+        if self.view.transactions_page.type_input.count() > 0:
+            self.update_category_dropdowns(self.view.transactions_page.type_input.currentText())
     
-    # --- INICIO DE LA SOLUCIÓN ---
     # La función que faltaba
     def update_dashboard(self, *args):
         filters = self.view.dashboard_page.get_selected_filters()
@@ -351,6 +374,7 @@ class AppController:
             income_data.append(monthly_data[month_key]['income'])
             expense_data.append(monthly_data[month_key]['expense'])
         self.view.dashboard_page.update_cash_flow_chart(month_labels, income_data, expense_data)
+
 
 
     def _update_budget_rule_chart(self, transactions, total_income):
@@ -831,7 +855,12 @@ class AppController:
                 type=data["type"], budgeted_amount=amount, due_date=data["due_date"]
             )
             self.view.budget_page.clear_form()
-            self.load_paginated_data()
+            
+            # --- INICIO DE LA SOLUCIÓN ---
+            # Reemplazamos la recarga de paginación por un refresco completo
+            self.full_refresh()
+            # --- FIN DE LA SOLUCIÓN ---
+
             self.view.show_notification("Entrada de presupuesto añadida.", "success")
         except ValueError:
             self.view.show_notification("El monto debe ser un número.", "error")
@@ -848,6 +877,21 @@ class AppController:
             
             self.load_paginated_data() 
             self.view.show_notification(f"{deleted_rows} entrada(s) eliminada(s).", "success")
+            
+    def update_category_dropdowns(self, selected_type_text):
+        """Filtra y actualiza los ComboBox de categoría basados en el tipo seleccionado."""
+        categories = []
+        if selected_type_text:
+            try:
+                selected_type = Parameter.get(Parameter.value == selected_type_text, Parameter.group == 'Tipo de Transacción')
+                categories = [p.value for p in Parameter.select().where(Parameter.group == 'Categoría', Parameter.parent == selected_type)]
+            except Parameter.DoesNotExist:
+                pass 
+        
+        self.view.transactions_page.category_input.clear()
+        self.view.transactions_page.category_input.addItems(categories)
+        self.view.budget_page.category_input.clear()
+        self.view.budget_page.category_input.addItems(categories)
 
     def load_budget_entries(self):
         entries = BudgetEntry.select().order_by(BudgetEntry.type, BudgetEntry.description)

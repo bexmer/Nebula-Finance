@@ -21,7 +21,6 @@ class SettingsView(QWidget):
         self.tabs = QTabWidget()
         main_layout.addWidget(self.tabs)
 
-        # Crear cada pestaña
         self.transaction_types_tab = self._create_transaction_rules_tab()
         self.account_types_tab = self._create_parameter_tab("Tipo de Cuenta")
         self.categories_tab = self._create_parameter_tab("Categoría")
@@ -96,11 +95,9 @@ class SettingsView(QWidget):
         return tab_widget
 
     def _create_parameter_tab_content(self, group_name, has_budget_rule=False):
-        """Crea el contenido de un formulario/tabla para un tipo de parámetro."""
         container = QWidget()
         vbox = QVBoxLayout(container)
-        vbox.setContentsMargins(0, 0, 0, 0)
-        vbox.setSpacing(15)
+        vbox.setContentsMargins(0, 0, 0, 0); vbox.setSpacing(15)
 
         form_card = QFrame(); form_card.setObjectName("Card")
         form_layout = QFormLayout(form_card)
@@ -109,6 +106,11 @@ class SettingsView(QWidget):
         value_input = QLineEdit()
         form_layout.addRow("Nombre:", value_input)
 
+        if group_name == 'Categoría':
+            parent_type_input = QComboBox()
+            form_layout.addRow("Pertenece a Tipo:", parent_type_input)
+            container.parent_type_input = parent_type_input
+        
         if has_budget_rule:
             budget_rule_input = QComboBox()
             form_layout.addRow("Regla de Presupuesto:", budget_rule_input)
@@ -123,25 +125,33 @@ class SettingsView(QWidget):
         delete_button = QPushButton("Eliminar Selección")
         table_layout.addWidget(delete_button, 0, Qt.AlignmentFlag.AlignRight)
 
-        table_cols = 2 if has_budget_rule else 1
-        headers = ["Nombre", "Regla de Presupuesto"] if has_budget_rule else ["Nombre"]
-        table = QTableWidget(0, table_cols)
-        table.setHorizontalHeaderLabels(headers)
+        cols = 1
+        headers = ["Nombre"]
+        if has_budget_rule:
+            cols += 1; headers.append("Regla Presupuesto")
+        if group_name == 'Categoría':
+            cols += 1; headers.append("Tipo Padre")
+
+        table = QTableWidget(0, cols); table.setHorizontalHeaderLabels(headers)
         table.verticalHeader().setVisible(False)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         table_layout.addWidget(table)
 
-        vbox.addWidget(form_card)
-        vbox.addWidget(table_card, 1)
+        vbox.addWidget(form_card); vbox.addWidget(table_card, 1)
 
-        container.value_input = value_input
-        container.add_button = add_button
-        container.delete_button = delete_button
-        container.table = table
+        container.value_input = value_input; container.add_button = add_button
+        container.delete_button = delete_button; container.table = table
         
         return container
+    
+    def update_parent_type_combo(self, transaction_types):
+        if hasattr(self.categories_tab, 'parent_type_input'):
+            combo = self.categories_tab.parent_type_input
+            combo.clear()
+            for t_type in transaction_types:
+                combo.addItem(t_type.value, userData=t_type.id)
 
     def _create_parameter_tab(self, group_name):
         """Crea una pestaña estándar con una sola columna."""
@@ -161,20 +171,27 @@ class SettingsView(QWidget):
     # (El resto de la clase permanece igual, pero la actualizo para mayor claridad)
     def display_parameters(self, table, parameters, display_rule):
         table.setRowCount(0)
+        col_count = table.columnCount()
         for row, param in enumerate(parameters):
             table.insertRow(row)
-            item = QTableWidgetItem(param.value)
-            item.setData(Qt.ItemDataRole.UserRole, param.id)
+            item = QTableWidgetItem(param.value); item.setData(Qt.ItemDataRole.UserRole, param.id)
             table.setItem(row, 0, item)
-            if display_rule:
+            
+            col_idx = 1
+            if display_rule: # Para Tipos de Transacción
                 rule_name = "(Ninguna)"
                 try:
-                    if param.budget_rule:
-                        rule_name = param.budget_rule.name
-                except Exception:
-                    # Si la regla no se encuentra, simplemente se mostrará "(Ninguna)"
-                    pass
-                table.setItem(row, 1, QTableWidgetItem(rule_name))
+                    if param.budget_rule: rule_name = param.budget_rule.name
+                except Exception: pass
+                table.setItem(row, col_idx, QTableWidgetItem(rule_name))
+                col_idx += 1
+            
+            if param.group == 'Categoría' and col_count > 1: # Para Categorías
+                parent_name = "(Ninguno)"
+                try:
+                    if param.parent: parent_name = param.parent.value
+                except Exception: pass
+                table.setItem(row, col_idx, QTableWidgetItem(parent_name))
                 
     def display_budget_rules(self, table, rules):
         table.setRowCount(0)
