@@ -8,14 +8,20 @@ import qtawesome as qta
 class GoalItem(QFrame):
     edit_requested = Signal(int)
     delete_requested = Signal(int)
-    def __init__(self, goal_data, parent=None):
+    def __init__(self, goal_data, controller, parent=None):
         super().__init__(parent)
         self.goal_id = goal_data['id']
         self.setObjectName("ListItemCard")
         main_layout = QHBoxLayout(self)
         info_layout = QGridLayout()
         info_layout.setColumnStretch(1, 1)
-        self.name_label = QLabel(f"<b>{goal_data['name']}</b>")
+        current_text, current_tip = controller.format_currency(goal_data['current'])
+        target_text, target_tip = controller.format_currency(goal_data['target'])
+        amounts_text = f"{current_text} de {target_text}"
+        
+        self.amounts_label = QLabel(amounts_text)
+        self.amounts_label.setToolTip(f"{current_tip} de {target_tip}")
+
         self.progress_bar = QProgressBar()
         percentage = (goal_data['current'] / goal_data['target'] * 100) if goal_data['target'] > 0 else 0
         self.progress_bar.setValue(int(percentage))
@@ -46,7 +52,7 @@ class GoalItem(QFrame):
 class DebtItem(QFrame):
     edit_requested = Signal(int)
     delete_requested = Signal(int)
-    def __init__(self, debt_data, parent=None):
+    def __init__(self, debt_data, controller, parent=None):
         super().__init__(parent)
         self.debt_id = debt_data.id
         self.setObjectName("ListItemCard")
@@ -65,10 +71,15 @@ class DebtItem(QFrame):
         progress_bar.style().polish(progress_bar)
 
         # --- INICIO DE LA SOLUCIÓN ---
-        # Creamos el nuevo texto con toda la información
-        paid_amount = debt_data.total_amount - debt_data.current_balance
-        amounts_text = (f"Pagado: ${paid_amount:,.2f} de ${debt_data.total_amount:,.2f} "
-                        f"| <b>Pago Mínimo:</b> ${debt_data.minimum_payment:,.2f} "
+         # Es necesario pasar el formateador a esta clase
+        controller = parent.parent().parent().parent().controller # Navegamos hasta la vista para encontrar el controlador
+        
+        paid_amount_text, _ = controller.format_currency(debt_data.total_amount - debt_data.current_balance)
+        total_amount_text, _ = controller.format_currency(debt_data.total_amount)
+        min_payment_text, _ = controller.format_currency(debt_data.minimum_payment)
+        
+        amounts_text = (f"Pagado: {paid_amount_text} de {total_amount_text} "
+                        f"| <b>Pago Mínimo:</b> {min_payment_text} "
                         f"| <b>Interés:</b> {debt_data.interest_rate:.2f}%")
         # --- FIN DE LA SOLUCIÓN ---
 
@@ -210,6 +221,7 @@ class GoalsView(QWidget):
         if "Meta" in title:
             self.goal_name_input = QLineEdit()
             self.goal_target_input = QLineEdit()
+            self.goal_target_input.setMaxLength(15)
             self.add_goal_button = QPushButton("Añadir Meta"); self.add_goal_button.setObjectName("PrimaryAction")
             layout.addRow("Nombre de la Meta:", self.goal_name_input)
             layout.addRow("Monto Objetivo:", self.goal_target_input)
@@ -217,7 +229,9 @@ class GoalsView(QWidget):
         else:
             self.debt_name_input = QLineEdit()
             self.debt_total_input = QLineEdit()
+            self.debt_total_input.setMaxLength(15)
             self.debt_min_payment_input = QLineEdit()
+            self.debt_min_payment_input.setMaxLength(15)
             self.debt_interest_rate_input = QDoubleSpinBox()
             self.debt_interest_rate_input.setSuffix(" %")
             self.debt_interest_rate_input.setRange(0, 100)
@@ -252,7 +266,7 @@ class GoalsView(QWidget):
     def display_goals(self, goals_data):
         self._clear_layout(self.goals_list_layout)
         for data in goals_data:
-            goal_item = GoalItem(data)
+            goal_item = GoalItem(data, self.controller)
             goal_item.edit_requested.connect(self.edit_goal_requested)
             goal_item.delete_requested.connect(self.delete_goal_requested)
             self.goals_list_layout.addWidget(goal_item)
@@ -261,7 +275,7 @@ class GoalsView(QWidget):
     def display_debts(self, debts):
         self._clear_layout(self.debts_list_layout)
         for debt_data in debts:
-            debt_item = DebtItem(debt_data)
+            debt_item = DebtItem(debt_data, self.controller)
             debt_item.edit_requested.connect(self.edit_debt_requested)
             debt_item.delete_requested.connect(self.delete_debt_requested)
             self.debts_list_layout.addWidget(debt_item)

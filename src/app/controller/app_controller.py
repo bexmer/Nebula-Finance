@@ -22,6 +22,9 @@ from app.view.register_payment_dialog import RegisterPaymentDialog
 from copy import deepcopy
 import datetime
 from dateutil.relativedelta import relativedelta
+from peewee import fn
+from app.model.recurring_transaction import RecurringTransaction
+from app.model.budget_entry import BudgetEntry
 
 
 import datetime
@@ -33,7 +36,52 @@ class AppController:
     def __init__(self, view):
         self.view = view
         self.current_pages = {} # Para manejar la paginación de cada vista
+        
+    def format_currency(self, value):
+        abbreviate = False
+        threshold = 1_000_000 
+        try:
+            abbreviate_param = Parameter.get(Parameter.group == 'Display', Parameter.value == 'AbbreviateNumbers')
+            if hasattr(abbreviate_param, 'extra_data') and abbreviate_param.extra_data is not None:
+                abbreviate = bool(int(abbreviate_param.extra_data))
+            
+            threshold_param = Parameter.get(Parameter.group == 'Display', Parameter.value == 'AbbreviationThreshold')
+            if hasattr(threshold_param, 'extra_data') and threshold_param.extra_data is not None:
+                threshold = int(threshold_param.extra_data)
+        except Parameter.DoesNotExist:
+            pass
 
+        full_text = f"${value:,.2f}"
+
+        if abbreviate and abs(value) >= threshold:
+            if abs(value) >= 1_000_000_000:
+                display_text = f"${value / 1_000_000_000:.2f}B"
+            elif abs(value) >= 1_000_000:
+                display_text = f"${value / 1_000_000:.2f}M"
+            elif abs(value) >= 1_000:
+                display_text = f"${value / 1_000:.1f}k"
+            else:
+                display_text = full_text
+            return (display_text, full_text)
+        else:
+            return (full_text, full_text)
+
+
+    def save_display_settings(self):
+        abbreviate = self.view.settings_page.abbreviate_checkbox.isChecked()
+        threshold = self.view.settings_page.threshold_combo.currentData()
+
+        param_abbr, _ = Parameter.get_or_create(group='Display', value='AbbreviateNumbers')
+        param_abbr.extra_data = '1' if abbreviate else '0'
+        param_abbr.save()
+
+        param_thresh, _ = Parameter.get_or_create(group='Display', value='AbbreviationThreshold')
+        param_thresh.extra_data = str(threshold)
+        param_thresh.save()
+
+        self.view.show_notification("Configuración de visualización guardada.", "success")
+        self.full_refresh()
+        
     def full_refresh(self):
         self.process_recurring_transactions()
         self.load_parameters()
@@ -77,7 +125,6 @@ class AppController:
 
     def change_items_per_page(self):
         self.load_paginated_data(page=1)
-
 
     def add_budget_rule(self):
         tab = self.view.settings_page.transaction_types_tab
@@ -323,7 +370,33 @@ class AppController:
         goals_data = [{"name": g.name, "current": g.current_amount, "target": g.target_amount} for g in Goal.select().where(Goal.current_amount < Goal.target_amount).order_by((Goal.current_amount / Goal.target_amount).desc()).limit(3)]
         self.view.dashboard_page.update_main_goals(goals_data)
 
+    def update_kpis(self, income, expense, net_flow, income_comp=None, expense_comp=None):
+        # Parte 1: Formatear los números principales con la nueva función y establecer el tooltip
+        income_text, income_tip = self.format_currency(income)
+        expense_text, expense_tip = self.format_currency(expense)
+        net_text, net_tip = self.format_currency(net_flow)
+        
+        self.view.dashboard_page.income_kpi.value_label.setText(income_text)
+        self.view.dashboard_page.income_kpi.value_label.setToolTip(income_tip)
+        
+        self.view.dashboard_page.expense_kpi.value_label.setText(expense_text)
+        self.view.dashboard_page.expense_kpi.value_label.setToolTip(expense_tip)
+        
+        self.view.dashboard_page.net_kpi.value_label.setText(net_text)
+        self.view.dashboard_page.net_kpi.value_label.setToolTip(net_tip)
+        
+        # Parte 2: Lógica original para las comparaciones en porcentaje que se había perdido
+        def format_comp(value, lower_is_better=False):
+            if value is None: return ""
+            prefix = "▲ " if value >= 0 else "▼ "
+            color = "#28A745" if (value >= 0 and not lower_is_better) or (value < 0 and lower_is_better) else "#DC3545"
+            return f"<font color='{color}'>{prefix}{abs(value):.1f}%</font>"
+
+        self.view.dashboard_page.income_kpi.comparison_label.setText(format_comp(income_comp))
+        self.view.dashboard_page.expense_kpi.comparison_label.setText(format_comp(expense_comp, lower_is_better=True))
+        
     def _update_kpis(self, year, months):
+        
         start = datetime.date(year, min(months), 1) if months else datetime.date(year, 1, 1)
         if months:
             last_month = max(months)
@@ -1352,7 +1425,41 @@ class AppController:
         self.view.goals_page.display_goals(goals_data)
         self.view.goals_page.display_debts(list(debts))
         self.load_transactions_dependencies()
+        
+    def format_currency(self, value):
+        """
+        Formatea un valor numérico como moneda, abreviándolo si la opción está activa.
+        Devuelve una tupla: (texto_mostrado, texto_tooltip).
+        """
+        # Valores por defecto
+        abbreviate = False
+        threshold = 1_000_000 
 
+        # Consultar las preferencias del usuario en la base de datos
+        try:
+            abbreviate_param = Parameter.get(Parameter.group == 'Display', Parameter.value == 'AbbreviateNumbers')
+            abbreviate = bool(int(abbreviate_param.get('extra_data', '0')))
+            
+            threshold_param = Parameter.get(Parameter.group == 'Display', Parameter.value == 'AbbreviationThreshold')
+            threshold = int(threshold_param.get('extra_data', '1000000'))
+        except Parameter.DoesNotExist:
+            pass # Si no existen los parámetros, usa los valores por defecto
+
+        full_text = f"${value:,.2f}"
+
+        if abbreviate and abs(value) >= threshold:
+            if abs(value) >= 1_000_000_000:
+                display_text = f"${value / 1_000_000_000:.2f}B" # Billones
+            elif abs(value) >= 1_000_000:
+                display_text = f"${value / 1_000_000:.2f}M" # Millones
+            elif abs(value) >= 1_000:
+                display_text = f"${value / 1_000:.1f}k" # Miles
+            else:
+                display_text = full_text
+            return (display_text, full_text)
+        else:
+            return (full_text, full_text)
+               
     def load_transactions_dependencies(self):
         goals = Goal.select()
         debts = Debt.select()
@@ -1368,6 +1475,65 @@ class AppController:
         year, months = filters["year"], filters["months"]
         self._generate_and_display_annual_report(year, months)
         self._generate_and_display_budget_analysis(year, months)
+        
+    def calculate_and_display_projections(self):
+        """Orquesta el cálculo y la visualización de las proyecciones."""
+        months_to_project = self.view.analysis_page.projection_months_input.value()
+        
+        # 1. Obtener datos iniciales
+        start_balance = Account.select(fn.SUM(Account.current_balance)).scalar() or 0.0
+        recurring = list(RecurringTransaction.select())
+        
+        # 2. Calcular ingresos/gastos mensuales promedio del presupuesto
+        budgeted_monthly_income = BudgetEntry.select(fn.SUM(BudgetEntry.budgeted_amount)).where(BudgetEntry.type.startswith('Ingreso')).scalar() or 0.0
+        budgeted_monthly_expenses = BudgetEntry.select(fn.SUM(BudgetEntry.budgeted_amount)).where(BudgetEntry.type.startswith('Gasto')).scalar() or 0.0
+
+        # 3. Ejecutar simulación
+        dates, balances = self._run_projection_simulation(
+            start_balance, months_to_project, recurring, 
+            budgeted_monthly_income, budgeted_monthly_expenses
+        )
+        
+        # 4. Mostrar en el gráfico
+        self.view.analysis_page.update_projection_chart(dates, balances)
+        self.view.show_notification("Proyección calculada.", "success")
+
+    def _run_projection_simulation(self, start_balance, months, recurring_trans, budget_income, budget_expenses):
+        """
+        Simula el flujo de efectivo mes a mes.
+        """
+        dates = [datetime.date.today()]
+        balances = [start_balance]
+        
+        current_balance = start_balance
+        current_date = datetime.date.today()
+
+        for i in range(months):
+            # Avanzar al siguiente mes
+            current_date += relativedelta(months=1)
+            
+            # Empezar con el neto del presupuesto mensual
+            net_change = budget_income - budget_expenses
+            
+            # Sumar/restar transacciones recurrentes que ocurren en este mes
+            for r in recurring_trans:
+                if r.frequency == 'Mensual':
+                    if r.type.startswith('Ingreso'):
+                        net_change += r.amount
+                    else:
+                        net_change -= r.amount
+                elif r.frequency == 'Anual' and r.month_of_year == current_date.month:
+                    if r.type.startswith('Ingreso'):
+                        net_change += r.amount
+                    else:
+                        net_change -= r.amount
+                # Se puede añadir lógica para 'Quincenal' (sumaría/restaría r.amount * 2)
+            
+            current_balance += net_change
+            dates.append(current_date)
+            balances.append(current_balance)
+            
+        return dates, balances
 
     def _generate_and_display_annual_report(self, year, months):
         if not months:
@@ -1442,3 +1608,4 @@ class AppController:
                 self.view.show_notification("Regla recurrente actualizada.", "success")
         except RecurringTransaction.DoesNotExist:
             self.view.show_notification("La regla no fue encontrada.", "error")
+    

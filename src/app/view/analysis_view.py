@@ -1,12 +1,19 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, 
                                QTableWidget, QTableWidgetItem, QComboBox, QHeaderView, QTabWidget,
-                               QGridLayout, QPushButton, QMenu)
+                               QGridLayout, QPushButton, QMenu, QSpinBox)
 from PySide6.QtCore import Qt, QDate
 from PySide6.QtGui import QFont, QBrush, QColor, QAction
 import pyqtgraph as pg
 from dateutil.relativedelta import relativedelta
 import datetime
 
+# Necesitamos un eje de tiempo para el nuevo gráfico, similar al del Dashboard
+class TimeAxisItem(pg.AxisItem):
+    def tickStrings(self, values, scale, spacing):
+        try:
+            return [datetime.datetime.fromtimestamp(v).strftime('%b %Y') for v in values]
+        except Exception:
+            return ['' for v in values]
 class AnalysisView(QWidget):
     def __init__(self):
         super().__init__()
@@ -59,6 +66,10 @@ class AnalysisView(QWidget):
 
         self.budget_analysis_tab = self._create_budget_analysis_tab()
         self.tabs.addTab(self.budget_analysis_tab, "Análisis de Presupuesto")
+        
+        # Añadimos la nueva pestaña de proyecciones
+        self.projection_tab = self._create_projection_tab()
+        self.tabs.addTab(self.projection_tab, "Proyección de Flujo de Efectivo")
 
     def _create_annual_report_tab(self):
         report_card = QFrame()
@@ -66,6 +77,11 @@ class AnalysisView(QWidget):
         report_layout = QVBoxLayout(report_card)
         report_layout.addWidget(QLabel("<b>Reporte Anual de Gastos por Categoría</b>"))
         self.report_table = QTableWidget()
+        
+        # --- INICIO DE LA SOLUCIÓN ---
+        self.report_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        # --- FIN DE LA SOLUCIÓN ---
+
         report_layout.addWidget(self.report_table)
         return report_card
     
@@ -78,6 +94,8 @@ class AnalysisView(QWidget):
         table_layout = QVBoxLayout(table_card)
         table_layout.addWidget(QLabel("<b>Comparativa Anual: Presupuesto vs. Real por Reglas</b>"))
         self.budget_comparison_table = QTableWidget()
+        self.budget_comparison_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+
         table_layout.addWidget(self.budget_comparison_table)
         
         charts_container = QHBoxLayout()
@@ -239,3 +257,56 @@ class AnalysisView(QWidget):
             plot_widget.addItem(bar)
         
         plot_widget.getAxis('left').setLabel(label)
+
+   # --- INICIO DE LA SOLUCIÓN ---
+    def _create_projection_tab(self):
+        """Crea la nueva pestaña para la proyección de flujo de efectivo."""
+        widget = QWidget()
+        main_layout = QVBoxLayout(widget)
+        main_layout.setContentsMargins(0, 10, 0, 0)
+        main_layout.setSpacing(15)
+
+        # Panel de control superior
+        control_card = QFrame(); control_card.setObjectName("Card")
+        control_layout = QHBoxLayout(control_card)
+        control_layout.setContentsMargins(15, 15, 15, 15)
+        
+        control_layout.addWidget(QLabel("<b>Proyectar por:</b>"))
+        self.projection_months_input = QSpinBox()
+        self.projection_months_input.setSuffix(" meses")
+        self.projection_months_input.setRange(1, 60)
+        self.projection_months_input.setValue(12)
+        control_layout.addWidget(self.projection_months_input)
+        
+        self.calculate_projection_button = QPushButton("Calcular Proyección")
+        self.calculate_projection_button.setObjectName("PrimaryAction")
+        control_layout.addWidget(self.calculate_projection_button)
+        control_layout.addStretch()
+        
+        # Contenedor para el gráfico
+        chart_card = QFrame(); chart_card.setObjectName("Card")
+        chart_layout = QVBoxLayout(chart_card)
+        chart_layout.addWidget(QLabel("<b>Proyección de Saldo Total de Cuentas</b>"))
+
+        self.projection_plot = pg.PlotWidget(axisItems={'bottom': TimeAxisItem(orientation='bottom')})
+        self.projection_plot.setBackground('transparent')
+        self.projection_plot.showGrid(x=True, y=True, alpha=0.1)
+        chart_layout.addWidget(self.projection_plot, 1)
+
+        main_layout.addWidget(control_card)
+        main_layout.addWidget(chart_card, 1)
+
+        return widget
+
+    def update_projection_chart(self, dates, balances):
+        """Dibuja el gráfico de proyección con los datos calculados."""
+        self.projection_plot.clear()
+        if dates and balances:
+            # --- INICIO DE LA SOLUCIÓN ---
+            # Convertimos cada objeto 'date' a 'datetime' antes de llamar a timestamp()
+            timestamps = [datetime.datetime(d.year, d.month, d.day).timestamp() for d in dates]
+            # --- FIN DE LA SOLUCIÓN ---
+            
+            pen_color = '#61AFEF'
+            self.projection_plot.plot(timestamps, balances, pen=pg.mkPen(color=pen_color, width=3))
+            self.projection_plot.getAxis('left').setLabel("Saldo Proyectado ($)")

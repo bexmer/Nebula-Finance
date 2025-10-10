@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                                QPushButton, QFrame, QTableWidget, QTableWidgetItem,
-                               QComboBox, QFormLayout, QHeaderView, QTabWidget, QDoubleSpinBox)
+                               QComboBox, QFormLayout, QHeaderView, QTabWidget, QDoubleSpinBox, QCheckBox)
 from PySide6.QtCore import Qt
 
 class SettingsView(QWidget):
@@ -21,23 +21,53 @@ class SettingsView(QWidget):
         self.tabs = QTabWidget()
         main_layout.addWidget(self.tabs)
 
+        # Crear cada pestaña
         self.transaction_types_tab = self._create_transaction_rules_tab()
         self.account_types_tab = self._create_parameter_tab("Tipo de Cuenta")
         self.categories_tab = self._create_parameter_tab("Categoría")
+        self.display_tab = self._create_display_tab()
 
         self.tabs.addTab(self.transaction_types_tab, "Tipos de Transacción y Reglas")
         self.tabs.addTab(self.account_types_tab, "Tipos de Cuenta")
         self.tabs.addTab(self.categories_tab, "Categorías")
+        self.tabs.addTab(self.display_tab, "Visualización")
 
+ # Añade esta nueva función COMPLETA a la clase SettingsView
+    def _create_display_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        
+        card = QFrame(); card.setObjectName("Card")
+        form_layout = QFormLayout(card)
+        form_layout.setContentsMargins(15, 15, 15, 15)
+        form_layout.setSpacing(10)
+        
+        self.abbreviate_checkbox = QCheckBox("Abreviar números grandes (ej. $1,250,000 -> $1.25M)")
+        
+        self.threshold_combo = QComboBox()
+        self.threshold_combo.addItem("A partir de miles (1,000)", userData=1000)
+        self.threshold_combo.addItem("A partir de millones (1,000,000)", userData=1000000)
+        self.threshold_combo.addItem("A partir de mil millones (1,000,000,000)", userData=1000000000)
+        
+        self.save_display_button = QPushButton("Guardar Configuración de Visualización")
+        
+        form_layout.addRow(self.abbreviate_checkbox)
+        form_layout.addRow("Abreviar a partir de:", self.threshold_combo)
+        form_layout.addRow(self.save_display_button)
+        
+        layout.addWidget(card)
+        layout.addStretch()
+        return widget
+    
     def _create_transaction_rules_tab(self):
         """Crea la pestaña especial dividida en dos."""
         tab_widget = QWidget()
         main_hbox = QHBoxLayout(tab_widget)
 
-        # --- Columna Izquierda: Tipos de Transacción ---
+        # Columna Izquierda: Tipos de Transacción
         param_widget = self._create_parameter_tab_content("Tipo de Transacción", has_budget_rule=True)
         
-        # --- Columna Derecha: Reglas de Presupuesto ---
+        # Columna Derecha: Reglas de Presupuesto
         rules_widget = QWidget()
         rules_vbox = QVBoxLayout(rules_widget)
         rules_vbox.setContentsMargins(0, 0, 0, 0)
@@ -75,7 +105,6 @@ class SettingsView(QWidget):
         rules_vbox.addWidget(rule_form_card)
         rules_vbox.addWidget(rule_table_card, 1)
 
-        # Añadir ambas columnas al layout principal
         main_hbox.addWidget(param_widget, 1)
         main_hbox.addWidget(rules_widget, 1)
 
@@ -95,9 +124,11 @@ class SettingsView(QWidget):
         return tab_widget
 
     def _create_parameter_tab_content(self, group_name, has_budget_rule=False):
+        """Crea el contenido de un formulario/tabla para un tipo de parámetro."""
         container = QWidget()
         vbox = QVBoxLayout(container)
-        vbox.setContentsMargins(0, 0, 0, 0); vbox.setSpacing(15)
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.setSpacing(15)
 
         form_card = QFrame(); form_card.setObjectName("Card")
         form_layout = QFormLayout(form_card)
@@ -139,19 +170,13 @@ class SettingsView(QWidget):
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         table_layout.addWidget(table)
 
-        vbox.addWidget(form_card); vbox.addWidget(table_card, 1)
+        vbox.addWidget(form_card)
+        vbox.addWidget(table_card, 1)
 
         container.value_input = value_input; container.add_button = add_button
         container.delete_button = delete_button; container.table = table
         
         return container
-    
-    def update_parent_type_combo(self, transaction_types):
-        if hasattr(self.categories_tab, 'parent_type_input'):
-            combo = self.categories_tab.parent_type_input
-            combo.clear()
-            for t_type in transaction_types:
-                combo.addItem(t_type.value, userData=t_type.id)
 
     def _create_parameter_tab(self, group_name):
         """Crea una pestaña estándar con una sola columna."""
@@ -165,32 +190,37 @@ class SettingsView(QWidget):
         tab_widget.add_button = param_content.add_button
         tab_widget.delete_button = param_content.delete_button
         tab_widget.table = param_content.table
+        if hasattr(param_content, 'parent_type_input'):
+             tab_widget.parent_type_input = param_content.parent_type_input
         
         return tab_widget
 
-    # (El resto de la clase permanece igual, pero la actualizo para mayor claridad)
     def display_parameters(self, table, parameters, display_rule):
         table.setRowCount(0)
         col_count = table.columnCount()
         for row, param in enumerate(parameters):
             table.insertRow(row)
-            item = QTableWidgetItem(param.value); item.setData(Qt.ItemDataRole.UserRole, param.id)
+            item = QTableWidgetItem(param.value)
+            item.setData(Qt.ItemDataRole.UserRole, param.id)
             table.setItem(row, 0, item)
             
             col_idx = 1
-            if display_rule: # Para Tipos de Transacción
+            if display_rule:
                 rule_name = "(Ninguna)"
                 try:
-                    if param.budget_rule: rule_name = param.budget_rule.name
-                except Exception: pass
+                    if param.budget_rule:
+                        rule_name = param.budget_rule.name
+                except Exception:
+                    pass
                 table.setItem(row, col_idx, QTableWidgetItem(rule_name))
                 col_idx += 1
             
-            if param.group == 'Categoría' and col_count > 1: # Para Categorías
+            if param.group == 'Categoría' and col_count > 1:
                 parent_name = "(Ninguno)"
                 try:
                     if param.parent: parent_name = param.parent.value
-                except Exception: pass
+                except Exception:
+                    pass
                 table.setItem(row, col_idx, QTableWidgetItem(parent_name))
                 
     def display_budget_rules(self, table, rules):
@@ -202,6 +232,13 @@ class SettingsView(QWidget):
             table.setItem(row, 0, name_item)
             table.setItem(row, 1, QTableWidgetItem(f"{rule.percentage:.2f} %"))
     
+    def update_parent_type_combo(self, transaction_types):
+        if hasattr(self.categories_tab, 'parent_type_input'):
+            combo = self.categories_tab.parent_type_input
+            combo.clear()
+            for t_type in transaction_types:
+                combo.addItem(t_type.value, userData=t_type.id)
+
     def update_budget_rule_combo(self, rules):
         combo = self.transaction_types_tab.param_budget_rule_input
         combo.clear()

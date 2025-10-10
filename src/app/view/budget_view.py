@@ -59,6 +59,7 @@ class BudgetView(QWidget):
 
         self.description_input = QLineEdit()
         self.amount_input = QLineEdit()
+        self.amount_input.setMaxLength(15)
         self.type_input = QComboBox() 
         self.category_input = QComboBox()
         self.date_input = QDateEdit(QDate.currentDate())

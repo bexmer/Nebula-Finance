@@ -9,6 +9,7 @@ from functools import partial
 class TransactionsView(QWidget):
     def __init__(self):
         super().__init__()
+        self.controller = None
         
         main_container_layout = QVBoxLayout(self)
         main_container_layout.setContentsMargins(20, 20, 20, 20)
@@ -32,6 +33,7 @@ class TransactionsView(QWidget):
         self.date_input = QDateEdit(QDate.currentDate()); self.date_input.setCalendarPopup(True)
         self.description_input = QLineEdit()
         self.amount_input = QLineEdit()
+        self.amount_input.setMaxLength(15)
         self.account_input = QComboBox()
         self.type_input = QComboBox()
         self.category_input = QComboBox()
@@ -202,11 +204,21 @@ class TransactionsView(QWidget):
             check_item = QTableWidgetItem(); check_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled); check_item.setCheckState(Qt.CheckState.Unchecked); check_item.setData(Qt.ItemDataRole.UserRole, rule.id)
             self.recurring_table.setItem(row, 0, check_item)
             self.recurring_table.setItem(row, 1, QTableWidgetItem(rule.description))
-            self.recurring_table.setItem(row, 2, QTableWidgetItem(f"${rule.amount:,.2f}"))
+            
+            # --- Aplicar formato ---
+            if self.controller:
+                display_text, tooltip_text = self.controller.format_currency(rule.amount)
+                amount_item = QTableWidgetItem(display_text)
+                amount_item.setToolTip(tooltip_text)
+                self.recurring_table.setItem(row, 2, amount_item)
+            else:
+                self.recurring_table.setItem(row, 2, QTableWidgetItem(f"${rule.amount:,.2f}"))
+
             self.recurring_table.setItem(row, 3, QTableWidgetItem(rule.category))
             self.recurring_table.setItem(row, 4, QTableWidgetItem(str(rule.day_of_month)))
             self.recurring_table.setItem(row, 5, QTableWidgetItem(next_dates.get(rule.id, 'N/A')))
             self.recurring_table.item(row, 1).setData(Qt.ItemDataRole.UserRole, rule.id)
+
 
     def display_all_transactions(self, transactions):
         self.all_table.setRowCount(0)
@@ -216,10 +228,20 @@ class TransactionsView(QWidget):
             self.all_table.setItem(row, 0, check_item)
             self.all_table.setItem(row, 1, QTableWidgetItem(trans.date.strftime('%Y-%m-%d')))
             self.all_table.setItem(row, 2, QTableWidgetItem(trans.description))
-            self.all_table.setItem(row, 3, QTableWidgetItem(f"${trans.amount:,.2f}"))
+
+            # --- Aplicar formato ---
+            if self.controller:
+                display_text, tooltip_text = self.controller.format_currency(trans.amount)
+                amount_item = QTableWidgetItem(display_text)
+                amount_item.setToolTip(tooltip_text)
+                self.all_table.setItem(row, 3, amount_item)
+            else:
+                self.all_table.setItem(row, 3, QTableWidgetItem(f"${trans.amount:,.2f}"))
+            
             self.all_table.setItem(row, 4, QTableWidgetItem(trans.type))
             self.all_table.setItem(row, 5, QTableWidgetItem(trans.category))
             self.all_table.item(row, 1).setData(Qt.ItemDataRole.UserRole, trans.id)
+
 
     def display_goal_transactions(self, transactions):
         self.goals_table.setRowCount(0)
@@ -231,8 +253,18 @@ class TransactionsView(QWidget):
             self.goals_table.setItem(row, 2, QTableWidgetItem(trans.goal.name))
             self.goals_table.setItem(row, 3, QTableWidgetItem(trans.category))
             self.goals_table.setItem(row, 4, QTableWidgetItem(trans.description))
-            self.goals_table.setItem(row, 5, QTableWidgetItem(f"${trans.amount:,.2f}"))
+            
+            # --- Aplicar formato ---
+            if self.controller:
+                display_text, tooltip_text = self.controller.format_currency(trans.amount)
+                amount_item = QTableWidgetItem(display_text)
+                amount_item.setToolTip(tooltip_text)
+                self.goals_table.setItem(row, 5, amount_item)
+            else:
+                self.goals_table.setItem(row, 5, QTableWidgetItem(f"${trans.amount:,.2f}"))
+
             self.goals_table.item(row, 1).setData(Qt.ItemDataRole.UserRole, trans.id)
+
 
     def display_debt_transactions(self, transactions):
         self.debts_table.setRowCount(0)
@@ -244,8 +276,18 @@ class TransactionsView(QWidget):
             self.debts_table.setItem(row, 2, QTableWidgetItem(trans.debt.name))
             self.debts_table.setItem(row, 3, QTableWidgetItem(trans.category))
             self.debts_table.setItem(row, 4, QTableWidgetItem(trans.description))
-            self.debts_table.setItem(row, 5, QTableWidgetItem(f"${trans.amount:,.2f}"))
+            
+            # --- Aplicar formato ---
+            if self.controller:
+                display_text, tooltip_text = self.controller.format_currency(trans.amount)
+                amount_item = QTableWidgetItem(display_text)
+                amount_item.setToolTip(tooltip_text)
+                self.debts_table.setItem(row, 5, amount_item)
+            else:
+                self.debts_table.setItem(row, 5, QTableWidgetItem(f"${trans.amount:,.2f}"))
+
             self.debts_table.item(row, 1).setData(Qt.ItemDataRole.UserRole, trans.id)
+
 
     def update_accounts_list(self, accounts):
         self.account_input.clear()

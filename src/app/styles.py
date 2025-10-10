@@ -148,7 +148,7 @@ LIGHT_STYLE = """
     
     QLabel#ProjectionLabel {
     font-size: 11px;
-    color: #979ba5;
+    color: #979ba5; /* Un color gris suave */
     font-style: italic;
 }
 """
@@ -156,7 +156,7 @@ LIGHT_STYLE = """
 DARK_STYLE = """
 QLabel#ProjectionLabel {
     font-size: 11px;
-    color: #979ba5;
+    color: #979ba5; /* Mismo color, funciona bien en ambos temas */
     font-style: italic;
 }
     /* --- GENERAL --- */

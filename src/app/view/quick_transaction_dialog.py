@@ -11,6 +11,8 @@ class QuickTransactionDialog(QDialog):
 
         self.description_input = QLineEdit()
         self.amount_input = QLineEdit()
+        self.amount_input.setMaxLength(15)
+
         
         self.account_input = QComboBox()
         for acc in accounts:

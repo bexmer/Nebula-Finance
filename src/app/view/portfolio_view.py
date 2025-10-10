@@ -83,7 +83,9 @@ class PortfolioView(QWidget):
         self.trade_type_input = QLineEdit()
         self.trade_operation_combo = QComboBox(); self.trade_operation_combo.addItems(["Compra", "Venta"])
         self.trade_quantity_input = QLineEdit()
+        self.trade_quantity_input.setMaxLength(15)
         self.trade_price_input = QLineEdit()
+        self.trade_price_input.setMaxLength(15)
         self.add_trade_button = QPushButton("Registrar Operación")
 
         form_layout.addRow("Fecha:", self.trade_date_input)

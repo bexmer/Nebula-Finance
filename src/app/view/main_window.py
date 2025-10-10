@@ -47,7 +47,6 @@ class MainWindow(QMainWindow):
         self.toggle_button = QPushButton()
         self.toggle_button.setObjectName("NavButton")
         self.toggle_button.setCheckable(False)
-        self.toggle_button.clicked.connect(self.toggle_nav_panel)
         self.toggle_layout = QHBoxLayout()
         nav_layout.addLayout(self.toggle_layout)
 
@@ -117,8 +116,12 @@ class MainWindow(QMainWindow):
         self.animation = QPropertyAnimation(self.nav_panel, b"minimumWidth")
         self.animation.setDuration(250)
         self.animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
-        self.animation.finished.connect(self.on_animation_finished)
         
+        # --- Conexiones que SÍ pertenecen aquí (porque solo afectan a la propia ventana) ---
+        self.toggle_button.clicked.connect(self.toggle_nav_panel)
+        self.animation.finished.connect(self.on_animation_finished)
+        self.theme_button.clicked.connect(self.toggle_theme)
+
         self.update_panel_state()
 
 
@@ -126,6 +129,8 @@ class MainWindow(QMainWindow):
         self.controller = controller
         self.btn_dashboard.setChecked(True)
 
+        # --- INICIO DE LA SOLUCIÓN: TODAS LAS CONEXIONES CON EL CONTROLADOR VAN AQUÍ ---
+        
         # Conexiones de Navegación
         self.btn_dashboard.clicked.connect(lambda: self.content_stack.setCurrentIndex(0))
         self.btn_portfolio.clicked.connect(lambda: (self.content_stack.setCurrentIndex(1), self.controller.load_portfolio()))
@@ -136,37 +141,22 @@ class MainWindow(QMainWindow):
         self.btn_analysis.clicked.connect(lambda: (self.content_stack.setCurrentIndex(6), self.controller.update_analysis_view()))
         self.btn_settings.clicked.connect(lambda: (self.content_stack.setCurrentIndex(7), self.controller.load_parameters()))
         
-        # --- INICIO DE LA SOLUCIÓN: ATAJOS DE TECLADO ---
-
-        # 1. Atajos de Navegación Esencial
+        # Atajos de Teclado
         QShortcut(QKeySequence("Ctrl+1"), self).activated.connect(self.btn_dashboard.click)
         QShortcut(QKeySequence("Ctrl+2"), self).activated.connect(self.btn_portfolio.click)
         QShortcut(QKeySequence("Ctrl+3"), self).activated.connect(self.btn_accounts.click)
         QShortcut(QKeySequence("Ctrl+4"), self).activated.connect(self.btn_budget.click)
         QShortcut(QKeySequence("Ctrl+5"), self).activated.connect(self.btn_transactions.click)
-
-        # 2. Atajos de Acciones Globales
         QShortcut(QKeySequence("Ctrl+N"), self).activated.connect(self.controller.show_quick_transaction_dialog)
         QShortcut(QKeySequence("F5"), self).activated.connect(self.controller.full_refresh)
         QShortcut(QKeySequence("Ctrl+T"), self).activated.connect(self.toggle_theme)
         QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(self.controller.focus_search_bar)
         QShortcut(QKeySequence("Ctrl+Q"), self).activated.connect(self.close)
-
-        # 3. Atajos de Acciones Contextuales
         QShortcut(QKeySequence("Delete"), self).activated.connect(self.controller.delete_selected_item)
         QShortcut(QKeySequence("F2"), self).activated.connect(self.controller.edit_selected_item)
         QShortcut(QKeySequence("Ctrl+Shift+A"), self).activated.connect(self.controller.trigger_add_new)
         
-        # --- FIN DE LA SOLUCIÓN ---
-    
-        # Conexiones Generales
-        self.theme_button.clicked.connect(self.toggle_theme)
-        
         # Conexiones Dashboard
-        self.dashboard_page.year_filter.currentTextChanged.connect(self.controller.update_dashboard)
-        for action in self.dashboard_page.month_actions:
-            action.triggered.connect(self.controller.update_dashboard)
-        self.dashboard_page.all_year_action.triggered.connect(self.controller.update_dashboard)
         self.dashboard_page.quick_add_button.clicked.connect(self.controller.show_quick_transaction_dialog)
 
         # Conexiones Portafolio
@@ -174,20 +164,19 @@ class MainWindow(QMainWindow):
         
         # Conexiones Cuentas
         self.accounts_page.add_button.clicked.connect(self.controller.add_account)
-        self.accounts_page.delete_button.clicked.connect(self.controller.delete_account) # Conexión correcta
+        self.accounts_page.delete_button.clicked.connect(self.controller.delete_account)
         self.accounts_page.table.cellDoubleClicked.connect(self.controller.edit_account_by_row)
 
         # Conexiones Presupuesto
         budget_page = self.budget_page
         budget_page.add_button.clicked.connect(self.controller.add_budget_entry)
-        budget_page.delete_button.clicked.connect(self.controller.delete_selected_items) # Conexión correcta
+        budget_page.delete_button.clicked.connect(self.controller.delete_selected_items)
         budget_page.register_payment_button.clicked.connect(self.controller.register_budget_payment)
         budget_page.table.cellDoubleClicked.connect(self.controller.edit_budget_entry_by_row)
         budget_page.prev_button.clicked.connect(lambda: self.controller.change_page(-1))
         budget_page.next_button.clicked.connect(lambda: self.controller.change_page(1))
         budget_page.items_per_page_combo.currentTextChanged.connect(self.controller.change_items_per_page)
         budget_page.type_input.currentTextChanged.connect(self.controller.update_category_dropdowns)
-
         
         # Conexiones Transacciones
         transactions_page = self.transactions_page
@@ -202,21 +191,26 @@ class MainWindow(QMainWindow):
         transactions_page.end_date_filter.dateChanged.connect(self.controller.filter_transactions)
         transactions_page.tabs.currentChanged.connect(self.controller.filter_transactions)
         transactions_page.type_input.currentTextChanged.connect(self.controller.update_category_dropdowns)
-
         
         # Conexiones Metas y Deudas
         goals_page = self.goals_page
         goals_page.add_goal_button.clicked.connect(self.controller.add_goal)
         goals_page.add_debt_button.clicked.connect(self.controller.add_debt)
-        goals_page.calculate_strategy_button.clicked.connect(self.controller.calculate_debt_strategies)
-
         goals_page.edit_goal_requested.connect(self.controller.edit_goal)
         goals_page.delete_goal_requested.connect(self.controller.delete_goal)
         goals_page.edit_debt_requested.connect(self.controller.edit_debt)
         goals_page.delete_debt_requested.connect(self.controller.delete_debt)
-        goals_page.calculate_strategy_button.clicked.connect(self.controller.calculate_debt_strategies)
-        # Conexiones Configuración
         
+        # Conexiones Análisis
+        analysis_page = self.analysis_page
+        analysis_page.year_selector.currentTextChanged.connect(self.controller.update_analysis_view)
+        for action in analysis_page.month_actions:
+            action.triggered.connect(self.controller.update_analysis_view)
+        analysis_page.all_year_action.triggered.connect(self.controller.update_analysis_view)
+        if hasattr(analysis_page, 'calculate_projection_button'):
+             analysis_page.calculate_projection_button.clicked.connect(self.controller.calculate_and_display_projections)
+
+        # Conexiones Configuración
         settings_page = self.settings_page
         tt_tab = settings_page.transaction_types_tab
         tt_tab.param_add_button.clicked.connect(lambda: self.controller.add_parameter('Tipo de Transacción'))
@@ -231,6 +225,8 @@ class MainWindow(QMainWindow):
         settings_page.categories_tab.add_button.clicked.connect(lambda: self.controller.add_parameter('Categoría'))
         settings_page.categories_tab.delete_button.clicked.connect(self.controller.delete_parameter)
         settings_page.categories_tab.table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_parameter_by_row(r, c, settings_page.categories_tab.table))
+        settings_page.save_display_button.clicked.connect(self.controller.save_display_settings)
+
         
         # Carga inicial
         self.controller.full_refresh()
@@ -343,6 +339,9 @@ class MainWindow(QMainWindow):
         current_width = self.nav_panel_collapsed_width if self.is_nav_panel_collapsed else self.nav_panel_expanded_width
         self.nav_panel.setMinimumWidth(current_width)
         self.nav_panel.setMaximumWidth(current_width)
+        
+        if hasattr(self, 'controller'):
+            self.controller.update_dashboard()
 
     def update_theme_icons(self):
         icon_color = "#979ba5"

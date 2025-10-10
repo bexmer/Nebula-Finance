@@ -7,6 +7,11 @@ class AccountsView(QWidget):
     def __init__(self):
         super().__init__()
         
+        # --- INICIO DE LA SOLUCIÓN ---
+        # Inicializamos la variable del controlador para evitar el error
+        self.controller = None
+        # --- FIN DE LA SOLUCIÓN ---
+
         main_container_layout = QVBoxLayout(self)
         main_container_layout.setContentsMargins(20, 20, 20, 20)
         main_container_layout.setSpacing(20)
@@ -26,8 +31,9 @@ class AccountsView(QWidget):
         form_layout.setContentsMargins(15, 15, 15, 15); form_layout.setSpacing(10)
 
         self.name_input = QLineEdit()
-        self.type_input = QComboBox() # Se eliminarán los items fijos
+        self.type_input = QComboBox()
         self.balance_input = QLineEdit()
+        self.balance_input.setMaxLength(15) # Límite de dígitos
         
         self.add_button = QPushButton("Añadir Cuenta"); self.add_button.setObjectName("ActionButton")
         self.delete_button = QPushButton("Eliminar Selección")
@@ -66,14 +72,22 @@ class AccountsView(QWidget):
             self.table.insertRow(row)
             self.table.setItem(row, 0, QTableWidgetItem(account.name))
             self.table.setItem(row, 1, QTableWidgetItem(account.account_type))
-            self.table.setItem(row, 2, QTableWidgetItem(f"${account.current_balance:,.2f}"))
+            
+            # Aplicamos el formateador de moneda que creamos
+            if self.controller:
+                display_text, tooltip_text = self.controller.format_currency(account.current_balance)
+                balance_item = QTableWidgetItem(display_text)
+                balance_item.setToolTip(tooltip_text)
+                self.table.setItem(row, 2, balance_item)
+            else:
+                 self.table.setItem(row, 2, QTableWidgetItem(f"${account.current_balance:,.2f}"))
+
             self.table.item(row, 0).setData(Qt.ItemDataRole.UserRole, account.id)
 
     def get_selected_account_id(self):
         current_row = self.table.currentRow()
         if current_row >= 0:
-            item = self.table.item(current_row, 0) # El ID está en la primera columna
+            item = self.table.item(current_row, 0)
             if item:
                 return item.data(Qt.ItemDataRole.UserRole)
         return None
-    

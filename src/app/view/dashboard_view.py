@@ -12,11 +12,11 @@ from dateutil.relativedelta import relativedelta
 
 # ---------------- Tarjeta de crédito ----------------
 class CreditCardWidget(QFrame):
-    def __init__(self, parent=None):
+    def __init__(self, dashboard_view, parent=None):
         super().__init__(parent)
         self.setObjectName("CreditCardFrame")
         self.setFixedSize(280, 170)
-
+        self.dashboard_view = dashboard_view
         self._balance_hidden = False
         self._current_account = None
 
@@ -73,7 +73,12 @@ class CreditCardWidget(QFrame):
             if self._balance_hidden:
                 self.balance_label.setText("$ * * * * * * * *")
             else:
-                self.balance_label.setText(f"${self._current_account.current_balance:,.2f}")
+                if self.dashboard_view and hasattr(self.dashboard_view, 'controller') and self.dashboard_view.controller:
+                    display_text, tooltip_text = self.dashboard_view.controller.format_currency(self._current_account.current_balance)
+                    self.balance_label.setText(display_text)
+                    self.balance_label.setToolTip(tooltip_text)
+                else:
+                    self.balance_label.setText(f"${self._current_account.current_balance:,.2f}")
             self.holder_name_label.setText(self._current_account.name)
             self.type_name_label.setText(self._current_account.account_type)
         else:
@@ -91,11 +96,10 @@ class CreditCardWidget(QFrame):
         self.visibility_button.setIcon(qta.icon(icon_name, color='white'))
 
 
-
 class TimeAxisItem(pg.AxisItem):
     def tickStrings(self, values, scale, spacing):
         try:
-            return [datetime.fromtimestamp(v).strftime('%b %Y') for v in values]
+            return [datetime.datetime.fromtimestamp(v).strftime('%b %Y') for v in values]
         except Exception:
             return ['' for v in values]
 
@@ -105,6 +109,7 @@ class TimeAxisItem(pg.AxisItem):
 class DashboardView(QWidget):
     def __init__(self):
         super().__init__()
+        self.controller = None
         pg.setConfigOption('background', 'transparent')
         
         self.is_dark_mode = True 
@@ -126,7 +131,7 @@ class DashboardView(QWidget):
         
         self.month_filter_button = QPushButton("Mes Actual")
         self.month_filter_button.setObjectName("FilterButton")
-        self._create_month_menu() # La llamada ahora está aquí, en el lugar correcto
+        self._create_month_menu()
         
         header_layout.addWidget(QLabel("Año:"))
         header_layout.addWidget(self.year_filter)
@@ -168,13 +173,13 @@ class DashboardView(QWidget):
         red_top_layout = QHBoxLayout(red_top_widget)
         red_top_layout.setContentsMargins(0, 0, 0, 0)
         red_top_layout.setSpacing(15)
-        purple_left_layout.addWidget(red_top_widget, 1) # Ajuste de stretch factor
+        purple_left_layout.addWidget(red_top_widget, 1)
 
         red_bottom_widget = QWidget()
         red_bottom_layout = QHBoxLayout(red_bottom_widget)
         red_bottom_layout.setContentsMargins(0, 0, 0, 0)
         red_bottom_layout.setSpacing(15)
-        purple_left_layout.addWidget(red_bottom_widget, 2) # Ajuste de stretch factor
+        purple_left_layout.addWidget(red_bottom_widget, 2)
 
         green_top_left_layout = QVBoxLayout()
         red_top_layout.addLayout(green_top_left_layout, 2)
@@ -184,12 +189,12 @@ class DashboardView(QWidget):
         red_bottom_layout.addLayout(green_bottom_left_layout, 1)
         red_bottom_layout.addWidget(self.expense_dist_card, 1)
 
-        kpi_layout = QHBoxLayout()
-        kpi_layout.addWidget(self.income_kpi)
-        kpi_layout.addWidget(self.expense_kpi)
-        kpi_layout.addWidget(self.net_kpi)
-        green_top_left_layout.addLayout(kpi_layout, 0)
+        kpi_layout = QGridLayout()
+        kpi_layout.addWidget(self.income_kpi, 0, 0)
+        kpi_layout.addWidget(self.expense_kpi, 0, 1)
+        kpi_layout.addWidget(self.net_kpi, 0, 2)
         
+        green_top_left_layout.addLayout(kpi_layout, 0)
         green_top_left_layout.addWidget(self.switchable_chart_card, 1)
 
         budget_vs_real_layout = QHBoxLayout()
@@ -299,9 +304,8 @@ class DashboardView(QWidget):
         top_layout = QHBoxLayout()
         icon_label = QLabel()
         icon_label.setObjectName("KPI_Icon")
-        icon_label.setFixedSize(24, 24) # Icono más pequeño
+        icon_label.setFixedSize(24, 24)
         
-        # El color se establecerá dinámicamente
         icon_color = "#EAEAEA" if self.is_dark_mode else "#364765"
         icon_label.setPixmap(qta.icon(icon_name, color=icon_color).pixmap(QSize(22, 22)))
         
@@ -329,7 +333,7 @@ class DashboardView(QWidget):
         card.value_label = value_label
         card.comparison_label = comparison_label
         card.icon_label = icon_label
-        card.icon_name = icon_name # Guardamos el nombre del ícono
+        card.icon_name = icon_name
 
         return card
 
@@ -412,7 +416,9 @@ class DashboardView(QWidget):
         header_layout.addWidget(self.prev_account_btn)
         header_layout.addWidget(self.next_account_btn)
         main_card_layout.addLayout(header_layout)
-        self.credit_card_widget = CreditCardWidget()
+        
+        self.credit_card_widget = CreditCardWidget(self)
+        
         card_container_layout = QHBoxLayout()
         card_container_layout.addStretch()
         card_container_layout.addWidget(self.credit_card_widget)
@@ -450,14 +456,33 @@ class DashboardView(QWidget):
         self.budget_expense_card.comparison_label.setText(f"Real: ${expense_data['real_amount']:,.2f}")
 
     def update_kpis(self, income, expense, net_flow, income_comp=None, expense_comp=None):
-        self.income_kpi.value_label.setText(f"${income:,.2f}")
-        self.expense_kpi.value_label.setText(f"${expense:,.2f}")
-        self.net_kpi.value_label.setText(f"${net_flow:,.2f}")
+        # --- INICIO DE LA SOLUCIÓN ---
+        if self.controller:
+            income_text, income_tip = self.controller.format_currency(income)
+            expense_text, expense_tip = self.controller.format_currency(expense)
+            net_text, net_tip = self.controller.format_currency(net_flow)
+            
+            self.income_kpi.value_label.setText(income_text)
+            self.income_kpi.value_label.setToolTip(income_tip)
+            
+            self.expense_kpi.value_label.setText(expense_text)
+            self.expense_kpi.value_label.setToolTip(expense_tip)
+            
+            self.net_kpi.value_label.setText(net_text)
+            self.net_kpi.value_label.setToolTip(net_tip)
+        else:
+            # Fallback por si el controlador no está listo
+            self.income_kpi.value_label.setText(f"${income:,.2f}")
+            self.expense_kpi.value_label.setText(f"${expense:,.2f}")
+            self.net_kpi.value_label.setText(f"${net_flow:,.2f}")
+        # --- FIN DE LA SOLUCIÓN ---
+
         def format_comp(value, lower_is_better=False):
             if value is None: return ""
             prefix = "▲ " if value >= 0 else "▼ "
             color = "#28A745" if (value >= 0 and not lower_is_better) or (value < 0 and lower_is_better) else "#DC3545"
             return f"<font color='{color}'>{prefix}{abs(value):.1f}%</font>"
+            
         self.income_kpi.comparison_label.setText(format_comp(income_comp))
         self.expense_kpi.comparison_label.setText(format_comp(expense_comp, lower_is_better=True))
 
@@ -543,7 +568,6 @@ class DashboardView(QWidget):
                 pw.getPlotItem().getAxis('bottom').setPen(axis_pen)
                 pw.getPlotItem().getAxis('bottom').setTextPen(self.fg_color)
         
-        # Cambiamos el color de los íconos de los KPIs según el tema
         icon_color = "#EAEAEA" if is_dark_mode else "#364765"
         for kpi_card in [self.income_kpi, self.expense_kpi, self.net_kpi]:
             kpi_card.icon_label.setPixmap(qta.icon(kpi_card.icon_name, color=icon_color).pixmap(QSize(22, 22)))
@@ -630,12 +654,15 @@ class DashboardView(QWidget):
         card = self.expense_type_chart_card
         pw = card.plot_widget
         legend = getattr(card, "legend_layout", None)
-        is_dark = (pg.getConfigOption('foreground') == '#FFFFFF')
+        
+        is_dark = self.is_dark_mode
+        
         fg_hex = "#FFFFFF" if is_dark else "#0F172A"
         fg_sub_hex = "#E5E7EB" if is_dark else "#6B7280"
         card_bg = card.palette().window().color()
         try: pw.setBackground(card_bg)
         except Exception: pw.setBackground((card_bg.red(), card_bg.green(), card_bg.blue()))
+
         categories = categories or []
         amounts = [float(a) for a in (amounts or [])]
         total_amount = float(sum(amounts))
@@ -647,14 +674,17 @@ class DashboardView(QWidget):
             pw.hideAxis('left'); pw.hideAxis('bottom')
             if legend: self._clear_legend(legend)
             return
+        
         parts = [a / total_amount for a in amounts]
         hex_colors = ["#61AFEF", "#E5C07B", "#98C379", "#C678DD", "#E06C75", "#ABB2BF"] if is_dark else ["#3B82F6", "#F59E0B", "#22C55E", "#8B5CF6", "#EF4444", "#9CA3AF"]
         slice_colors = []
         for i in range(len(categories)):
             c = QColor(hex_colors[i % len(hex_colors)]); c.setAlpha(235 if is_dark else 215)
             slice_colors.append(c)
+        
         pw.setAspectLocked(True); pw.setRange(xRange=(-1.05, 1.05), yRange=(-1.05, 1.05))
         pw.hideAxis('left'); pw.hideAxis('bottom')
+        
         outer_r, inner_r, start = 0.92, 0.58, 90.0
         for i, p in enumerate(parts):
             if p <= 0: continue
@@ -664,15 +694,19 @@ class DashboardView(QWidget):
             ring.setBrush(slice_colors[i]); ring.setPen(pg.mkPen(None))
             pw.addItem(ring)
             start += span
+        
         inner = pg.QtWidgets.QGraphicsEllipseItem(-inner_r, -inner_r, 2*inner_r, 2*inner_r)
         inner.setBrush(card_bg); inner.setPen(pg.mkPen(None))
         pw.addItem(inner)
+        
         t_total = pg.TextItem(f"${total_amount:,.0f}", color=fg_hex, anchor=(0.5, 0.5))
         t_total.setFont(QFont("Segoe UI", 17, QFont.Weight.DemiBold))
         pw.addItem(t_total); t_total.setPos(0, 0.12)
+        
         t_label = pg.TextItem("Gastos", color=fg_sub_hex, anchor=(0.5, 0.5))
         t_label.setFont(QFont("Segoe UI", 10))
         pw.addItem(t_label); t_label.setPos(0, -0.10)
+        
         if legend: self._build_or_update_legend(legend, categories, amounts, slice_colors, is_dark)
 
     def _build_or_update_legend(self, legend_layout, categories, amounts, colors, is_dark):
@@ -723,7 +757,6 @@ class DashboardView(QWidget):
         axis = plot_widget.getAxis('bottom')
         axis.setTicks(x_ticks)
         
-        # Se aplican los estilos al eje
         axis.setTextPen(pg.getConfigOption('foreground'))
         axis.setTickFont(QFont("Segoe UI", 8))
 
