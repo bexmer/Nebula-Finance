@@ -53,19 +53,31 @@ class DebtItem(QFrame):
         main_layout = QHBoxLayout(self)
         info_layout = QVBoxLayout()
         name_label = QLabel(f"<b>{debt_data.name}</b>")
+        
         percentage = 0
         if debt_data.total_amount > 0:
             percentage = (1 - (debt_data.current_balance / debt_data.total_amount)) * 100
+        
         progress_bar = QProgressBar()
         progress_bar.setValue(int(percentage))
         progress_bar.setTextVisible(False)
         progress_bar.setProperty("state", "good")
         progress_bar.style().polish(progress_bar)
-        amounts_text = f"Pagado: ${debt_data.total_amount - debt_data.current_balance:,.2f} de ${debt_data.total_amount:,.2f}"
+
+        # --- INICIO DE LA SOLUCIÓN ---
+        # Creamos el nuevo texto con toda la información
+        paid_amount = debt_data.total_amount - debt_data.current_balance
+        amounts_text = (f"Pagado: ${paid_amount:,.2f} de ${debt_data.total_amount:,.2f} "
+                        f"| <b>Pago Mínimo:</b> ${debt_data.minimum_payment:,.2f} "
+                        f"| <b>Interés:</b> {debt_data.interest_rate:.2f}%")
+        # --- FIN DE LA SOLUCIÓN ---
+
         amounts_label = QLabel(amounts_text)
+        
         info_layout.addWidget(name_label)
         info_layout.addWidget(progress_bar)
         info_layout.addWidget(amounts_label)
+        
         button_layout = QVBoxLayout()
         edit_button = QPushButton()
         edit_button.setIcon(qta.icon("fa5s.edit"))
@@ -74,8 +86,10 @@ class DebtItem(QFrame):
         button_layout.addWidget(edit_button)
         button_layout.addWidget(delete_button)
         button_layout.addStretch()
+        
         main_layout.addLayout(info_layout, 1)
         main_layout.addLayout(button_layout)
+        
         edit_button.clicked.connect(lambda: self.edit_requested.emit(self.debt_id))
         delete_button.clicked.connect(lambda: self.delete_requested.emit(self.debt_id))
 

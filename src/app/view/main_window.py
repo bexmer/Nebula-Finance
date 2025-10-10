@@ -214,8 +214,9 @@ class MainWindow(QMainWindow):
         goals_page.delete_goal_requested.connect(self.controller.delete_goal)
         goals_page.edit_debt_requested.connect(self.controller.edit_debt)
         goals_page.delete_debt_requested.connect(self.controller.delete_debt)
-        goals_page.calculate_strategy_button.clicked.connect(self.controller.calculate_debt_strategies)    
+        goals_page.calculate_strategy_button.clicked.connect(self.controller.calculate_debt_strategies)
         # Conexiones Configuración
+        
         settings_page = self.settings_page
         tt_tab = settings_page.transaction_types_tab
         tt_tab.param_add_button.clicked.connect(lambda: self.controller.add_parameter('Tipo de Transacción'))
