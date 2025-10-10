@@ -18,6 +18,11 @@ from app.view.edit_recurring_dialog import EditRecurringDialog
 from app.view.quick_transaction_dialog import QuickTransactionDialog
 from app.view.edit_parameter_dialog import EditParameterDialog
 from app.view.edit_budget_rule_dialog import EditBudgetRuleDialog
+from app.view.register_payment_dialog import RegisterPaymentDialog
+from copy import deepcopy
+import datetime
+from dateutil.relativedelta import relativedelta
+
 
 import datetime
 from collections import defaultdict
@@ -843,6 +848,80 @@ class AppController:
         elif tab_index == 1: self.view.transactions_page.display_goal_transactions(transactions)
         elif tab_index == 2: self.view.transactions_page.display_debt_transactions(transactions)
 
+    def register_budget_payment(self):
+        """
+        Convierte las entradas de presupuesto seleccionadas en transacciones reales.
+        """
+        checked_ids = self.view.budget_page.get_checked_ids()
+        if not checked_ids:
+            self.view.show_notification("No hay elementos seleccionados para registrar.", "error")
+            return
+
+        accounts = list(Account.select())
+        if not accounts:
+            self.view.show_notification("No puedes registrar un pago porque no existen cuentas.", "error")
+            return
+
+        entries_to_pay = list(BudgetEntry.select().where(BudgetEntry.id.in_(checked_ids)))
+        total_to_pay = sum(entry.budgeted_amount for entry in entries_to_pay)
+
+        dialog = RegisterPaymentDialog(accounts, total_to_pay, self.view)
+        if dialog.exec():
+            account_id = dialog.get_selected_account_id()
+            if not account_id:
+                self.view.show_notification("No se seleccionó una cuenta válida.", "error")
+                return
+            
+            try:
+                selected_account = Account.get_by_id(account_id)
+                
+                for entry in entries_to_pay:
+                    Transaction.create(
+                        date=datetime.date.today(),
+                        description=entry.description,
+                        amount=entry.budgeted_amount,
+                        type=entry.type,
+                        category=entry.category,
+                        account=selected_account
+                    )
+                    
+                    if entry.type.startswith('Ingreso'):
+                        selected_account.current_balance += entry.budgeted_amount
+                    else:
+                        selected_account.current_balance -= entry.budgeted_amount
+                
+                selected_account.save()
+                BudgetEntry.delete().where(BudgetEntry.id.in_(checked_ids)).execute()
+                
+                # --- INICIO DE LA SOLUCIÓN CORRECTA ---
+                # Refrescamos todo lo demás (Dashboard, cuentas, etc.)
+                self.full_refresh()
+                
+                # Y ahora, forzamos la recarga de la tabla de presupuesto manualmente
+                view_widget = self.view.budget_page
+                controls = view_widget.get_pagination_controls()
+                items_per_page = controls['items_per_page']
+                page = self.current_pages.get('budget', 1)
+
+                query = BudgetEntry.select().order_by(BudgetEntry.due_date.desc())
+                
+                total_items = query.count()
+                total_pages = (total_items + items_per_page - 1) // items_per_page or 1
+                if page > total_pages:
+                    page = total_pages
+                
+                self.current_pages['budget'] = page
+                paginated_query = query.paginate(page, items_per_page)
+                view_widget.display_budget_entries(list(paginated_query))
+                view_widget.update_pagination_ui(page, total_pages, total_items)
+                # --- FIN DE LA SOLUCIÓN CORRECTA ---
+                
+                self.view.show_notification(f"{len(entries_to_pay)} pago(s) registrado(s) con éxito.", "success")
+
+            except Account.DoesNotExist:
+                self.view.show_notification("La cuenta seleccionada ya no existe.", "error")
+
+                
     def add_budget_entry(self):
         data = self.view.budget_page.get_form_data()
         if not data["description"] or not data["budgeted_amount"]:
@@ -857,8 +936,10 @@ class AppController:
             self.view.budget_page.clear_form()
             
             # --- INICIO DE LA SOLUCIÓN ---
-            # Reemplazamos la recarga de paginación por un refresco completo
+            # Primero, actualizamos el resto de la app (como el Dashboard)
             self.full_refresh()
+            # Luego, actualizamos la tabla de la vista actual (Presupuesto)
+            self.load_paginated_data()
             # --- FIN DE LA SOLUCIÓN ---
 
             self.view.show_notification("Entrada de presupuesto añadida.", "success")
@@ -952,6 +1033,69 @@ class AppController:
             print(f"Error al editar: {e}")
             self.view.show_notification("No se pudo editar la entrada seleccionada.", "error")
         # --- FIN DE LA SOLUCIÓN ---
+        
+        # --- INICIO DE LA SOLUCIÓN: LÓGICA PARA ATAJOS DE TECLADO ---
+
+    def focus_search_bar(self):
+        """Cambia a la pestaña de transacciones y pone el foco en la búsqueda."""
+        self.view.content_stack.setCurrentIndex(4) # 4 es el índice de la vista de transacciones
+        self.view.transactions_page.search_input.setFocus()
+
+    def delete_selected_item(self):
+        """Llama al método de eliminación correspondiente a la vista actual."""
+        current_view = self.view.get_current_view_name()
+        
+        # Usamos un diccionario para mapear el nombre de la vista a su función de borrado
+        delete_actions = {
+            'accounts': self.delete_account,
+            'budget': self.delete_selected_items,
+            'transactions': self.delete_selected_items,
+            'goals': self.delete_goal # Asumiendo que quieres borrar metas/deudas seleccionadas
+        }
+        
+        action = delete_actions.get(current_view)
+        if action:
+            action() # Llama a la función de borrado correspondiente
+
+    def edit_selected_item(self):
+        """Llama al método de edición correspondiente a la vista actual."""
+        current_view = self.view.get_current_view_name()
+        view_widget = getattr(self.view, f"{current_view}_page", None)
+        if not view_widget or not hasattr(view_widget, 'table'):
+            return
+
+        table = view_widget.table
+        selected_row = table.currentRow()
+        
+        if selected_row < 0:
+            self.view.show_notification("Por favor, selecciona un elemento para editar.", "error")
+            return
+            
+        edit_actions = {
+            'accounts': self.edit_account_by_row,
+            'budget': self.edit_budget_entry_by_row,
+            'transactions': lambda r, c: self.edit_transaction_by_row(r, c, table)
+        }
+        
+        action = edit_actions.get(current_view)
+        if action:
+            action(selected_row, 0) # Llama a la función de edición para la fila seleccionada
+
+    def trigger_add_new(self):
+        """Simula un clic en el botón 'Añadir' de la vista actual."""
+        current_view = self.view.get_current_view_name()
+        
+        add_buttons = {
+            'accounts': self.view.accounts_page.add_button,
+            'budget': self.view.budget_page.add_button,
+            'transactions': self.view.transactions_page.add_button,
+            'portfolio': self.view.portfolio_page.add_trade_button,
+            'goals': self.view.goals_page.add_goal_button 
+        }
+
+        button = add_buttons.get(current_view)
+        if button:
+            button.click()
 
     def delete_selected_items(self):
         current_view_name = self.view.get_current_view_name()
@@ -1028,33 +1172,103 @@ class AppController:
 
     def add_debt(self):
         data = self.view.goals_page.get_debt_form_data()
-        if not all(data.values()):
-            self.view.show_notification("Todos los campos son obligatorios.", "error")
+        if not data["name"] or not data["total_amount"] or not data["minimum_payment"]:
+            self.view.show_notification("Nombre, Monto Total y Pago Mínimo son obligatorios.", "error")
             return
         try:
             total = float(data["total_amount"])
             min_payment = float(data["minimum_payment"])
-
-            # --- INICIO DE LA SOLUCIÓN ---
-            # Añadimos la validación aquí
             if min_payment > total:
-                self.view.show_notification(
-                    "El pago mínimo no puede ser mayor que el monto total.", "error"
-                )
+                self.view.show_notification("El pago mínimo no puede ser mayor que el monto total.", "error")
                 return
-            # --- FIN DE LA SOLUCIÓN ---
 
             Debt.create(
                 name=data["name"], 
                 total_amount=total, 
                 current_balance=total,
-                minimum_payment=min_payment
+                minimum_payment=min_payment,
+                interest_rate=data["interest_rate"]
             )
             self.view.goals_page.clear_debt_form()
             self.load_goals_and_debts()
             self.view.show_notification("Deuda añadida.", "success")
         except ValueError:
             self.view.show_notification("Los montos deben ser números.", "error")
+
+    def calculate_debt_strategies(self):
+        """Función principal que orquesta el cálculo de las estrategias."""
+        extra_payment = self.view.goals_page.extra_payment_input.value()
+        debts = list(Debt.select().where(Debt.current_balance > 0))
+
+        if not debts:
+            self.view.show_notification("No hay deudas activas para calcular una estrategia.", "info")
+            return
+
+        # Calcular Bola de Nieve
+        snowball_plan, snowball_summary = self._calculate_strategy(deepcopy(debts), extra_payment, 'snowball')
+        self.view.goals_page.display_strategy_plan(self.view.goals_page.snowball_table, snowball_plan, snowball_summary)
+
+        # Calcular Avalancha
+        avalanche_plan, avalanche_summary = self._calculate_strategy(deepcopy(debts), extra_payment, 'avalanche')
+        self.view.goals_page.display_strategy_plan(self.view.goals_page.avalanche_table, avalanche_plan, avalanche_summary)
+
+    def _calculate_strategy(self, debts, extra_payment, method):
+        """Motor de simulación para una estrategia de pago de deudas."""
+        if method == 'snowball':
+            debts.sort(key=lambda d: d.current_balance)
+        elif method == 'avalanche':
+            debts.sort(key=lambda d: d.interest_rate, reverse=True)
+
+        plan = []
+        current_date = datetime.date.today()
+        months = 0
+        
+        while any(d.current_balance > 0 for d in debts):
+            months += 1
+            current_date += relativedelta(months=1)
+            if months > 1200: # Límite de 100 años para evitar bucles infinitos
+                self.view.show_notification("El cálculo excede los 100 años.", "error")
+                return [], "Cálculo demasiado largo."
+
+            # 1. Aplicar intereses a cada deuda activa
+            for debt in debts:
+                if debt.current_balance > 0:
+                    monthly_interest = (debt.interest_rate / 100 / 12) * debt.current_balance
+                    debt.current_balance += monthly_interest
+
+            # 2. Pagar los mínimos en todas las deudas
+            money_paid_as_minimum = 0
+            for debt in debts:
+                if debt.current_balance > 0:
+                    payment = min(debt.current_balance, debt.minimum_payment)
+                    debt.current_balance -= payment
+                    money_paid_as_minimum += payment
+            
+            # 3. Aplicar el pago extra y la "bola de nieve" de pagos ya liberados
+            available_for_snowball = extra_payment
+            paid_off_this_month = []
+
+            for debt in debts:
+                if debt.current_balance > 0:
+                    payment = min(debt.current_balance, available_for_snowball)
+                    debt.current_balance -= payment
+                    available_for_snowball -= payment
+
+                    if debt.current_balance <= 0:
+                        paid_off_this_month.append(debt.name)
+                        available_for_snowball += debt.minimum_payment # Liberamos el mínimo para la siguiente deuda
+            
+            if paid_off_this_month:
+                plan.append({
+                    'date': current_date.strftime('%b %Y'),
+                    'paid_off': ", ".join(paid_off_this_month),
+                    'remaining_balance': sum(d.current_balance for d in debts if d.current_balance > 0)
+                })
+        
+        years = months // 12
+        rem_months = months % 12
+        summary = f"Pagarás todo en: {years} años y {rem_months} meses"
+        return plan, summary
 
     def edit_goal(self, goal_id):
         try:
@@ -1080,7 +1294,12 @@ class AppController:
     def edit_debt(self, debt_id):
         try:
             debt = Debt.get_by_id(debt_id)
-            d_data = {"name": debt.name, "total_amount": debt.total_amount, "minimum_payment": debt.minimum_payment}
+            d_data = {
+                "name": debt.name, 
+                "total_amount": debt.total_amount, 
+                "minimum_payment": debt.minimum_payment,
+                "interest_rate": debt.interest_rate
+            }
             dialog = EditGoalDebtDialog(d_data, item_type="debt", parent=self.view)
             if dialog.exec():
                 new_data = dialog.get_data()
@@ -1090,6 +1309,7 @@ class AppController:
                 debt.name = new_data["name"]
                 debt.total_amount = float(new_data["total_amount"])
                 debt.minimum_payment = float(new_data["minimum_payment"])
+                debt.interest_rate = new_data.get("interest_rate", 0)
                 debt.save()
                 self.full_refresh()
                 self.view.show_notification("Deuda actualizada.", "success")

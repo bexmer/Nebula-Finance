@@ -1,12 +1,10 @@
-# Reemplaza todo el contenido de tu archivo con este código:
-
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                                QPushButton, QFrame, QProgressBar, QGridLayout,
-                               QScrollArea, QFormLayout, QTabWidget)
+                               QScrollArea, QFormLayout, QTabWidget, QTableWidget,
+                               QTableWidgetItem, QHeaderView, QDoubleSpinBox)
 from PySide6.QtCore import Qt, Signal
 import qtawesome as qta
 
-# --- Las clases para los items individuales (GoalItem y DebtItem) no cambian ---
 class GoalItem(QFrame):
     edit_requested = Signal(int)
     delete_requested = Signal(int)
@@ -81,10 +79,7 @@ class DebtItem(QFrame):
         edit_button.clicked.connect(lambda: self.edit_requested.emit(self.debt_id))
         delete_button.clicked.connect(lambda: self.delete_requested.emit(self.debt_id))
 
-
-# --- INICIO DE LA SOLUCIÓN: Nueva clase principal GoalsView rediseñada ---
 class GoalsView(QWidget):
-    # Las señales no cambian
     edit_goal_requested = Signal(int)
     delete_goal_requested = Signal(int)
     edit_debt_requested = Signal(int)
@@ -93,12 +88,10 @@ class GoalsView(QWidget):
     def __init__(self):
         super().__init__()
         
-        # Layout principal vertical
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(20)
 
-        # Título
         header_layout = QHBoxLayout()
         title_label = QLabel("Metas y Deudas")
         title_label.setObjectName("DashboardTitle")
@@ -106,11 +99,23 @@ class GoalsView(QWidget):
         header_layout.addStretch()
         main_layout.addLayout(header_layout)
 
-        # --- Sección Superior: Formularios ---
+        self.main_tabs = QTabWidget()
+        main_layout.addWidget(self.main_tabs, 1)
+
+        summary_widget = self._create_summary_tab()
+        self.main_tabs.addTab(summary_widget, "Resumen")
+
+        strategy_widget = self._create_strategy_tab()
+        self.main_tabs.addTab(strategy_widget, "Estrategia de Deudas")
+
+    def _create_summary_tab(self):
+        widget = QWidget()
+        main_layout = QVBoxLayout(widget)
+        main_layout.setContentsMargins(0, 10, 0, 0)
+        
         top_layout = QHBoxLayout()
         top_layout.setSpacing(20)
         
-        # Crear y añadir las tarjetas de formulario
         self.goal_form_card = self._create_form_card("Añadir Nueva Meta")
         self.debt_form_card = self._create_form_card("Añadir Nueva Deuda")
         top_layout.addWidget(self.goal_form_card)
@@ -118,14 +123,10 @@ class GoalsView(QWidget):
         
         main_layout.addLayout(top_layout)
 
-        # --- Sección Inferior: Listas ---
-        bottom_card = QFrame()
-        bottom_card.setObjectName("Card")
+        bottom_card = QFrame(); bottom_card.setObjectName("Card")
         bottom_layout = QVBoxLayout(bottom_card)
         
         list_tabs = QTabWidget()
-        
-        # Crear las pestañas para las listas
         goals_list_widget, self.goals_list_layout = self._create_list_widget()
         debts_list_widget, self.debts_list_layout = self._create_list_widget()
         
@@ -133,25 +134,69 @@ class GoalsView(QWidget):
         list_tabs.addTab(debts_list_widget, "Deudas Activas")
         
         bottom_layout.addWidget(list_tabs)
-        main_layout.addWidget(bottom_card, 1) # El '1' hace que esta sección se expanda
+        main_layout.addWidget(bottom_card, 1)
+        return widget
+
+    def _create_strategy_tab(self):
+        widget = QWidget()
+        main_layout = QVBoxLayout(widget)
+        main_layout.setContentsMargins(0, 10, 0, 0)
+        main_layout.setSpacing(15)
+
+        control_card = QFrame(); control_card.setObjectName("Card")
+        control_layout = QHBoxLayout(control_card)
+        control_layout.setContentsMargins(15, 15, 15, 15)
+        
+        control_layout.addWidget(QLabel("<b>Pago Mensual Adicional:</b>"))
+        self.extra_payment_input = QDoubleSpinBox()
+        self.extra_payment_input.setPrefix("$ ")
+        self.extra_payment_input.setRange(0, 100000)
+        self.extra_payment_input.setValue(100)
+        control_layout.addWidget(self.extra_payment_input)
+        
+        self.calculate_strategy_button = QPushButton("Calcular Estrategias")
+        self.calculate_strategy_button.setObjectName("PrimaryAction")
+        control_layout.addWidget(self.calculate_strategy_button)
+        control_layout.addStretch()
+        main_layout.addWidget(control_card)
+
+        plans_layout = QHBoxLayout()
+        plans_layout.setSpacing(20)
+
+        snowball_card = QFrame(); snowball_card.setObjectName("Card")
+        snowball_layout = QVBoxLayout(snowball_card)
+        snowball_layout.addWidget(QLabel("<b>Método Bola de Nieve (Menor Saldo Primero)</b>"))
+        self.snowball_summary_label = QLabel("Pagarás todo en: N/A")
+        snowball_layout.addWidget(self.snowball_summary_label)
+        self.snowball_table = QTableWidget()
+        snowball_layout.addWidget(self.snowball_table)
+
+        avalanche_card = QFrame(); avalanche_card.setObjectName("Card")
+        avalanche_layout = QVBoxLayout(avalanche_card)
+        avalanche_layout.addWidget(QLabel("<b>Método Avalancha (Mayor Interés Primero)</b>"))
+        self.avalanche_summary_label = QLabel("Pagarás todo en: N/A")
+        avalanche_layout.addWidget(self.avalanche_summary_label)
+        self.avalanche_table = QTableWidget()
+        avalanche_layout.addWidget(self.avalanche_table)
+        
+        plans_layout.addWidget(snowball_card)
+        plans_layout.addWidget(avalanche_card)
+        
+        main_layout.addLayout(plans_layout, 1)
+        return widget
 
     def _create_form_card(self, title):
-        card = QFrame()
-        card.setObjectName("Card")
+        card = QFrame(); card.setObjectName("Card")
         layout = QFormLayout(card)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(10)
+        layout.setContentsMargins(15, 15, 15, 15); layout.setSpacing(10)
         
-        # Título dentro de la tarjeta
-        title_label = QLabel(f"<b>{title}</b>")
-        title_label.setStyleSheet("margin-bottom: 10px;")
+        title_label = QLabel(f"<b>{title}</b>"); title_label.setStyleSheet("margin-bottom: 10px;")
         layout.addRow(title_label)
 
         if "Meta" in title:
             self.goal_name_input = QLineEdit()
             self.goal_target_input = QLineEdit()
-            self.add_goal_button = QPushButton("Añadir Meta")
-            self.add_goal_button.setObjectName("PrimaryAction")
+            self.add_goal_button = QPushButton("Añadir Meta"); self.add_goal_button.setObjectName("PrimaryAction")
             layout.addRow("Nombre de la Meta:", self.goal_name_input)
             layout.addRow("Monto Objetivo:", self.goal_target_input)
             layout.addRow(self.add_goal_button)
@@ -159,11 +204,14 @@ class GoalsView(QWidget):
             self.debt_name_input = QLineEdit()
             self.debt_total_input = QLineEdit()
             self.debt_min_payment_input = QLineEdit()
-            self.add_debt_button = QPushButton("Añadir Deuda")
-            self.add_debt_button.setObjectName("PrimaryAction")
+            self.debt_interest_rate_input = QDoubleSpinBox()
+            self.debt_interest_rate_input.setSuffix(" %")
+            self.debt_interest_rate_input.setRange(0, 100)
+            self.add_debt_button = QPushButton("Añadir Deuda"); self.add_debt_button.setObjectName("PrimaryAction")
             layout.addRow("Nombre de la Deuda:", self.debt_name_input)
             layout.addRow("Monto Total:", self.debt_total_input)
             layout.addRow("Pago Mínimo:", self.debt_min_payment_input)
+            layout.addRow("Tasa de Interés Anual:", self.debt_interest_rate_input)
             layout.addRow(self.add_debt_button)
             
         return card
@@ -175,7 +223,7 @@ class GoalsView(QWidget):
         
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setObjectName("ListScrollArea") # Para evitar bordes innecesarios
+        scroll_area.setObjectName("ListScrollArea")
         
         scroll_content = QWidget()
         list_layout = QVBoxLayout(scroll_content)
@@ -216,7 +264,12 @@ class GoalsView(QWidget):
         return {"name": self.goal_name_input.text(), "target_amount": self.goal_target_input.text()}
 
     def get_debt_form_data(self):
-        return {"name": self.debt_name_input.text(), "total_amount": self.debt_total_input.text(), "minimum_payment": self.debt_min_payment_input.text()}
+        return {
+            "name": self.debt_name_input.text(), 
+            "total_amount": self.debt_total_input.text(), 
+            "minimum_payment": self.debt_min_payment_input.text(),
+            "interest_rate": self.debt_interest_rate_input.value()
+        }
     
     def clear_goal_form(self):
         self.goal_name_input.clear()
@@ -226,3 +279,20 @@ class GoalsView(QWidget):
         self.debt_name_input.clear()
         self.debt_total_input.clear()
         self.debt_min_payment_input.clear()
+        self.debt_interest_rate_input.setValue(0)
+
+    def display_strategy_plan(self, table, plan_data, summary_text):
+        summary_label = self.snowball_summary_label if table == self.snowball_table else self.avalanche_summary_label
+        summary_label.setText(f"<b>{summary_text}</b>")
+        
+        table.clear()
+        table.setRowCount(len(plan_data))
+        table.setColumnCount(3)
+        table.setHorizontalHeaderLabels(["Fecha de Pago", "Deuda Liquidada", "Saldo Total Restante"])
+        
+        for row, step in enumerate(plan_data):
+            table.setItem(row, 0, QTableWidgetItem(step['date']))
+            table.setItem(row, 1, QTableWidgetItem(step['paid_off']))
+            table.setItem(row, 2, QTableWidgetItem(f"${step['remaining_balance']:,.2f}"))
+        
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)

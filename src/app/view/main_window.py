@@ -2,7 +2,7 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QPushButton, QStackedWidget, QButtonGroup, QFrame,
                                QGraphicsDropShadowEffect, QLabel)
 from PySide6.QtCore import QSize, Qt, QPropertyAnimation, QEasingCurve
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor, QFont, QKeySequence, QShortcut
 import qtawesome as qta
 from app.styles import DARK_STYLE, LIGHT_STYLE
 from .notification import Notification
@@ -136,6 +136,29 @@ class MainWindow(QMainWindow):
         self.btn_analysis.clicked.connect(lambda: (self.content_stack.setCurrentIndex(6), self.controller.update_analysis_view()))
         self.btn_settings.clicked.connect(lambda: (self.content_stack.setCurrentIndex(7), self.controller.load_parameters()))
         
+        # --- INICIO DE LA SOLUCIÓN: ATAJOS DE TECLADO ---
+
+        # 1. Atajos de Navegación Esencial
+        QShortcut(QKeySequence("Ctrl+1"), self).activated.connect(self.btn_dashboard.click)
+        QShortcut(QKeySequence("Ctrl+2"), self).activated.connect(self.btn_portfolio.click)
+        QShortcut(QKeySequence("Ctrl+3"), self).activated.connect(self.btn_accounts.click)
+        QShortcut(QKeySequence("Ctrl+4"), self).activated.connect(self.btn_budget.click)
+        QShortcut(QKeySequence("Ctrl+5"), self).activated.connect(self.btn_transactions.click)
+
+        # 2. Atajos de Acciones Globales
+        QShortcut(QKeySequence("Ctrl+N"), self).activated.connect(self.controller.show_quick_transaction_dialog)
+        QShortcut(QKeySequence("F5"), self).activated.connect(self.controller.full_refresh)
+        QShortcut(QKeySequence("Ctrl+T"), self).activated.connect(self.toggle_theme)
+        QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(self.controller.focus_search_bar)
+        QShortcut(QKeySequence("Ctrl+Q"), self).activated.connect(self.close)
+
+        # 3. Atajos de Acciones Contextuales
+        QShortcut(QKeySequence("Delete"), self).activated.connect(self.controller.delete_selected_item)
+        QShortcut(QKeySequence("F2"), self).activated.connect(self.controller.edit_selected_item)
+        QShortcut(QKeySequence("Ctrl+Shift+A"), self).activated.connect(self.controller.trigger_add_new)
+        
+        # --- FIN DE LA SOLUCIÓN ---
+    
         # Conexiones Generales
         self.theme_button.clicked.connect(self.toggle_theme)
         
@@ -158,6 +181,7 @@ class MainWindow(QMainWindow):
         budget_page = self.budget_page
         budget_page.add_button.clicked.connect(self.controller.add_budget_entry)
         budget_page.delete_button.clicked.connect(self.controller.delete_selected_items) # Conexión correcta
+        budget_page.register_payment_button.clicked.connect(self.controller.register_budget_payment)
         budget_page.table.cellDoubleClicked.connect(self.controller.edit_budget_entry_by_row)
         budget_page.prev_button.clicked.connect(lambda: self.controller.change_page(-1))
         budget_page.next_button.clicked.connect(lambda: self.controller.change_page(1))
@@ -184,11 +208,13 @@ class MainWindow(QMainWindow):
         goals_page = self.goals_page
         goals_page.add_goal_button.clicked.connect(self.controller.add_goal)
         goals_page.add_debt_button.clicked.connect(self.controller.add_debt)
+        goals_page.calculate_strategy_button.clicked.connect(self.controller.calculate_debt_strategies)
+
         goals_page.edit_goal_requested.connect(self.controller.edit_goal)
         goals_page.delete_goal_requested.connect(self.controller.delete_goal)
         goals_page.edit_debt_requested.connect(self.controller.edit_debt)
         goals_page.delete_debt_requested.connect(self.controller.delete_debt)
-        
+        goals_page.calculate_strategy_button.clicked.connect(self.controller.calculate_debt_strategies)    
         # Conexiones Configuración
         settings_page = self.settings_page
         tt_tab = settings_page.transaction_types_tab

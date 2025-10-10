@@ -34,25 +34,25 @@ LIGHT_STYLE = """
     QPushButton#NavButton[collapsed="true"] { text-align: center; padding: 11px; }
 
     /* --- TEXTO --- */
-QLabel { color: #364765; }
-QLabel#DashboardTitle { 
-    font-size: 22px; 
-    font-weight: 700; 
-    color: #364765;
-}
-QLabel#Chart_Title, QLabel#MetricTitle { font-size: 15px; font-weight: 600; color: #364765; }
-QLabel#KPI_Comparison, QLabel#MetricComparison { font-size: 12px; color: #979ba5; font-weight: 500; }
-QLabel#MetricValue { font-size: 22px; font-weight: 700; color: #364765; }
-QLabel#BudgetPercentLabel {
-    color: #979ba5;
-    font-size: 11px;
-}
+    QLabel { color: #364765; }
+    QLabel#DashboardTitle { 
+        font-size: 22px; 
+        font-weight: 700; 
+        color: #364765;
+    }
+    QLabel#Chart_Title, QLabel#MetricTitle { font-size: 15px; font-weight: 600; color: #364765; }
+    QLabel#KPI_Comparison, QLabel#MetricComparison { font-size: 12px; color: #979ba5; font-weight: 500; }
+    QLabel#MetricValue { font-size: 22px; font-weight: 700; color: #364765; }
+    QLabel#BudgetPercentLabel {
+        color: #979ba5;
+        font-size: 11px;
+    }
 
     /* --- ESTILOS KPI MEJORADOS --- */
-QFrame#KPI_Card { background-color: #f4f4ff; border-radius: 12px; border: 1px solid #E9ECEF; }
-QLabel#KPI_Icon { background-color: transparent; border-radius: 0; }
-QLabel#KPI_Value { font-size: 22px; font-weight: 700; color: #364765; }
-QLabel#KPI_Title { font-size: 12px; color: #979ba5; font-weight: 500; }
+    QFrame#KPI_Card { background-color: #f4f4ff; border-radius: 12px; border: 1px solid #E9ECEF; }
+    QLabel#KPI_Icon { background-color: transparent; border-radius: 0; }
+    QLabel#KPI_Value { font-size: 22px; font-weight: 700; color: #364765; }
+    QLabel#KPI_Title { font-size: 12px; color: #979ba5; font-weight: 500; }
 
     /* --- BOTONES DE ACCIÓN Y FILTROS --- */
     QPushButton {
@@ -75,6 +75,22 @@ QLabel#KPI_Title { font-size: 12px; color: #979ba5; font-weight: 500; }
         padding: 0px; padding-bottom: 4px; border-radius: 23px;
     }
     
+    /* --- CHECKBOXES --- */
+    QCheckBox::indicator, QTableWidget::indicator {
+        border: 1px solid #979ba5;
+        width: 14px;
+        height: 14px;
+        border-radius: 4px;
+        background-color: #f4f4ff;
+    }
+    QCheckBox::indicator:hover, QTableWidget::indicator:hover {
+        border: 2px solid #364765;
+    }
+    QCheckBox::indicator:checked, QTableWidget::indicator:checked {
+        background-color: #364765;
+        border: 2px solid #364765;
+    }
+
     /* --- BARRAS DE PROGRESO --- */
     QProgressBar { border: none; background-color: #e8eaf6; border-radius: 6px; min-height: 12px; max-height: 12px; }
     QProgressBar::chunk { border-radius: 4px; margin: 2px; }
@@ -132,7 +148,7 @@ QLabel#KPI_Title { font-size: 12px; color: #979ba5; font-weight: 500; }
     
     QLabel#ProjectionLabel {
     font-size: 11px;
-    color: #979ba5; /* Un color gris suave */
+    color: #979ba5;
     font-style: italic;
 }
 """
@@ -140,7 +156,7 @@ QLabel#KPI_Title { font-size: 12px; color: #979ba5; font-weight: 500; }
 DARK_STYLE = """
 QLabel#ProjectionLabel {
     font-size: 11px;
-    color: #979ba5; /* Mismo color, funciona bien en ambos temas */
+    color: #979ba5;
     font-style: italic;
 }
     /* --- GENERAL --- */
@@ -174,19 +190,19 @@ QLabel#ProjectionLabel {
     QPushButton#NavButton:checked { background-color: #8A9BFF; color: #191A23; }
     QPushButton#NavButton[collapsed="true"] { text-align: center; padding: 11px; }
 
-/* --- TEXTO --- */
-QLabel { color: #EAEAEA; }
-QLabel#DashboardTitle { font-size: 22px; font-weight: 600; color: #EAEAEA; }
-QLabel#Chart_Title, QLabel#MetricTitle { font-size: 14px; font-weight: 600; color: #EAEAEA; }
-QLabel#KPI_Comparison, QLabel#MetricComparison { font-size: 11px; color: #979ba5; font-weight: 500; }
-QLabel#MetricValue { font-size: 18px; font-weight: 700; color: #EAEAEA; }
-QLabel#BudgetPercentLabel { color: #979ba5; font-size: 11px; }
+    /* --- TEXTO --- */
+    QLabel { color: #EAEAEA; }
+    QLabel#DashboardTitle { font-size: 22px; font-weight: 600; color: #EAEAEA; }
+    QLabel#Chart_Title, QLabel#MetricTitle { font-size: 14px; font-weight: 600; color: #EAEAEA; }
+    QLabel#KPI_Comparison, QLabel#MetricComparison { font-size: 11px; color: #979ba5; font-weight: 500; }
+    QLabel#MetricValue { font-size: 18px; font-weight: 700; color: #EAEAEA; }
+    QLabel#BudgetPercentLabel { color: #979ba5; font-size: 11px; }
 
-/* --- ESTILOS KPI MEJORADOS --- */
-QFrame#KPI_Card { background-color: #232533; border-radius: 12px; border: 1px solid #3A404D; }
-QLabel#KPI_Icon { background-color: transparent; border-radius: 0; }
-QLabel#KPI_Value { font-size: 22px; font-weight: 700; color: #EAEAEA; }
-QLabel#KPI_Title { font-size: 11px; color: #979ba5; font-weight: 500; }
+    /* --- ESTILOS KPI MEJORADOS --- */
+    QFrame#KPI_Card { background-color: #232533; border-radius: 12px; border: 1px solid #3A404D; }
+    QLabel#KPI_Icon { background-color: transparent; border-radius: 0; }
+    QLabel#KPI_Value { font-size: 22px; font-weight: 700; color: #EAEAEA; }
+    QLabel#KPI_Title { font-size: 11px; color: #979ba5; font-weight: 500; }
 
     /* --- BOTONES DE ACCIÓN Y FILTROS --- */
     QPushButton {
@@ -212,6 +228,22 @@ QLabel#KPI_Title { font-size: 11px; color: #979ba5; font-weight: 500; }
         background-color: #8A9BFF; color: #191A23;
         font-size: 28px; font-weight: 300;
         padding: 0px; padding-bottom: 4px; border-radius: 23px;
+    }
+
+    /* --- CHECKBOXES --- */
+    QCheckBox::indicator, QTableWidget::indicator {
+        border: 1px solid #979ba5;
+        width: 14px;
+        height: 14px;
+        border-radius: 4px;
+        background-color: transparent;
+    }
+    QCheckBox::indicator:hover, QTableWidget::indicator:hover {
+        border: 2px solid #8A9BFF;
+    }
+    QCheckBox::indicator:checked, QTableWidget::indicator:checked {
+        background-color: #8A9BFF;
+        border: 2px solid #8A9BFF;
     }
     
     /* --- BARRAS DE PROGRESO --- */

@@ -30,6 +30,9 @@ class BudgetView(QWidget):
         self.select_all_checkbox = QCheckBox("Seleccionar todo")
         action_bar.addWidget(self.select_all_checkbox)
         action_bar.addStretch()
+        self.register_payment_button = QPushButton("Registrar Pago")
+        self.register_payment_button.setObjectName("PrimaryAction") # Le damos un estilo llamativo
+        action_bar.addWidget(self.register_payment_button)
         self.delete_button = QPushButton("Eliminar Selección")
         action_bar.addWidget(self.delete_button)
         table_layout.addLayout(action_bar)
