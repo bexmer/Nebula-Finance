@@ -126,7 +126,7 @@ class MainWindow(QMainWindow):
         self.controller = controller
         self.btn_dashboard.setChecked(True)
 
-        # Conexiones para cambiar de vista
+        # Conexiones de Navegación
         self.btn_dashboard.clicked.connect(lambda: self.content_stack.setCurrentIndex(0))
         self.btn_portfolio.clicked.connect(lambda: (self.content_stack.setCurrentIndex(1), self.controller.load_portfolio()))
         self.btn_accounts.clicked.connect(lambda: (self.content_stack.setCurrentIndex(2), self.controller.load_paginated_data()))
@@ -138,28 +138,30 @@ class MainWindow(QMainWindow):
         
         # Conexiones Generales
         self.theme_button.clicked.connect(self.toggle_theme)
+        
+        # Conexiones Dashboard
         self.dashboard_page.year_filter.currentTextChanged.connect(self.controller.update_dashboard)
         for action in self.dashboard_page.month_actions:
             action.triggered.connect(self.controller.update_dashboard)
         self.dashboard_page.all_year_action.triggered.connect(self.controller.update_dashboard)
-        self.analysis_page.year_selector.currentTextChanged.connect(self.controller.update_analysis_view)
         self.dashboard_page.quick_add_button.clicked.connect(self.controller.show_quick_transaction_dialog)
+
+        # Conexiones Portafolio
         self.portfolio_page.add_trade_button.clicked.connect(self.controller.add_trade)
         
         # Conexiones Cuentas
         self.accounts_page.add_button.clicked.connect(self.controller.add_account)
-        self.accounts_page.delete_button.clicked.connect(self.controller.delete_account)
+        self.accounts_page.delete_button.clicked.connect(self.controller.delete_account) # Conexión correcta
         self.accounts_page.table.cellDoubleClicked.connect(self.controller.edit_account_by_row)
 
-        # --- INICIO DE LA SOLUCIÓN: Conexiones de Presupuesto limpias ---
+        # Conexiones Presupuesto
         budget_page = self.budget_page
         budget_page.add_button.clicked.connect(self.controller.add_budget_entry)
-        budget_page.delete_button.clicked.connect(self.controller.delete_selected_items)
+        budget_page.delete_button.clicked.connect(self.controller.delete_selected_items) # Conexión correcta
         budget_page.table.cellDoubleClicked.connect(self.controller.edit_budget_entry_by_row)
         budget_page.prev_button.clicked.connect(lambda: self.controller.change_page(-1))
         budget_page.next_button.clicked.connect(lambda: self.controller.change_page(1))
         budget_page.items_per_page_combo.currentTextChanged.connect(self.controller.change_items_per_page)
-        # --- FIN DE LA SOLUCIÓN ---
         
         # Conexiones Transacciones
         transactions_page = self.transactions_page
@@ -175,30 +177,31 @@ class MainWindow(QMainWindow):
         transactions_page.tabs.currentChanged.connect(self.controller.filter_transactions)
         
         # Conexiones Metas y Deudas
-        self.goals_page.add_goal_button.clicked.connect(self.controller.add_goal)
-        self.goals_page.add_debt_button.clicked.connect(self.controller.add_debt)
-        self.goals_page.edit_goal_requested.connect(self.controller.edit_goal)
-        self.goals_page.delete_goal_requested.connect(self.controller.delete_goal)
-        self.goals_page.edit_debt_requested.connect(self.controller.edit_debt)
-        self.goals_page.delete_debt_requested.connect(self.controller.delete_debt)
+        goals_page = self.goals_page
+        goals_page.add_goal_button.clicked.connect(self.controller.add_goal)
+        goals_page.add_debt_button.clicked.connect(self.controller.add_debt)
+        goals_page.edit_goal_requested.connect(self.controller.edit_goal)
+        goals_page.delete_goal_requested.connect(self.controller.delete_goal)
+        goals_page.edit_debt_requested.connect(self.controller.edit_debt)
+        goals_page.delete_debt_requested.connect(self.controller.delete_debt)
         
         # Conexiones Configuración
-        tt_tab = self.settings_page.transaction_types_tab
+        settings_page = self.settings_page
+        tt_tab = settings_page.transaction_types_tab
         tt_tab.param_add_button.clicked.connect(lambda: self.controller.add_parameter('Tipo de Transacción'))
         tt_tab.param_delete_button.clicked.connect(self.controller.delete_parameter)
         tt_tab.param_table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_parameter_by_row(r, c, tt_tab.param_table))
         tt_tab.rule_add_button.clicked.connect(self.controller.add_budget_rule)
         tt_tab.rule_delete_button.clicked.connect(self.controller.delete_budget_rule)
         tt_tab.rule_table.cellDoubleClicked.connect(self.controller.edit_budget_rule_by_row)
-
-        self.settings_page.account_types_tab.add_button.clicked.connect(lambda: self.controller.add_parameter('Tipo de Cuenta'))
-        self.settings_page.account_types_tab.delete_button.clicked.connect(self.controller.delete_parameter)
-        self.settings_page.account_types_tab.table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_parameter_by_row(r, c, self.settings_page.account_types_tab.table))
-
-        self.settings_page.categories_tab.add_button.clicked.connect(lambda: self.controller.add_parameter('Categoría'))
-        self.settings_page.categories_tab.delete_button.clicked.connect(self.controller.delete_parameter)
-        self.settings_page.categories_tab.table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_parameter_by_row(r, c, self.settings_page.categories_tab.table))
+        settings_page.account_types_tab.add_button.clicked.connect(lambda: self.controller.add_parameter('Tipo de Cuenta'))
+        settings_page.account_types_tab.delete_button.clicked.connect(self.controller.delete_parameter)
+        settings_page.account_types_tab.table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_parameter_by_row(r, c, settings_page.account_types_tab.table))
+        settings_page.categories_tab.add_button.clicked.connect(lambda: self.controller.add_parameter('Categoría'))
+        settings_page.categories_tab.delete_button.clicked.connect(self.controller.delete_parameter)
+        settings_page.categories_tab.table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_parameter_by_row(r, c, settings_page.categories_tab.table))
         
+        # Carga inicial
         self.controller.full_refresh()
         self.dashboard_page.set_default_month_filter()
         self.update_theme_icons()

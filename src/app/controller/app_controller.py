@@ -30,6 +30,7 @@ class AppController:
         self.current_pages = {} # Para manejar la paginación de cada vista
 
     def full_refresh(self):
+        # Esta función llama a todas las demás para un refresco completo
         self.process_recurring_transactions()
         self.load_parameters()
         self.load_parameters_to_views()
@@ -37,48 +38,32 @@ class AppController:
         self.load_goals_and_debts()
         self.load_accounts()
         self.filter_transactions()
-        self.load_paginated_data()
 
     def load_paginated_data(self, page=None):
-        try:
-            current_view_name = self.view.get_current_view_name()
-            if not current_view_name: return
-
-            if page is None:
-                page = self.current_pages.get(current_view_name, 1)
-            
+        current_view_name = self.view.get_current_view_name()
+        if not current_view_name: return
+        if page is None:
+            page = self.current_pages.get(current_view_name, 1)
+        self.current_pages[current_view_name] = page
+        view_widget = getattr(self.view, f"{current_view_name}_page", None)
+        if not view_widget or not hasattr(view_widget, 'get_pagination_controls'): return
+        controls = view_widget.get_pagination_controls()
+        items_per_page = controls['items_per_page']
+        query, display_method = None, None
+        if current_view_name == 'budget':
+            query = BudgetEntry.select().order_by(BudgetEntry.due_date.desc())
+            display_method = view_widget.display_budget_entries
+        elif current_view_name == 'accounts':
+            query = Account.select().order_by(Account.name)
+            display_method = view_widget.display_accounts
+        if query and display_method:
+            total_items = query.count()
+            total_pages = (total_items + items_per_page - 1) // items_per_page or 1
+            if page > total_pages: page = total_pages
             self.current_pages[current_view_name] = page
-            view_widget = getattr(self.view, f"{current_view_name}_page", None)
-            
-            if not view_widget or not hasattr(view_widget, 'get_pagination_controls'): return
-
-            controls = view_widget.get_pagination_controls()
-            items_per_page = controls['items_per_page']
-            
-            query, display_method = None, None
-
-            if current_view_name == 'budget':
-                query = BudgetEntry.select().order_by(BudgetEntry.due_date.desc())
-                display_method = view_widget.display_budget_entries
-            elif current_view_name == 'accounts':
-                query = Account.select().order_by(Account.name)
-                display_method = view_widget.display_accounts
-
-            if query and display_method:
-                total_items = query.count()
-                total_pages = (total_items + items_per_page - 1) // items_per_page or 1
-                
-                if page > total_pages: page = total_pages
-                self.current_pages[current_view_name] = page
-                
-                paginated_query = query.paginate(page, items_per_page)
-                
-                display_method(list(paginated_query))
-                view_widget.update_pagination_ui(page, total_pages, total_items)
-        except Exception as e:
-            print(f"ERROR en load_paginated_data: {e}")
-            import traceback
-            traceback.print_exc()
+            paginated_query = query.paginate(page, items_per_page)
+            display_method(list(paginated_query))
+            view_widget.update_pagination_ui(page, total_pages, total_items)
 
     def change_page(self, direction):
         current_view_name = self.view.get_current_view_name()
@@ -442,17 +427,43 @@ class AppController:
         self.full_refresh()
         self.view.show_notification("Cuenta añadida con éxito.", "success")
 
-    def delete_account(self, *args):
+    def delete_account(self):
         account_id = self.view.accounts_page.get_selected_account_id()
-        if account_id:
-            if Transaction.select().where(Transaction.account == account_id).count() > 0:
-                self.view.show_notification("No se puede eliminar una cuenta con transacciones asociadas.", "error")
+        if not account_id:
+            self.view.show_notification("No se ha seleccionado ninguna cuenta.", "error")
+            return
+
+        try:
+            account_to_delete = Account.get_by_id(account_id)
+
+            # Verificación 1: ¿Hay transacciones asociadas?
+            if Transaction.select().where(Transaction.account == account_to_delete).count() > 0:
+                self.view.show_notification(
+                    "No se puede eliminar una cuenta con transacciones asociadas.", "error"
+                )
                 return
-            if QMessageBox.question(self.view, "Confirmar", "¿Eliminar esta cuenta?") == QMessageBox.StandardButton.Yes:
-                Account.get_by_id(account_id).delete_instance()
-                self.full_refresh()
+
+            # Verificación 2: ¿El saldo es cero?
+            if account_to_delete.current_balance != 0:
+                self.view.show_notification(
+                    "No se puede eliminar una cuenta con un saldo diferente de cero.", "error"
+                )
+                return
+            
+            # Si pasa ambas verificaciones, pide confirmación para borrar
+            if QMessageBox.question(self.view, "Confirmar", f"¿Estás seguro de que quieres eliminar la cuenta '{account_to_delete.name}'?") == QMessageBox.StandardButton.Yes:
+                account_to_delete.delete_instance()
+                
+                # --- INICIO DE LA SOLUCIÓN ---
+                # Llamamos al método de recarga para la vista paginada
                 self.load_paginated_data()
+                # --- FIN DE LA SOLUCIÓN ---
+
                 self.view.show_notification("Cuenta eliminada.", "success")
+                
+        except Account.DoesNotExist:
+            self.view.show_notification("La cuenta seleccionada no fue encontrada.", "error")
+
 
     def load_accounts(self, *args):
         accounts = list(Account.select())
@@ -979,7 +990,22 @@ class AppController:
         try:
             total = float(data["total_amount"])
             min_payment = float(data["minimum_payment"])
-            Debt.create(name=data["name"], total_amount=total, current_balance=total, minimum_payment=min_payment)
+
+            # --- INICIO DE LA SOLUCIÓN ---
+            # Añadimos la validación aquí
+            if min_payment > total:
+                self.view.show_notification(
+                    "El pago mínimo no puede ser mayor que el monto total.", "error"
+                )
+                return
+            # --- FIN DE LA SOLUCIÓN ---
+
+            Debt.create(
+                name=data["name"], 
+                total_amount=total, 
+                current_balance=total,
+                minimum_payment=min_payment
+            )
             self.view.goals_page.clear_debt_form()
             self.load_goals_and_debts()
             self.view.show_notification("Deuda añadida.", "success")
