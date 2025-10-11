@@ -129,15 +129,28 @@ class AppController:
             paginated_query = query.paginate(page, items_per_page)
             display_method(list(paginated_query))
             view_widget.update_pagination_ui(page, total_pages, total_items)
-
+            
     def change_page(self, direction):
         current_view_name = self.view.get_current_view_name()
         current_page = self.current_pages.get(current_view_name, 1)
         new_page = current_page + direction
-        self.load_paginated_data(page=new_page)
+        
+        # --- INICIO DE LA SOLUCIÓN ---
+        if current_view_name == 'transactions':
+            self.filter_transactions(page=new_page)
+        else:
+        # --- FIN DE LA SOLUCIÓN ---
+            self.load_paginated_data(page=new_page)
 
     def change_items_per_page(self):
-        self.load_paginated_data(page=1)
+        current_view_name = self.view.get_current_view_name()
+        
+        # --- INICIO DE LA SOLUCIÓN ---
+        if current_view_name == 'transactions':
+            self.filter_transactions(page=1)
+        else:
+        # --- FIN DE LA SOLUCIÓN ---
+            self.load_paginated_data(page=1)
 
     def add_budget_rule(self):
         tab = self.view.settings_page.transaction_types_tab
@@ -924,28 +937,51 @@ class AppController:
         filters = view_widget.get_filters()
         tab_index = filters["current_tab_index"]
         
-        if tab_index == 3:
+        # --- INICIO DE LA SOLUCIÓN ---
+        # Obtener controles de paginación desde la vista
+        controls = view_widget.get_pagination_controls()
+        items_per_page = controls['items_per_page']
+        self.current_pages['transactions'] = page
+        # --- FIN DE LA SOLUCIÓN ---
+
+        if tab_index == 3: # Pestaña de Recurrentes
             query = RecurringTransaction.select()
-        else:
+            # (Aquí se podría añadir lógica de filtros para recurrentes si se quisiera)
+        else: # Pestañas de transacciones normales
             query = Transaction.select()
             if tab_index == 1: query = query.join(Goal, on=(Transaction.goal == Goal.id)).where(Transaction.goal.is_null(False))
             elif tab_index == 2: query = query.join(Debt, on=(Transaction.debt == Debt.id)).where(Transaction.debt.is_null(False))
         
-        start_date, end_date = filters["start_date"], filters["end_date"]
-        query = query.where(Transaction.date.between(start_date, end_date))
+            start_date, end_date = filters["start_date"], filters["end_date"]
+            query = query.where(Transaction.date.between(start_date, end_date))
 
-        if filters["search_text"]: query = query.where(Transaction.description.contains(filters["search_text"]))
-        if filters["type"] != "Todos los Tipos": query = query.where(Transaction.type == filters["type"])
-        if filters["category"] != "Todas las Categorías": query = query.where(Transaction.category == filters["category"])
+            if filters["search_text"]: query = query.where(Transaction.description.contains(filters["search_text"]))
+            if filters["type"] != "Todos los Tipos": query = query.where(Transaction.type == filters["type"])
+            if filters["category"] != "Todas las Categorías": query = query.where(Transaction.category == filters["category"])
 
         sort_field = Transaction.date if filters["sort_by"] == "Fecha" else Transaction.amount
         query = query.order_by(sort_field.desc() if filters["sort_order"] == "Descendente" else sort_field.asc())
 
-        transactions = list(query)
+        # --- INICIO DE LA SOLUCIÓN ---
+        # Aplicar paginación a la consulta
+        total_items = query.count()
+        total_pages = (total_items + items_per_page - 1) // items_per_page or 1
+        if page > total_pages: page = total_pages
+        self.current_pages['transactions'] = page
+        
+        paginated_query = query.paginate(page, items_per_page)
+        transactions = list(paginated_query)
+        # --- FIN DE LA SOLUCIÓN ---
 
         if tab_index == 0: self.view.transactions_page.display_all_transactions(transactions)
         elif tab_index == 1: self.view.transactions_page.display_goal_transactions(transactions)
         elif tab_index == 2: self.view.transactions_page.display_debt_transactions(transactions)
+        elif tab_index == 3: self.view.transactions_page.display_recurring_rules(transactions, {}) # Se pasa un dict vacío para next_dates por ahora
+
+        # --- INICIO DE LA SOLUCIÓN ---
+        # Actualizar la UI de paginación
+        view_widget.update_pagination_ui(page, total_pages, total_items)
+        # --- FIN DE LA SOLUCIÓN ---
 
     def register_budget_payment(self):
         """

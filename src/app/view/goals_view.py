@@ -4,6 +4,8 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineE
                                QTableWidgetItem, QHeaderView, QDoubleSpinBox)
 from PySide6.QtCore import Qt, Signal
 import qtawesome as qta
+from PySide6.QtCore import QPropertyAnimation, QEasingCurve, QParallelAnimationGroup, QTimer
+from PySide6.QtWidgets import QGraphicsOpacityEffect
 
 class GoalItem(QFrame):
     edit_requested = Signal(int)
@@ -263,13 +265,36 @@ class GoalsView(QWidget):
         
         return widget, list_layout
 
-    def display_goals(self, goals_data):
+
+    def display_goals(self, goals):
         self._clear_layout(self.goals_list_layout)
-        for data in goals_data:
-            goal_item = GoalItem(data, self.controller)
+
+        # --- INICIO DE LA SOLUCIUÓN ---
+        delay = 0
+        for goal_data in goals:
+            goal_item = GoalItem(goal_data, self.controller)
             goal_item.edit_requested.connect(self.edit_goal_requested)
             goal_item.delete_requested.connect(self.delete_goal_requested)
+
+            # 1. Preparar el widget para la animación
+            opacity_effect = QGraphicsOpacityEffect(goal_item)
+            goal_item.setGraphicsEffect(opacity_effect)
+            goal_item.graphicsEffect().setOpacity(0) # Inicia invisible
+
             self.goals_list_layout.addWidget(goal_item)
+
+            # 2. Crear la animación
+            anim = QPropertyAnimation(goal_item.graphicsEffect(), b"opacity")
+            anim.setDuration(400)
+            anim.setStartValue(0.0)
+            anim.setEndValue(1.0)
+            anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+
+            # 3. Ejecutar la animación con un pequeño retraso para un efecto escalonado
+            QTimer.singleShot(delay, anim.start)
+            delay += 50 # Cada item aparece 50ms después del anterior
+        # --- FIN DE LA SOLUCIUÓN ---
+
         self.goals_list_layout.addStretch()
 
     def display_debts(self, debts):

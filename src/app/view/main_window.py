@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QPushButton, QStackedWidget, QButtonGroup, QFrame,
-                               QGraphicsDropShadowEffect, QLabel)
+                               QGraphicsDropShadowEffect, QLabel, QGraphicsOpacityEffect)
 from PySide6.QtCore import QSize, Qt, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QColor, QFont, QKeySequence, QShortcut
 import qtawesome as qta
@@ -14,6 +14,8 @@ from .goals_view import GoalsView
 from .analysis_view import AnalysisView
 from .portfolio_view import PortfolioView
 from .settings_view import SettingsView
+from PySide6.QtCore import QPropertyAnimation, QEasingCurve, QParallelAnimationGroup
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -28,6 +30,42 @@ class MainWindow(QMainWindow):
         self._create_ui()
         self.toggle_theme()
 
+    def switch_view(self, index, callback=None):
+        if self.content_stack.currentIndex() == index:
+            if callback:
+                callback() # Ejecuta la carga de datos incluso si no se cambia de vista
+            return
+
+        current_widget = self.content_stack.currentWidget()
+
+        # Animación para desvanecer el widget actual
+        self.fade_out_anim = QPropertyAnimation(current_widget.graphicsEffect(), b"opacity")
+        self.fade_out_anim.setDuration(150) # Duración de 0.15 segundos
+        self.fade_out_anim.setStartValue(1.0)
+        self.fade_out_anim.setEndValue(0.0)
+        self.fade_out_anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+
+        def on_fade_out_finished():
+            # Cambia a la nueva vista
+            self.content_stack.setCurrentIndex(index)
+
+            # Ejecuta la función para cargar los datos (ej. load_portfolio)
+            if callback:
+                callback()
+
+            new_widget = self.content_stack.currentWidget()
+
+            # Animación para hacer aparecer el nuevo widget
+            self.fade_in_anim = QPropertyAnimation(new_widget.graphicsEffect(), b"opacity")
+            self.fade_in_anim.setDuration(150)
+            self.fade_in_anim.setStartValue(0.0)
+            self.fade_in_anim.setEndValue(1.0)
+            self.fade_in_anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+            self.fade_in_anim.start()
+
+        self.fade_out_anim.finished.connect(on_fade_out_finished)
+        self.fade_out_anim.start()
+    
     def _create_ui(self):
         main_widget = QWidget()
         self.main_layout = QHBoxLayout(main_widget)
@@ -108,6 +146,12 @@ class MainWindow(QMainWindow):
         self.content_stack.addWidget(self.analysis_page)
         self.content_stack.addWidget(self.settings_page)
         
+        # Añadir un efecto de opacidad a cada página para poder animarlas individualmente
+        for i in range(self.content_stack.count()):
+            widget = self.content_stack.widget(i)
+            effect = QGraphicsOpacityEffect(widget)
+            widget.setGraphicsEffect(effect)
+        
         self.main_layout.addWidget(self.nav_panel)
         self.main_layout.addWidget(self.content_stack)
         self.setCentralWidget(main_widget)
@@ -141,16 +185,17 @@ class MainWindow(QMainWindow):
 
         # --- INICIO DE LA SOLUCIÓN: TODAS LAS CONEXIONES CON EL CONTROLADOR VAN AQUÍ ---
         
-        # Conexiones de Navegación
-        self.btn_dashboard.clicked.connect(lambda: self.content_stack.setCurrentIndex(0))
-        self.btn_portfolio.clicked.connect(lambda: (self.content_stack.setCurrentIndex(1), self.controller.load_portfolio()))
-        self.btn_accounts.clicked.connect(lambda: (self.content_stack.setCurrentIndex(2), self.controller.load_paginated_data()))
-        self.btn_budget.clicked.connect(lambda: (self.content_stack.setCurrentIndex(3), self.controller.load_paginated_data()))
-        self.btn_transactions.clicked.connect(lambda: (self.content_stack.setCurrentIndex(4), self.controller.load_transactions()))
-        self.btn_goals.clicked.connect(lambda: (self.content_stack.setCurrentIndex(5), self.controller.load_goals_and_debts()))
-        self.btn_analysis.clicked.connect(lambda: (self.content_stack.setCurrentIndex(6), self.controller.update_analysis_view()))
-        self.btn_settings.clicked.connect(lambda: (self.content_stack.setCurrentIndex(7), self.controller.load_parameters()))
+        # Conexiones de Navegación (Reemplazar las existentes por estas)
+        self.btn_dashboard.clicked.connect(lambda: self.switch_view(0, self.controller.update_dashboard))
+        self.btn_portfolio.clicked.connect(lambda: self.switch_view(1, self.controller.load_portfolio))
+        self.btn_accounts.clicked.connect(lambda: self.switch_view(2, self.controller.load_paginated_data))
+        self.btn_budget.clicked.connect(lambda: self.switch_view(3, self.controller.load_paginated_data))
+        self.btn_transactions.clicked.connect(lambda: self.switch_view(4, self.controller.load_transactions))
+        self.btn_goals.clicked.connect(lambda: self.switch_view(5, self.controller.load_goals_and_debts))
+        self.btn_analysis.clicked.connect(lambda: self.switch_view(6, self.controller.update_analysis_view))
+        self.btn_settings.clicked.connect(lambda: self.switch_view(7, self.controller.load_parameters))
         
+
         # Atajos de Teclado
         QShortcut(QKeySequence("Ctrl+1"), self).activated.connect(self.btn_dashboard.click)
         QShortcut(QKeySequence("Ctrl+2"), self).activated.connect(self.btn_portfolio.click)
@@ -196,11 +241,19 @@ class MainWindow(QMainWindow):
         transactions_page.all_table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_transaction_by_row(r, c, transactions_page.all_table))
         transactions_page.goals_table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_transaction_by_row(r, c, transactions_page.goals_table))
         transactions_page.debts_table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_transaction_by_row(r, c, transactions_page.debts_table))
-        transactions_page.search_input.textChanged.connect(self.controller.filter_transactions)
-        transactions_page.start_date_filter.dateChanged.connect(self.controller.filter_transactions)
-        transactions_page.end_date_filter.dateChanged.connect(self.controller.filter_transactions)
-        transactions_page.tabs.currentChanged.connect(self.controller.filter_transactions)
-        transactions_page.type_input.currentTextChanged.connect(self.controller.update_category_dropdowns)
+        
+        
+        # Conexiones de filtros (aseguran que se reinicie a la página 1)
+        transactions_page.search_input.textChanged.connect(lambda: self.controller.filter_transactions(page=1))
+        transactions_page.start_date_filter.dateChanged.connect(lambda: self.controller.filter_transactions(page=1))
+        transactions_page.end_date_filter.dateChanged.connect(lambda: self.controller.filter_transactions(page=1))
+        transactions_page.tabs.currentChanged.connect(lambda: self.controller.filter_transactions(page=1))
+        
+        # Conexiones de paginación
+        transactions_page.prev_button.clicked.connect(lambda: self.controller.change_page(-1))
+        transactions_page.next_button.clicked.connect(lambda: self.controller.change_page(1))
+        transactions_page.items_per_page_combo.currentTextChanged.connect(self.controller.change_items_per_page)
+        # --- FIN DE LA SOLUCIÓN ---
         
         # Conexiones Metas y Deudas
         goals_page = self.goals_page
@@ -244,7 +297,6 @@ class MainWindow(QMainWindow):
         settings_page.categories_tab.table.cellDoubleClicked.connect(lambda r, c: self.controller.edit_parameter_by_row(r, c, settings_page.categories_tab.table))
         settings_page.save_display_button.clicked.connect(self.controller.save_display_settings)
 
-        
         # Carga inicial
         self.controller.full_refresh()
         self.dashboard_page.set_default_month_filter()
