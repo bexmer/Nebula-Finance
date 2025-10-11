@@ -128,6 +128,16 @@ class MainWindow(QMainWindow):
     def set_controller(self, controller):
         self.controller = controller
         self.btn_dashboard.setChecked(True)
+        
+        # Esto es fundamental para que puedan acceder a funciones como format_currency.
+        self.dashboard_page.controller = controller
+        self.accounts_page.controller = controller
+        self.goals_page.controller = controller
+        self.transactions_page.controller = controller
+        self.portfolio_page.controller = controller
+        self.budget_page.controller = controller
+        self.analysis_page.controller = controller
+        self.settings_page.controller = controller
 
         # --- INICIO DE LA SOLUCIÓN: TODAS LAS CONEXIONES CON EL CONTROLADOR VAN AQUÍ ---
         

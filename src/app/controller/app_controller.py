@@ -38,16 +38,24 @@ class AppController:
         self.current_pages = {} # Para manejar la paginación de cada vista
         
     def format_currency(self, value):
+        """
+        Formatea un valor numérico como moneda, abreviándolo si la opción está activa.
+        Devuelve una tupla: (texto_mostrado, texto_tooltip).
+        """
+        # Valores por defecto
         abbreviate = False
         threshold = 1_000_000 
-        
+
+        # Consultar las preferencias del usuario en la base de datos
         try:
             # La consulta correcta usa "Parameter.value" para referirse a la columna de la tabla
             abbreviate_param = Parameter.get(Parameter.group == 'Display', Parameter.value == 'AbbreviateNumbers')
+            # FORMA CORRECTA de acceder al atributo
             if hasattr(abbreviate_param, 'extra_data') and abbreviate_param.extra_data is not None:
                 abbreviate = bool(int(abbreviate_param.extra_data))
             
             threshold_param = Parameter.get(Parameter.group == 'Display', Parameter.value == 'AbbreviationThreshold')
+            # FORMA CORRECTA de acceder al atributo
             if hasattr(threshold_param, 'extra_data') and threshold_param.extra_data is not None:
                 threshold = int(threshold_param.extra_data)
 
@@ -68,7 +76,7 @@ class AppController:
             return (display_text, full_text)
         else:
             return (full_text, full_text)
-
+        
     def save_display_settings(self):
         abbreviate = self.view.settings_page.abbreviate_checkbox.isChecked()
         threshold = self.view.settings_page.threshold_combo.currentData()
@@ -1436,41 +1444,7 @@ class AppController:
         self.view.goals_page.display_goals(goals_data)
         self.view.goals_page.display_debts(list(debts))
         self.load_transactions_dependencies()
-        
-    def format_currency(self, value):
-        """
-        Formatea un valor numérico como moneda, abreviándolo si la opción está activa.
-        Devuelve una tupla: (texto_mostrado, texto_tooltip).
-        """
-        # Valores por defecto
-        abbreviate = False
-        threshold = 1_000_000 
-
-        # Consultar las preferencias del usuario en la base de datos
-        try:
-            abbreviate_param = Parameter.get(Parameter.group == 'Display', Parameter.value == 'AbbreviateNumbers')
-            abbreviate = bool(int(abbreviate_param.get('extra_data', '0')))
-            
-            threshold_param = Parameter.get(Parameter.group == 'Display', Parameter.value == 'AbbreviationThreshold')
-            threshold = int(threshold_param.get('extra_data', '1000000'))
-        except Parameter.DoesNotExist:
-            pass # Si no existen los parámetros, usa los valores por defecto
-
-        full_text = f"${value:,.2f}"
-
-        if abbreviate and abs(value) >= threshold:
-            if abs(value) >= 1_000_000_000:
-                display_text = f"${value / 1_000_000_000:.2f}B" # Billones
-            elif abs(value) >= 1_000_000:
-                display_text = f"${value / 1_000_000:.2f}M" # Millones
-            elif abs(value) >= 1_000:
-                display_text = f"${value / 1_000:.1f}k" # Miles
-            else:
-                display_text = full_text
-            return (display_text, full_text)
-        else:
-            return (full_text, full_text)
-               
+                      
     def load_transactions_dependencies(self):
         goals = Goal.select()
         debts = Debt.select()

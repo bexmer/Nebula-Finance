@@ -77,7 +77,7 @@ class DebtItem(QFrame):
         paid_amount_text, _ = controller.format_currency(debt_data.total_amount - debt_data.current_balance)
         total_amount_text, _ = controller.format_currency(debt_data.total_amount)
         min_payment_text, _ = controller.format_currency(debt_data.minimum_payment)
-        
+
         amounts_text = (f"Pagado: {paid_amount_text} de {total_amount_text} "
                         f"| <b>Pago Mínimo:</b> {min_payment_text} "
                         f"| <b>Interés:</b> {debt_data.interest_rate:.2f}%")
@@ -275,7 +275,8 @@ class GoalsView(QWidget):
     def display_debts(self, debts):
         self._clear_layout(self.debts_list_layout)
         for debt_data in debts:
-            debt_item = DebtItem(debt_data, self.controller)
+            # Asegúrate de que se pasa self.controller aquí
+            debt_item = DebtItem(debt_data, self.controller) 
             debt_item.edit_requested.connect(self.edit_debt_requested)
             debt_item.delete_requested.connect(self.delete_debt_requested)
             self.debts_list_layout.addWidget(debt_item)
