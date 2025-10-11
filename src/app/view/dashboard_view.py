@@ -79,6 +79,7 @@ class CreditCardWidget(QFrame):
                     self.balance_label.setToolTip(tooltip_text)
                 else:
                     self.balance_label.setText(f"${self._current_account.current_balance:,.2f}")
+
             self.holder_name_label.setText(self._current_account.name)
             self.type_name_label.setText(self._current_account.account_type)
         else:
@@ -456,7 +457,6 @@ class DashboardView(QWidget):
         self.budget_expense_card.comparison_label.setText(f"Real: ${expense_data['real_amount']:,.2f}")
 
     def update_kpis(self, income, expense, net_flow, income_comp=None, expense_comp=None):
-        # --- INICIO DE LA SOLUCIÓN ---
         if self.controller:
             income_text, income_tip = self.controller.format_currency(income)
             expense_text, expense_tip = self.controller.format_currency(expense)
@@ -471,11 +471,9 @@ class DashboardView(QWidget):
             self.net_kpi.value_label.setText(net_text)
             self.net_kpi.value_label.setToolTip(net_tip)
         else:
-            # Fallback por si el controlador no está listo
             self.income_kpi.value_label.setText(f"${income:,.2f}")
             self.expense_kpi.value_label.setText(f"${expense:,.2f}")
             self.net_kpi.value_label.setText(f"${net_flow:,.2f}")
-        # --- FIN DE LA SOLUCIÓN ---
 
         def format_comp(value, lower_is_better=False):
             if value is None: return ""

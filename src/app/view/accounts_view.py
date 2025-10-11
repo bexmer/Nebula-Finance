@@ -73,7 +73,6 @@ class AccountsView(QWidget):
             self.table.setItem(row, 0, QTableWidgetItem(account.name))
             self.table.setItem(row, 1, QTableWidgetItem(account.account_type))
             
-            # Aplicamos el formateador de moneda que creamos
             if self.controller:
                 display_text, tooltip_text = self.controller.format_currency(account.current_balance)
                 balance_item = QTableWidgetItem(display_text)

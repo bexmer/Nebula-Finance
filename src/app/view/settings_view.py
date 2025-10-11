@@ -36,11 +36,9 @@ class SettingsView(QWidget):
     def _create_display_tab(self):
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        
         card = QFrame(); card.setObjectName("Card")
         form_layout = QFormLayout(card)
-        form_layout.setContentsMargins(15, 15, 15, 15)
-        form_layout.setSpacing(10)
+        form_layout.setContentsMargins(15, 15, 15, 15); form_layout.setSpacing(10)
         
         self.abbreviate_checkbox = QCheckBox("Abreviar números grandes (ej. $1,250,000 -> $1.25M)")
         

@@ -40,7 +40,9 @@ class AppController:
     def format_currency(self, value):
         abbreviate = False
         threshold = 1_000_000 
+        
         try:
+            # La consulta correcta usa "Parameter.value" para referirse a la columna de la tabla
             abbreviate_param = Parameter.get(Parameter.group == 'Display', Parameter.value == 'AbbreviateNumbers')
             if hasattr(abbreviate_param, 'extra_data') and abbreviate_param.extra_data is not None:
                 abbreviate = bool(int(abbreviate_param.extra_data))
@@ -48,8 +50,9 @@ class AppController:
             threshold_param = Parameter.get(Parameter.group == 'Display', Parameter.value == 'AbbreviationThreshold')
             if hasattr(threshold_param, 'extra_data') and threshold_param.extra_data is not None:
                 threshold = int(threshold_param.extra_data)
+
         except Parameter.DoesNotExist:
-            pass
+            pass # Si no existen los parámetros, usa los valores por defecto
 
         full_text = f"${value:,.2f}"
 
@@ -66,21 +69,29 @@ class AppController:
         else:
             return (full_text, full_text)
 
-
     def save_display_settings(self):
         abbreviate = self.view.settings_page.abbreviate_checkbox.isChecked()
         threshold = self.view.settings_page.threshold_combo.currentData()
 
-        param_abbr, _ = Parameter.get_or_create(group='Display', value='AbbreviateNumbers')
-        param_abbr.extra_data = '1' if abbreviate else '0'
-        param_abbr.save()
+        print("\n--- [DEBUG] Intentando GUARDAR configuración de visualización ---")
+        print(f"[DEBUG] Valor de Checkbox: {abbreviate}")
+        print(f"[DEBUG] Valor de Umbral: {threshold}")
 
-        param_thresh, _ = Parameter.get_or_create(group='Display', value='AbbreviationThreshold')
-        param_thresh.extra_data = str(threshold)
-        param_thresh.save()
+        try:
+            param_abbr, _ = Parameter.get_or_create(group='Display', value='AbbreviateNumbers')
+            param_abbr.extra_data = '1' if abbreviate else '0'
+            param_abbr.save()
 
-        self.view.show_notification("Configuración de visualización guardada.", "success")
-        self.full_refresh()
+            param_thresh, _ = Parameter.get_or_create(group='Display', value='AbbreviationThreshold')
+            param_thresh.extra_data = str(threshold)
+            param_thresh.save()
+
+            print("[DEBUG] Configuración guardada en la base de datos con ÉXITO.")
+            self.view.show_notification("Configuración de visualización guardada.", "success")
+            self.full_refresh()
+        except Exception as e:
+            print(f"!!!!!!!! [DEBUG] ERROR AL GUARDAR: {e} !!!!!!!!")
+            self.view.show_notification(f"Error al guardar: {e}", "error")
         
     def full_refresh(self):
         self.process_recurring_transactions()
