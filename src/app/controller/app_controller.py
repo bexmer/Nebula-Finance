@@ -81,10 +81,6 @@ class AppController:
         abbreviate = self.view.settings_page.abbreviate_checkbox.isChecked()
         threshold = self.view.settings_page.threshold_combo.currentData()
 
-        print("\n--- [DEBUG] Intentando GUARDAR configuración de visualización ---")
-        print(f"[DEBUG] Valor de Checkbox: {abbreviate}")
-        print(f"[DEBUG] Valor de Umbral: {threshold}")
-
         try:
             param_abbr, _ = Parameter.get_or_create(group='Display', value='AbbreviateNumbers')
             param_abbr.extra_data = '1' if abbreviate else '0'
@@ -94,11 +90,9 @@ class AppController:
             param_thresh.extra_data = str(threshold)
             param_thresh.save()
 
-            print("[DEBUG] Configuración guardada en la base de datos con ÉXITO.")
             self.view.show_notification("Configuración de visualización guardada.", "success")
             self.full_refresh()
         except Exception as e:
-            print(f"!!!!!!!! [DEBUG] ERROR AL GUARDAR: {e} !!!!!!!!")
             self.view.show_notification(f"Error al guardar: {e}", "error")
         
     def full_refresh(self):
@@ -417,24 +411,37 @@ class AppController:
     def _update_kpis(self, year, months):
         
         start = datetime.date(year, min(months), 1) if months else datetime.date(year, 1, 1)
-        if months:
-            last_month = max(months)
-            try:
-                next_month_start = (start.replace(month=last_month) + relativedelta(months=1))
-                end = next_month_start - relativedelta(days=1)
-            except ValueError:
-                end = start.replace(month=last_month, day=28)
-                end = (end + relativedelta(days=4))
-                end = end - relativedelta(days=end.day)
-        else:
-            end = datetime.date(year, 12, 31)
-        current = list(Transaction.select().where((Transaction.date >= start) & (Transaction.date <= end)))
-        income = sum(t.amount for t in current if t.type == "Ingreso")
-        expense = sum(t.amount for t in current if t.type != "Ingreso")
+        
+        # --- INICIO DE LA SOLUCIÓN ---
+        # Determina el final del período actual
+        last_month_num = max(months) if months else 12
+        next_month_start = (datetime.date(year, last_month_num, 1) + relativedelta(months=1))
+        end = next_month_start - relativedelta(days=1)
+
+        # Calcula el período anterior para la comparación
+        previous_start = start - relativedelta(months=len(months))
+        previous_end = start - relativedelta(days=1)
+        
+        # Consulta para el período actual
+        current_trans = list(Transaction.select().where((Transaction.date >= start) & (Transaction.date <= end)))
+        income = sum(t.amount for t in current_trans if t.type == "Ingreso")
+        expense = sum(t.amount for t in current_trans if t.type != "Ingreso")
         net = income - expense
-        income_comp, expense_comp = None, None
+
+        # Consulta para el período anterior
+        previous_trans = list(Transaction.select().where((Transaction.date >= previous_start) & (Transaction.date <= previous_end)))
+        prev_income = sum(t.amount for t in previous_trans if t.type == "Ingreso")
+        prev_expense = sum(t.amount for t in previous_trans if t.type != "Ingreso")
+
+        # Cálculo de la diferencia porcentual
+        income_comp = ((income - prev_income) / prev_income * 100) if prev_income > 0 else None
+        expense_comp = ((expense - prev_expense) / prev_expense * 100) if prev_expense > 0 else None
+        
+        # Pasamos los valores calculados a la vista
         self.view.dashboard_page.update_kpis(income, expense, net, income_comp, expense_comp)
-        return current, income, expense
+        
+        return current_trans, income, expense
+        # --- FIN DE LA SOLUCIÓN ---
 
     def _update_net_worth_chart(self):
         today = datetime.date.today()

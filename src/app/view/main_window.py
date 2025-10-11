@@ -211,6 +211,13 @@ class MainWindow(QMainWindow):
         goals_page.edit_debt_requested.connect(self.controller.edit_debt)
         goals_page.delete_debt_requested.connect(self.controller.delete_debt)
         
+        # Conexiones para los filtros del Dashboard
+        dashboard_page = self.dashboard_page
+        dashboard_page.year_filter.currentTextChanged.connect(self.controller.update_dashboard)
+        for action in dashboard_page.month_actions:
+            action.triggered.connect(self.controller.update_dashboard)
+        dashboard_page.all_year_action.triggered.connect(self.controller.update_dashboard)
+        
         # Conexiones Análisis
         analysis_page = self.analysis_page
         analysis_page.year_selector.currentTextChanged.connect(self.controller.update_analysis_view)
