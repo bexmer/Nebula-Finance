@@ -1,5 +1,3 @@
-PySide6
 peewee
-qtawesome
-pyqtgraph
-dateutils
+fastapi[all]
+python-multipart

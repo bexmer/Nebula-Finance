@@ -34,9 +34,17 @@ from dateutil.relativedelta import relativedelta
 
 class AppController:
     def __init__(self, view):
-        self.view = view
-        self.current_pages = {} # Para manejar la paginación de cada vista
-        
+        # El controlador ya no necesita una referencia a la vista.
+        # 'view' puede ser None.
+        self.view = view 
+        self.current_pages = {}
+    def get_all_transactions_for_api(self):
+        """
+        Devuelve una lista de todas las transacciones directamente desde la base de datos.
+        """
+        from app.model.transaction import Transaction
+        return list(Transaction.select())
+    
     def format_currency(self, value):
         """
         Formatea un valor numérico como moneda, abreviándolo si la opción está activa.
