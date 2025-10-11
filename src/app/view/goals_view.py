@@ -1,8 +1,8 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                                QPushButton, QFrame, QProgressBar, QGridLayout,
                                QScrollArea, QFormLayout, QTabWidget, QTableWidget,
-                               QTableWidgetItem, QHeaderView, QDoubleSpinBox)
-from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve
+                               QTableWidgetItem, QHeaderView, QDoubleSpinBox, QApplication)
+from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, QTimer, QRect, QParallelAnimationGroup
 import qtawesome as qta
 
 class GoalItem(QFrame):
@@ -277,30 +277,82 @@ class GoalsView(QWidget):
         layout.addWidget(scroll_area)
         
         return widget, list_layout
-
+        
     def _clear_layout(self, layout):
         while (item := layout.takeAt(0)) is not None:
             if item.widget():
                 item.widget().deleteLater()
 
+    def animate_item_entry(self, item_widget, delay):
+        # Mueve el widget a su posición final antes de la animación para obtener su geometría
+        item_widget.setVisible(True)
+        final_geometry = item_widget.geometry()
+        
+        # Mueve el widget a la posición inicial (abajo y transparente)
+        item_widget.setGeometry(final_geometry.x(), final_geometry.y() + 20, final_geometry.width(), final_geometry.height())
+        item_widget.setWindowOpacity(0.0)
+
+        # Animación de Geometría (deslizamiento hacia arriba)
+        anim_pos = QPropertyAnimation(item_widget, b"geometry")
+        anim_pos.setDuration(350)
+        anim_pos.setStartValue(item_widget.geometry())
+        anim_pos.setEndValue(final_geometry)
+        anim_pos.setEasingCurve(QEasingCurve.Type.OutQuad)
+
+        # Animación de Opacidad (fade in)
+        anim_fade = QPropertyAnimation(item_widget, b"windowOpacity")
+        anim_fade.setDuration(300)
+        anim_fade.setStartValue(0.0)
+        anim_fade.setEndValue(1.0)
+        anim_fade.setEasingCurve(QEasingCurve.Type.InQuad)
+        
+        # Agrupa y ejecuta con un retraso para el efecto cascada
+        anim_group = QParallelAnimationGroup()
+        anim_group.addAnimation(anim_pos)
+        anim_group.addAnimation(anim_fade)
+        
+        QTimer.singleShot(delay, anim_group.start)
+
     def display_goals(self, goals):
         self._clear_layout(self.goals_list_layout)
-        for goal_data in goals:
+        # Añade widgets invisibles para reservar espacio y obtener su geometría final
+        for i, goal_data in enumerate(goals):
             goal_item = GoalItem(goal_data, self.controller)
-            goal_item.edit_requested.connect(self.edit_goal_requested)
-            goal_item.delete_requested.connect(self.delete_goal_requested)
-            self.goals_list_layout.addWidget(goal_item)
+            goal_item.setVisible(False)
+            self.goals_list_layout.insertWidget(i, goal_item)
         self.goals_list_layout.addStretch()
+
+        # Permite que la UI se actualice
+        QApplication.processEvents()
+
+        delay = 0
+        for i in range(self.goals_list_layout.count()):
+            widget = self.goals_list_layout.itemAt(i).widget()
+            if widget and isinstance(widget, GoalItem):
+                widget.edit_requested.connect(self.edit_goal_requested)
+                widget.delete_requested.connect(self.delete_goal_requested)
+                self.animate_item_entry(widget, delay)
+                delay += 50
 
     def display_debts(self, debts):
         self._clear_layout(self.debts_list_layout)
-        for debt_data in debts:
-            debt_item = DebtItem(debt_data, self.controller) 
-            debt_item.edit_requested.connect(self.edit_debt_requested)
-            debt_item.delete_requested.connect(self.delete_debt_requested)
-            self.debts_list_layout.addWidget(debt_item)
+        for i, debt_data in enumerate(debts):
+            debt_item = DebtItem(debt_data, self.controller)
+            debt_item.setVisible(False)
+            self.debts_list_layout.insertWidget(i, debt_item)
         self.debts_list_layout.addStretch()
+
+        QApplication.processEvents()
         
+        delay = 0
+        for i in range(self.debts_list_layout.count()):
+            widget = self.debts_list_layout.itemAt(i).widget()
+            if widget and isinstance(widget, DebtItem):
+                widget.edit_requested.connect(self.edit_debt_requested)
+                widget.delete_requested.connect(self.delete_debt_requested)
+                self.animate_item_entry(widget, delay)
+                delay += 50
+    
     def get_goal_form_data(self):
         return {"name": self.goal_name_input.text(), "target_amount": self.goal_target_input.text()}
 
