@@ -100,7 +100,7 @@ class CreditCardWidget(QFrame):
 class TimeAxisItem(pg.AxisItem):
     def tickStrings(self, values, scale, spacing):
         try:
-            return [datetime.datetime.fromtimestamp(v).strftime('%b %Y') for v in values]
+            return [datetime.fromtimestamp(v).strftime('%b %Y') for v in values]
         except Exception:
             return ['' for v in values]
 
@@ -213,11 +213,12 @@ class DashboardView(QWidget):
         self.quick_add_button.setFixedSize(QSize(46, 46))
         self.quick_add_button.setParent(self)
 
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(25)
-        shadow.setColor(QColor(0, 0, 0, 90))
-        shadow.setOffset(0, 5)
-        self.quick_add_button.setGraphicsEffect(shadow)
+        # Se elimina la sombra del botón para evitar conflictos
+        # shadow = QGraphicsDropShadowEffect(self)
+        # shadow.setBlurRadius(25)
+        # shadow.setColor(QColor(0, 0, 0, 90))
+        # shadow.setOffset(0, 5)
+        # self.quick_add_button.setGraphicsEffect(shadow)
 
     def _create_switchable_chart_card(self):
         card = QFrame()
@@ -275,12 +276,6 @@ class DashboardView(QWidget):
         self.current_chart_index = (self.current_chart_index - 1 + self.chart_stack.count()) % self.chart_stack.count()
         self.chart_stack.setCurrentIndex(self.current_chart_index)
         self.switchable_chart_title.setText(self.chart_titles[self.current_chart_index])
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        for card in self.findChildren(QFrame):
-            if "Card" in card.objectName() and not card.graphicsEffect():
-                self._apply_shadow_to_card(card)
 
     def _apply_shadow_to_card(self, card):
         shadow = QGraphicsDropShadowEffect(self)

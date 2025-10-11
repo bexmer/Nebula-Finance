@@ -2,10 +2,8 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineE
                                QPushButton, QFrame, QProgressBar, QGridLayout,
                                QScrollArea, QFormLayout, QTabWidget, QTableWidget,
                                QTableWidgetItem, QHeaderView, QDoubleSpinBox)
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve
 import qtawesome as qta
-from PySide6.QtCore import QPropertyAnimation, QEasingCurve, QParallelAnimationGroup, QTimer
-from PySide6.QtWidgets import QGraphicsOpacityEffect
 
 class GoalItem(QFrame):
     edit_requested = Signal(int)
@@ -17,6 +15,8 @@ class GoalItem(QFrame):
         main_layout = QHBoxLayout(self)
         info_layout = QGridLayout()
         info_layout.setColumnStretch(1, 1)
+
+        self.name_label = QLabel(f"<b>{goal_data['name']}</b>")
         current_text, current_tip = controller.format_currency(goal_data['current'])
         target_text, target_tip = controller.format_currency(goal_data['target'])
         amounts_text = f"{current_text} de {target_text}"
@@ -26,18 +26,26 @@ class GoalItem(QFrame):
 
         self.progress_bar = QProgressBar()
         percentage = (goal_data['current'] / goal_data['target'] * 100) if goal_data['target'] > 0 else 0
-        self.progress_bar.setValue(int(percentage))
+        
+        self.anim = QPropertyAnimation(self.progress_bar, b"value")
+        self.anim.setDuration(800)
+        self.anim.setStartValue(0)
+        self.anim.setEndValue(int(percentage))
+        self.anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self.anim.start()
+
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setProperty("state", "good")
         self.progress_bar.style().polish(self.progress_bar)
-        amounts_text = f"${goal_data['current']:,.2f} de ${goal_data['target']:,.2f}"
-        self.amounts_label = QLabel(amounts_text)
+
         self.projection_label = QLabel(goal_data['projected_date'])
         self.projection_label.setObjectName("ProjectionLabel")
+
         info_layout.addWidget(self.name_label, 0, 0)
         info_layout.addWidget(self.amounts_label, 0, 1, Qt.AlignmentFlag.AlignRight)
         info_layout.addWidget(self.progress_bar, 1, 0, 1, 2)
         info_layout.addWidget(self.projection_label, 2, 0, 1, 2, Qt.AlignmentFlag.AlignRight)
+
         button_layout = QVBoxLayout()
         self.edit_button = QPushButton()
         self.edit_button.setIcon(qta.icon("fa5s.edit"))
@@ -46,8 +54,10 @@ class GoalItem(QFrame):
         button_layout.addWidget(self.edit_button)
         button_layout.addWidget(self.delete_button)
         button_layout.addStretch()
+
         main_layout.addLayout(info_layout, 1)
         main_layout.addLayout(button_layout)
+
         self.edit_button.clicked.connect(lambda: self.edit_requested.emit(self.goal_id))
         self.delete_button.clicked.connect(lambda: self.delete_requested.emit(self.goal_id))
 
@@ -59,6 +69,7 @@ class DebtItem(QFrame):
         self.debt_id = debt_data.id
         self.setObjectName("ListItemCard")
         main_layout = QHBoxLayout(self)
+
         info_layout = QVBoxLayout()
         name_label = QLabel(f"<b>{debt_data.name}</b>")
         
@@ -67,15 +78,18 @@ class DebtItem(QFrame):
             percentage = (1 - (debt_data.current_balance / debt_data.total_amount)) * 100
         
         progress_bar = QProgressBar()
-        progress_bar.setValue(int(percentage))
+        
+        self.anim = QPropertyAnimation(progress_bar, b"value")
+        self.anim.setDuration(800)
+        self.anim.setStartValue(0)
+        self.anim.setEndValue(int(percentage))
+        self.anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self.anim.start()
+
         progress_bar.setTextVisible(False)
         progress_bar.setProperty("state", "good")
         progress_bar.style().polish(progress_bar)
 
-        # --- INICIO DE LA SOLUCIÓN ---
-         # Es necesario pasar el formateador a esta clase
-        controller = parent.parent().parent().parent().controller # Navegamos hasta la vista para encontrar el controlador
-        
         paid_amount_text, _ = controller.format_currency(debt_data.total_amount - debt_data.current_balance)
         total_amount_text, _ = controller.format_currency(debt_data.total_amount)
         min_payment_text, _ = controller.format_currency(debt_data.minimum_payment)
@@ -83,8 +97,6 @@ class DebtItem(QFrame):
         amounts_text = (f"Pagado: {paid_amount_text} de {total_amount_text} "
                         f"| <b>Pago Mínimo:</b> {min_payment_text} "
                         f"| <b>Interés:</b> {debt_data.interest_rate:.2f}%")
-        # --- FIN DE LA SOLUCIÓN ---
-
         amounts_label = QLabel(amounts_text)
         
         info_layout.addWidget(name_label)
@@ -114,6 +126,7 @@ class GoalsView(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.controller = None
         
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
@@ -265,55 +278,29 @@ class GoalsView(QWidget):
         
         return widget, list_layout
 
+    def _clear_layout(self, layout):
+        while (item := layout.takeAt(0)) is not None:
+            if item.widget():
+                item.widget().deleteLater()
 
     def display_goals(self, goals):
         self._clear_layout(self.goals_list_layout)
-
-        # --- INICIO DE LA SOLUCIUÓN ---
-        delay = 0
         for goal_data in goals:
             goal_item = GoalItem(goal_data, self.controller)
             goal_item.edit_requested.connect(self.edit_goal_requested)
             goal_item.delete_requested.connect(self.delete_goal_requested)
-
-            # 1. Preparar el widget para la animación
-            opacity_effect = QGraphicsOpacityEffect(goal_item)
-            goal_item.setGraphicsEffect(opacity_effect)
-            goal_item.graphicsEffect().setOpacity(0) # Inicia invisible
-
             self.goals_list_layout.addWidget(goal_item)
-
-            # 2. Crear la animación
-            anim = QPropertyAnimation(goal_item.graphicsEffect(), b"opacity")
-            anim.setDuration(400)
-            anim.setStartValue(0.0)
-            anim.setEndValue(1.0)
-            anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
-
-            # 3. Ejecutar la animación con un pequeño retraso para un efecto escalonado
-            QTimer.singleShot(delay, anim.start)
-            delay += 50 # Cada item aparece 50ms después del anterior
-        # --- FIN DE LA SOLUCIUÓN ---
-
         self.goals_list_layout.addStretch()
 
     def display_debts(self, debts):
         self._clear_layout(self.debts_list_layout)
         for debt_data in debts:
-            # Asegúrate de que se pasa self.controller aquí
             debt_item = DebtItem(debt_data, self.controller) 
             debt_item.edit_requested.connect(self.edit_debt_requested)
             debt_item.delete_requested.connect(self.delete_debt_requested)
             self.debts_list_layout.addWidget(debt_item)
         self.debts_list_layout.addStretch()
         
-    def _clear_layout(self, layout):
-        while (item := layout.takeAt(0)) is not None:
-            if item.widget():
-                item.widget().deleteLater()
-            elif item.spacerItem():
-                pass
-
     def get_goal_form_data(self):
         return {"name": self.goal_name_input.text(), "target_amount": self.goal_target_input.text()}
 
