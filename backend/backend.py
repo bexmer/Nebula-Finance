@@ -2,11 +2,11 @@ import os
 import sys
 import uvicorn
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict
 import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 # --- CONFIGURACIÓN DE PATH ---
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -78,7 +78,32 @@ def get_accounts():
     return controller.get_accounts_data_for_view()
 
 @app.get("/api/transactions")
-def get_transactions(): return controller.get_transactions_data()
+def get_transactions(
+    search: Optional[str] = Query(default=None, description="Texto para buscar en la descripción"),
+    start_date: Optional[datetime.date] = Query(default=None, description="Fecha inicial del rango"),
+    end_date: Optional[datetime.date] = Query(default=None, description="Fecha final del rango"),
+    transaction_type: Optional[str] = Query(
+        default=None, alias="type", description="Tipo de transacción"
+    ),
+    category: Optional[str] = Query(default=None, description="Categoría de la transacción"),
+    sort_by: Optional[str] = Query(default="date_desc", description="Ordenamiento deseado"),
+):
+    filters: Dict[str, Any] = {}
+
+    if search:
+        filters["search"] = search
+    if start_date:
+        filters["start_date"] = start_date
+    if end_date:
+        filters["end_date"] = end_date
+    if transaction_type:
+        filters["type"] = transaction_type
+    if category:
+        filters["category"] = category
+    if sort_by:
+        filters["sort_by"] = sort_by
+
+    return controller.get_transactions_data(filters if filters else None)
 
 @app.post("/api/transactions", status_code=201)
 def create_transaction(transaction: TransactionModel):

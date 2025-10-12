@@ -8,8 +8,6 @@ interface ParameterOption {
   value: string;
 }
 
-const PAGE_SIZE = 10;
-
 export function Transactions() {
   const {
     transactions,
@@ -26,6 +24,7 @@ export function Transactions() {
     []
   );
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Carga inicial de datos para los filtros
   useEffect(() => {
@@ -81,11 +80,15 @@ export function Transactions() {
   }, [transactions]);
 
   useEffect(() => {
-    const totalPages = Math.max(1, Math.ceil(transactions.length / PAGE_SIZE));
+    const totalPages = Math.max(1, Math.ceil(transactions.length / pageSize));
     if (currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [transactions, currentPage]);
+  }, [transactions, currentPage, pageSize]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [pageSize]);
 
   const handleFilterChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
@@ -147,15 +150,19 @@ export function Transactions() {
   };
 
   const paginatedTransactions = useMemo(() => {
-    const startIndex = (currentPage - 1) * PAGE_SIZE;
-    return transactions.slice(startIndex, startIndex + PAGE_SIZE);
-  }, [transactions, currentPage]);
+    const startIndex = (currentPage - 1) * pageSize;
+    return transactions.slice(startIndex, startIndex + pageSize);
+  }, [transactions, currentPage, pageSize]);
 
-  const totalPages = Math.max(1, Math.ceil(transactions.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(transactions.length / pageSize));
   const pageNumbers = useMemo(
     () => Array.from({ length: totalPages }, (_, index) => index + 1),
     [totalPages]
   );
+
+  const handlePageSizeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setPageSize(Number(e.target.value));
+  };
 
   const isAllSelected =
     paginatedTransactions.length > 0 &&
@@ -245,111 +252,130 @@ export function Transactions() {
       </div>
 
       {/* --- TABLA DE TRANSACCIONES --- */}
-      <div className="bg-gray-800 rounded-lg overflow-x-auto">
-        <table className="w-full text-left">
-          <thead className="bg-gray-700/50">
-            <tr>
-              <th className="p-3 w-12">
-                <input
-                  type="checkbox"
-                  checked={isAllSelected}
-                  onChange={(e) => handleToggleAll(e.target.checked)}
-                  className="h-4 w-4 cursor-pointer"
-                />
-              </th>
-              <th className="p-3 font-semibold">Fecha</th>
-              <th className="p-3 font-semibold">Descripción</th>
-              <th className="p-3 font-semibold">Cuenta</th>
-              <th className="p-3 font-semibold">Tipo</th>
-              <th className="p-3 font-semibold">Categoría</th>
-              <th className="p-3 font-semibold text-right">Monto</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paginatedTransactions.length === 0 ? (
+      <div className="bg-gray-800 rounded-lg">
+        <div className="overflow-x-auto overflow-y-auto max-h-[60vh]">
+          <table className="w-full text-left">
+            <thead className="bg-gray-700/50">
               <tr>
-                <td colSpan={7} className="p-4 text-center text-gray-400">
-                  No se encontraron transacciones con los filtros seleccionados.
-                </td>
+                <th className="p-3 w-12">
+                  <input
+                    type="checkbox"
+                    checked={isAllSelected}
+                    onChange={(e) => handleToggleAll(e.target.checked)}
+                    className="h-4 w-4 cursor-pointer"
+                  />
+                </th>
+                <th className="p-3 font-semibold">Fecha</th>
+                <th className="p-3 font-semibold">Descripción</th>
+                <th className="p-3 font-semibold">Cuenta</th>
+                <th className="p-3 font-semibold">Tipo</th>
+                <th className="p-3 font-semibold">Categoría</th>
+                <th className="p-3 font-semibold text-right">Monto</th>
               </tr>
-            ) : (
-              paginatedTransactions.map((t) => {
-                const isSelected = selectedTransactionIds.includes(t.id);
-                return (
-                  <tr
-                    key={t.id}
-                    onDoubleClick={() => openTransactionModal(t)}
-                    className={`border-b border-gray-700 hover:bg-gray-700/50 cursor-pointer transition-colors ${
-                      isSelected ? "bg-gray-700/80" : ""
-                    }`}
-                  >
-                    <td className="p-3">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={(e) => handleToggleTransaction(t.id, e.target.checked)}
-                        onDoubleClick={(e) => e.stopPropagation()}
-                        className="h-4 w-4 cursor-pointer"
-                      />
-                    </td>
-                    <td className="p-3">{new Date(t.date).toLocaleDateString()}</td>
-                    <td className="p-3">{t.description}</td>
-                    <td className="p-3">{t.account?.name}</td>
-                    <td className="p-3">{t.type}</td>
-                    <td className="p-3">{t.category}</td>
-                    <td
-                      className={`p-3 text-right font-medium ${
-                        t.type === "Ingreso" ? "text-green-400" : "text-red-400"
+            </thead>
+            <tbody>
+              {paginatedTransactions.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="p-4 text-center text-gray-400">
+                    No se encontraron transacciones con los filtros seleccionados.
+                  </td>
+                </tr>
+              ) : (
+                paginatedTransactions.map((t) => {
+                  const isSelected = selectedTransactionIds.includes(t.id);
+                  return (
+                    <tr
+                      key={t.id}
+                      onDoubleClick={() => openTransactionModal(t)}
+                      className={`border-b border-gray-700 hover:bg-gray-700/50 cursor-pointer transition-colors ${
+                        isSelected ? "bg-gray-700/80" : ""
                       }`}
                     >
-                      {new Intl.NumberFormat("es-MX", {
-                        style: "currency",
-                        currency: "MXN",
-                      }).format(t.amount)}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                      <td className="p-3">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => handleToggleTransaction(t.id, e.target.checked)}
+                          onDoubleClick={(e) => e.stopPropagation()}
+                          className="h-4 w-4 cursor-pointer"
+                        />
+                      </td>
+                      <td className="p-3">{new Date(t.date).toLocaleDateString()}</td>
+                      <td className="p-3">{t.description}</td>
+                      <td className="p-3">{t.account?.name}</td>
+                      <td className="p-3">{t.type}</td>
+                      <td className="p-3">{t.category}</td>
+                      <td
+                        className={`p-3 text-right font-medium ${
+                          t.type === "Ingreso" ? "text-green-400" : "text-red-400"
+                        }`}
+                      >
+                        {new Intl.NumberFormat("es-MX", {
+                          style: "currency",
+                          currency: "MXN",
+                        }).format(t.amount)}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-4">
-        <span className="text-sm text-gray-400">
-          Página {currentPage} de {totalPages}
-        </span>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
-            disabled={currentPage === 1}
-            className="px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 disabled:bg-gray-900 disabled:text-gray-500 disabled:cursor-not-allowed"
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mt-4">
+        <div className="flex items-center gap-2 text-sm text-gray-300">
+          <span>Mostrar</span>
+          <select
+            value={pageSize}
+            onChange={handlePageSizeChange}
+            className="bg-gray-800 border border-gray-600 rounded px-2 py-1"
           >
-            Anterior
-          </button>
-          {pageNumbers.map((page) => (
+            {[5, 10, 20, 50].map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
+          <span>por página</span>
+        </div>
+        <div className="flex flex-col md:flex-row md:items-center md:gap-4 gap-2">
+          <span className="text-sm text-gray-400 text-center md:text-left">
+            Página {currentPage} de {totalPages}
+          </span>
+          <div className="flex items-center gap-2 justify-center">
             <button
-              key={page}
               type="button"
-              onClick={() => handlePageChange(page)}
-              className={`px-3 py-1 rounded border ${
-                currentPage === page
-                  ? "bg-blue-600 border-blue-400"
-                  : "bg-gray-700 border-gray-600 hover:bg-gray-600"
-              }`}
+              onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 disabled:bg-gray-900 disabled:text-gray-500 disabled:cursor-not-allowed"
             >
-              {page}
+              Anterior
             </button>
-          ))}
-          <button
-            type="button"
-            onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
-            disabled={currentPage === totalPages}
-            className="px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 disabled:bg-gray-900 disabled:text-gray-500 disabled:cursor-not-allowed"
-          >
-            Siguiente
-          </button>
+            {pageNumbers.map((page) => (
+              <button
+                key={page}
+                type="button"
+                onClick={() => handlePageChange(page)}
+                className={`px-3 py-1 rounded border ${
+                  currentPage === page
+                    ? "bg-blue-600 border-blue-400"
+                    : "bg-gray-700 border-gray-600 hover:bg-gray-600"
+                }`}
+              >
+                {page}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 disabled:bg-gray-900 disabled:text-gray-500 disabled:cursor-not-allowed"
+            >
+              Siguiente
+            </button>
+          </div>
         </div>
       </div>
     </div>
