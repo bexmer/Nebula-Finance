@@ -1,0 +1,57 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/schema.json",
+  "identifier": "com.nebula.finance",
+  "productName": "nebula-finance",
+  "version": "0.1.0",
+  "build": {
+    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "security": {
+      "csp": null
+    },
+    "windows": [
+      {
+        "fullscreen": false,
+        "height": 800,
+        "resizable": true,
+        "title": "Nebula Finance",
+        "width": 1200
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "shell": {
+      "scope": [
+        {
+          "name": "run-backend",
+          "cmd": "python",
+          "args": [
+            "-m",
+            "uvicorn",
+            "../backend:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8000"
+          ],
+          "sidecar": true
+        }
+      ]
+    }
+  }
+}
