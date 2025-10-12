@@ -65,6 +65,12 @@ class DebtModel(BaseModel):
     total_amount: float
     current_balance: float
 
+
+class SettingsModel(BaseModel):
+    currency_symbol: str
+    decimal_places: int
+    theme: str
+
 # ===============================================
 # --- ENDPOINTS DE LA API ---
 # ===============================================
@@ -123,6 +129,19 @@ def get_transaction(transaction_id: int):
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
     return transaction
+
+
+@app.get("/api/settings", response_model=SettingsModel)
+def get_settings():
+    """Obtiene la configuración de la aplicación."""
+    return controller.get_app_settings()
+
+
+@app.post("/api/settings")
+def update_settings(settings: SettingsModel):
+    """Actualiza y persiste la configuración de la aplicación."""
+    updated_settings = controller.update_app_settings(settings.model_dump())
+    return {"message": "Configuración actualizada correctamente.", "settings": updated_settings}
 
 # ===============================================
 # --- INICIADOR DEL SERVIDOR ---
