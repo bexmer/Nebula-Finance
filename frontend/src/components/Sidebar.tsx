@@ -1,14 +1,26 @@
 import { NavLink } from "react-router-dom";
+import {
+  LayoutDashboard,
+  Wallet,
+  ArrowRightLeft,
+  Target,
+  Goal,
+  Briefcase,
+  Settings,
+  AreaChart,
+} from "lucide-react";
+import { useStore } from "../store/useStore";
 
 const navItems = [
-  { path: "/", label: "Dashboard" },
-  { path: "/transactions", label: "Transacciones" },
-  { path: "/accounts", label: "Cuentas" },
-  { path: "/budget", label: "Presupuesto" },
-  { path: "/goals-and-debts", label: "Metas y Deudas" },
-  { path: "/portfolio", label: "Portafolio" },
-  { path: "/analysis", label: "Análisis" },
-  { path: "/settings", label: "Configuración" },
+  { name: "Dashboard", icon: <LayoutDashboard />, path: "/" },
+  { name: "Cuentas", icon: <Wallet />, path: "/accounts" },
+  { name: "Transacciones", icon: <ArrowRightLeft />, path: "/transactions" },
+  { name: "Presupuesto", icon: <Target />, path: "/budget" },
+  // 👇 Esta es la línea que hay que corregir
+  { name: "Metas y Deudas", icon: <Goal />, path: "/dashboard-goals" },
+  { name: "Portafolio", icon: <Briefcase />, path: "/portfolio" },
+  { name: "Análisis", icon: <AreaChart />, path: "/analysis" },
+  { name: "Configuración", icon: <Settings />, path: "/settings" },
 ];
 
 export function Sidebar() {
@@ -21,14 +33,15 @@ export function Sidebar() {
             key={item.path}
             to={item.path}
             className={({ isActive }) =>
-              `px-4 py-2 rounded-lg transition-colors ${
+              `flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                 isActive
                   ? "bg-blue-600 text-white hover:text-lime-200"
                   : "text-gray-300 hover:bg-gray-700 hover:text-white"
               }`
             }
           >
-            {item.label}
+            {item.icon}
+            <span>{item.name}</span>
           </NavLink>
         ))}
       </nav>

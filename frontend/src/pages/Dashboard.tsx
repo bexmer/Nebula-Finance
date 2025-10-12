@@ -20,6 +20,7 @@ interface ChartData {
 }
 
 interface GoalData {
+  id: number;
   name: string;
   current_amount: number;
   target_amount: number;
@@ -97,7 +98,12 @@ export function Dashboard() {
             <p>Cargando metas...</p>
           ) : goalsData.length > 0 ? (
             goalsData.map((goal) => (
-              <GoalProgressCard key={goal.name} {...goal} />
+              <GoalProgressCard
+                key={goal.name}
+                goal={goal}
+                onEdit={() => {/* implement edit logic or leave empty */}}
+                onDelete={() => {/* implement delete logic or leave empty */}}
+              />
             ))
           ) : (
             <p className="text-gray-400">No hay metas activas.</p>
