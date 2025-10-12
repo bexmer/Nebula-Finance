@@ -66,7 +66,7 @@ export function DebtProgressCard({ debt, onEdit, onDelete }: CardProps) {
           </div>
         )}
       </div>
-      <div className="mt-4 flex items-center justify-end gap-3 text-xs">
+      <div className="mt-4 flex flex-wrap items-center justify-end gap-3 text-xs">
         <button
           onClick={onEdit}
           className="rounded-full bg-slate-800 px-3 py-1 font-medium text-sky-400 transition hover:bg-slate-700"

@@ -1,7 +1,7 @@
 from collections import defaultdict
 import calendar
 import datetime
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from dateutil.relativedelta import relativedelta
 from peewee import fn
 
@@ -16,6 +16,23 @@ from app.model.recurring_transaction import RecurringTransaction
 from app.model.account import Account
 from app.model.parameter import Parameter
 from app.model.budget_rule import BudgetRule
+
+
+MONTH_LABELS = [
+    "",
+    "Ene",
+    "Feb",
+    "Mar",
+    "Abr",
+    "May",
+    "Jun",
+    "Jul",
+    "Ago",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dic",
+]
 
 
 DEFAULT_APP_SETTINGS = {
@@ -120,7 +137,7 @@ class AppController:
 
     def _get_dashboard_kpis(self, year: int, months: List[int], transactions: Optional[List[Transaction]] = None):
         """Calcula los KPIs de ingresos, gastos y ahorro para el período seleccionado."""
-        start_date, end_date = self._get_date_range(year, months)
+        _, end_date = self._get_date_range(year, months)
 
         if transactions is None:
             transactions = list(Transaction.select().where(Transaction.date.between(start_date, end_date)))
@@ -368,6 +385,251 @@ class AppController:
         expenses.sort(key=lambda item: item["amount"], reverse=True)
 
         return {"income": income, "expenses": expenses}
+
+
+    # =================================================================
+    # --- SECCIÓN: ANÁLISIS FINANCIERO ---
+    # =================================================================
+
+    def get_analysis_overview(
+        self,
+        year: Optional[int] = None,
+        months: Optional[List[int]] = None,
+        projection_months: int = 12,
+    ) -> Dict[str, Any]:
+        """Compone los datos necesarios para la sección de análisis."""
+
+        today = datetime.date.today()
+        if year is None:
+            year = today.year
+
+        month_list = sorted(set(months)) if months else list(range(1, 13))
+        transactions = list(self._get_transactions_for_period(year, month_list))
+
+        annual_expense_report = self._build_annual_expense_report(year, month_list)
+        budget_analysis = self._build_budget_analysis(year, month_list, transactions)
+        cash_flow_projection = self._build_cash_flow_projection(
+            year, month_list, projection_months, transactions
+        )
+
+        return {
+            "year": year,
+            "months": month_list,
+            "annual_expense_report": annual_expense_report,
+            "budget_analysis": budget_analysis,
+            "cash_flow_projection": cash_flow_projection,
+        }
+
+    def _build_annual_expense_report(self, year: int, months: List[int]) -> Dict[str, Any]:
+        """Genera una tabla de gastos anuales agrupados por categoría y mes."""
+
+        start_date, end_date = self._get_date_range(year, months)
+        month_list = sorted(set(months)) if months else list(range(1, 13))
+
+        category_field = fn.COALESCE(Transaction.category, 'Sin categoría').alias('category_name')
+        month_field = fn.strftime('%m', Transaction.date).alias('month')
+
+        query = (
+            Transaction.select(
+                category_field,
+                month_field,
+                fn.SUM(Transaction.amount).alias('total'),
+            )
+            .where(
+                (Transaction.date.between(start_date, end_date))
+                & (Transaction.type != 'Ingreso')
+            )
+            .group_by(category_field, month_field)
+        )
+
+        rows: Dict[str, Dict[int, float]] = defaultdict(lambda: defaultdict(float))
+        monthly_totals: Dict[int, float] = defaultdict(float)
+
+        for item in query.dicts():
+            category = item.get('category_name') or 'Sin categoría'
+            month_number = int(item.get('month') or 0)
+            if month_number not in month_list:
+                continue
+            amount = abs(float(item.get('total') or 0.0))
+            rows[category][month_number] += amount
+            monthly_totals[month_number] += amount
+
+        ordered_months = month_list
+        month_headers = [
+            {"number": month, "label": MONTH_LABELS[month]}
+            for month in ordered_months
+        ]
+
+        table_rows = []
+        for category, values in rows.items():
+            monthly_values = [values.get(month, 0.0) for month in ordered_months]
+            total = sum(monthly_values)
+            table_rows.append(
+                {
+                    "category": category,
+                    "values": monthly_values,
+                    "total": total,
+                }
+            )
+
+        table_rows.sort(key=lambda row: row["total"], reverse=True)
+
+        totals_by_month = [monthly_totals.get(month, 0.0) for month in ordered_months]
+        grand_total = sum(totals_by_month)
+
+        return {
+            "months": month_headers,
+            "rows": table_rows,
+            "monthly_totals": totals_by_month,
+            "grand_total": grand_total,
+        }
+
+    def _build_budget_analysis(
+        self,
+        year: int,
+        months: List[int],
+        transactions: List[Transaction],
+    ) -> Dict[str, Any]:
+        """Compara presupuesto anual vs gasto real agrupado por regla."""
+
+        start_date, end_date = self._get_date_range(year, months)
+
+        parameters = Parameter.select().where(Parameter.group == 'Tipo de Transacción')
+        type_to_rule: Dict[str, Optional[BudgetRule]] = {}
+        for param in parameters:
+            type_to_rule[param.value] = param.budget_rule if param.budget_rule_id else None
+
+        budget_entries = BudgetEntry.select().where(
+            BudgetEntry.due_date.between(start_date, end_date)
+        )
+
+        budget_totals: Dict[str, float] = defaultdict(float)
+        for entry in budget_entries:
+            key = type_to_rule.get(entry.type)
+            rule_name = key.name if key else (entry.type or 'Sin Regla')
+            budget_totals[rule_name] += float(getattr(entry, 'budgeted_amount', 0) or 0)
+
+        actual_totals: Dict[str, float] = defaultdict(float)
+        for transaction in transactions:
+            if transaction.type == 'Ingreso':
+                continue
+            rule = type_to_rule.get(transaction.type)
+            rule_name = rule.name if rule else (transaction.type or 'Sin Regla')
+            actual_totals[rule_name] += abs(float(transaction.amount or 0))
+
+        rows = []
+        total_budgeted = 0.0
+        total_actual = 0.0
+
+        for rule in BudgetRule.select().order_by(BudgetRule.id):
+            budgeted = budget_totals.pop(rule.name, 0.0)
+            actual = actual_totals.pop(rule.name, 0.0)
+            difference = actual - budgeted
+            compliance = (actual / budgeted * 100) if budgeted else None
+            rows.append(
+                {
+                    "name": rule.name,
+                    "budgeted": budgeted,
+                    "actual": actual,
+                    "difference": difference,
+                    "compliance": compliance,
+                    "ideal_percent": rule.percentage,
+                }
+            )
+            total_budgeted += budgeted
+            total_actual += actual
+
+        # Add any remaining categories not tied to a configured rule
+        for remaining_name, budgeted in budget_totals.items():
+            actual = actual_totals.pop(remaining_name, 0.0)
+            difference = actual - budgeted
+            compliance = (actual / budgeted * 100) if budgeted else None
+            rows.append(
+                {
+                    "name": remaining_name,
+                    "budgeted": budgeted,
+                    "actual": actual,
+                    "difference": difference,
+                    "compliance": compliance,
+                    "ideal_percent": None,
+                }
+            )
+            total_budgeted += budgeted
+            total_actual += actual
+
+        for remaining_name, actual in actual_totals.items():
+            rows.append(
+                {
+                    "name": remaining_name,
+                    "budgeted": 0.0,
+                    "actual": actual,
+                    "difference": actual,
+                    "compliance": None,
+                    "ideal_percent": None,
+                }
+            )
+            total_actual += actual
+
+        rows.sort(key=lambda row: row["actual"], reverse=True)
+
+        total_difference = total_actual - total_budgeted
+        total_compliance = (
+            (total_actual / total_budgeted * 100) if total_budgeted else None
+        )
+
+        return {
+            "rows": rows,
+            "total_budgeted": total_budgeted,
+            "total_actual": total_actual,
+            "total_difference": total_difference,
+            "total_compliance": total_compliance,
+        }
+
+    def _build_cash_flow_projection(
+        self,
+        year: int,
+        months: List[int],
+        projection_months: int,
+        transactions: List[Transaction],
+    ) -> Dict[str, Any]:
+        """Calcula una proyección lineal del saldo total de cuentas."""
+
+        month_list = sorted(set(months)) if months else list(range(1, 13))
+
+        monthly_net: Dict[int, float] = defaultdict(float)
+        for transaction in transactions:
+            month = int(transaction.date.month)
+            amount = float(transaction.amount or 0)
+            if transaction.type == 'Ingreso':
+                monthly_net[month] += amount
+            else:
+                monthly_net[month] -= abs(amount)
+
+        if month_list:
+            total_net = sum(monthly_net.get(month, 0.0) for month in month_list)
+            average_flow = total_net / len(month_list)
+        else:
+            average_flow = 0.0
+
+        starting_balance = sum(float(acc.current_balance or 0) for acc in Account.select())
+
+        start_date, end_date = self._get_date_range(year, months)
+        next_month = end_date + relativedelta(months=1)
+
+        projection_points = []
+        balance = starting_balance
+        for _ in range(max(projection_months, 0)):
+            balance += average_flow
+            label = f"{MONTH_LABELS[next_month.month]} {next_month.year}"
+            projection_points.append({"label": label, "balance": balance})
+            next_month = next_month + relativedelta(months=1)
+
+        return {
+            "starting_balance": starting_balance,
+            "average_monthly_flow": average_flow,
+            "projection_months": projection_months,
+            "points": projection_points,
+        }
 
 
     # =================================================================

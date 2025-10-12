@@ -212,6 +212,16 @@ def get_dashboard(year: int, months: Optional[List[int]] = Query(None)):
     return controller.get_dashboard_data(year, month_values)
 
 
+@app.get("/api/analysis")
+def get_analysis(
+    year: Optional[int] = Query(default=None),
+    months: Optional[List[int]] = Query(default=None),
+    projection_months: int = Query(default=12, alias="projectionMonths"),
+):
+    month_values = list(months) if months else []
+    return controller.get_analysis_overview(year, month_values, projection_months)
+
+
 @app.post("/api/transactions", status_code=201)
 def create_transaction(transaction: TransactionModel):
     result = controller.add_transaction(transaction.dict())

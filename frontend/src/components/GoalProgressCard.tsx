@@ -25,7 +25,7 @@ export function GoalProgressCard({ goal, onEdit, onDelete }: CardProps) {
   const progress = Math.min(100, Math.max(0, goal.percentage));
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 backdrop-blur">
+    <div className="flex h-full flex-col justify-between rounded-xl border border-slate-800 bg-slate-900/60 p-4 backdrop-blur">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-white">{goal.name}</p>
@@ -33,7 +33,7 @@ export function GoalProgressCard({ goal, onEdit, onDelete }: CardProps) {
             {formatCurrency(goal.current_amount)} / {formatCurrency(goal.target_amount)}
           </p>
         </div>
-        <div className="flex gap-2 text-xs">
+        <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
           {onEdit && (
             <button
               onClick={onEdit}
