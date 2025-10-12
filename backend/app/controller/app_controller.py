@@ -1,4 +1,5 @@
 from collections import defaultdict
+import calendar
 import datetime
 from typing import Optional
 from dateutil.relativedelta import relativedelta
@@ -832,7 +833,8 @@ class AppController:
         else:
             min_month, max_month = min(months), max(months)
             start_date = datetime.date(year, min_month, 1)
-            _, last_day = datetime.date(year, max_month, 1).replace(day=28) + datetime.timedelta(days=4)
+            last_day = calendar.monthrange(year, max_month)[1]
             end_date = datetime.date(year, max_month, last_day)
+
         return start_date, end_date
 
