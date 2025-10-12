@@ -95,6 +95,78 @@ class SettingsModel(BaseModel):
     theme: str
 
 
+class BudgetRuleItem(BaseModel):
+    id: int
+    name: str
+    percentage: float
+    is_deletable: bool
+
+
+class BudgetRuleCreateModel(BaseModel):
+    name: str
+    percentage: float
+
+
+class BudgetRuleUpdateModel(BaseModel):
+    name: Optional[str] = None
+    percentage: Optional[float] = None
+
+
+class TransactionTypeItem(BaseModel):
+    id: int
+    name: str
+    budget_rule_id: Optional[int] = None
+    budget_rule_name: Optional[str] = None
+    is_deletable: bool
+
+
+class TransactionTypeCreateModel(BaseModel):
+    name: str
+    budget_rule_id: Optional[int] = None
+
+
+class TransactionTypeUpdateModel(BaseModel):
+    name: Optional[str] = None
+    budget_rule_id: Optional[int] = None
+
+
+class AccountTypeItem(BaseModel):
+    id: int
+    name: str
+    is_deletable: bool
+
+
+class AccountTypeCreateModel(BaseModel):
+    name: str
+
+
+class AccountTypeUpdateModel(BaseModel):
+    name: str
+
+
+class CategoryItem(BaseModel):
+    id: int
+    name: str
+    parent_id: int
+    parent_name: str
+    is_deletable: bool
+
+
+class CategoryCreateModel(BaseModel):
+    name: str
+    parent_id: int
+
+
+class CategoryUpdateModel(BaseModel):
+    name: Optional[str] = None
+    parent_id: Optional[int] = None
+
+
+class DisplayPreferencesModel(BaseModel):
+    abbreviate_numbers: bool
+    threshold: int
+
+
 class PortfolioSummaryModel(BaseModel):
     symbol: str
     name: str
@@ -342,6 +414,139 @@ def get_account_types():
 @app.get("/api/parameters/categories/{parent_id}")
 def get_categories_by_type(parent_id: int):
     return controller.get_child_parameters(parent_id)
+
+
+@app.get("/api/config/budget-rules", response_model=List[BudgetRuleItem])
+def list_budget_rules():
+    return controller.get_budget_rules()
+
+
+@app.post("/api/config/budget-rules", response_model=BudgetRuleItem, status_code=201)
+def create_budget_rule(rule: BudgetRuleCreateModel):
+    result = controller.add_budget_rule(rule.name, rule.percentage)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.put("/api/config/budget-rules/{rule_id}", response_model=BudgetRuleItem)
+def update_budget_rule(rule_id: int, rule: BudgetRuleUpdateModel):
+    result = controller.update_budget_rule(rule_id, rule.model_dump(exclude_unset=True))
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.delete("/api/config/budget-rules/{rule_id}")
+def delete_budget_rule(rule_id: int):
+    result = controller.delete_budget_rule(rule_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.get("/api/config/transaction-types", response_model=List[TransactionTypeItem])
+def list_transaction_types():
+    return controller.get_transaction_types_overview()
+
+
+@app.post("/api/config/transaction-types", response_model=TransactionTypeItem, status_code=201)
+def create_transaction_type(transaction_type: TransactionTypeCreateModel):
+    result = controller.add_transaction_type(
+        transaction_type.name,
+        transaction_type.budget_rule_id,
+    )
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.put("/api/config/transaction-types/{type_id}", response_model=TransactionTypeItem)
+def update_transaction_type(type_id: int, transaction_type: TransactionTypeUpdateModel):
+    result = controller.update_transaction_type(type_id, transaction_type.model_dump(exclude_unset=True))
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.delete("/api/config/transaction-types/{type_id}")
+def delete_transaction_type(type_id: int):
+    result = controller.delete_transaction_type(type_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.get("/api/config/account-types", response_model=List[AccountTypeItem])
+def list_account_types_config():
+    return controller.get_account_type_parameters()
+
+
+@app.post("/api/config/account-types", response_model=AccountTypeItem, status_code=201)
+def create_account_type_parameter(account_type: AccountTypeCreateModel):
+    result = controller.add_account_type(account_type.name)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.put("/api/config/account-types/{type_id}", response_model=AccountTypeItem)
+def update_account_type_parameter(type_id: int, account_type: AccountTypeUpdateModel):
+    result = controller.update_account_type_parameter(type_id, account_type.name)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.delete("/api/config/account-types/{type_id}")
+def delete_account_type_parameter(type_id: int):
+    result = controller.delete_account_type_parameter(type_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.get("/api/config/categories", response_model=List[CategoryItem])
+def list_categories():
+    return controller.get_category_overview()
+
+
+@app.post("/api/config/categories", response_model=CategoryItem, status_code=201)
+def create_category(category: CategoryCreateModel):
+    result = controller.add_category(category.name, category.parent_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.put("/api/config/categories/{category_id}", response_model=CategoryItem)
+def update_category(category_id: int, category: CategoryUpdateModel):
+    result = controller.update_category(category_id, category.model_dump(exclude_unset=True))
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.delete("/api/config/categories/{category_id}")
+def delete_category(category_id: int):
+    result = controller.delete_category(category_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.get("/api/config/display", response_model=DisplayPreferencesModel)
+def get_display_preferences():
+    return controller.get_display_preferences()
+
+
+@app.put("/api/config/display", response_model=DisplayPreferencesModel)
+def update_display_preferences(preferences: DisplayPreferencesModel):
+    updated = controller.update_display_preferences(
+        preferences.abbreviate_numbers,
+        preferences.threshold,
+    )
+    return updated
 
 @app.get("/api/transactions/{transaction_id}")
 def get_transaction(transaction_id: int):

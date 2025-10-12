@@ -3,7 +3,7 @@ import calendar
 import datetime
 from typing import Optional, List, Dict, Any
 from dateutil.relativedelta import relativedelta
-from peewee import fn
+from peewee import fn, JOIN
 
 # --- Importaciones de Modelos de Datos ---
 from app.model.transaction import Transaction
@@ -884,6 +884,458 @@ class AppController:
         Obtiene los parámetros (categorías) que son hijos de otro parámetro (tipo).
         """
         return list(Parameter.select().where(Parameter.parent == parent_id).dicts())
+
+    # -----------------------------------------------------------------
+    # --- Tipos de transacción y reglas de presupuesto ---
+    # -----------------------------------------------------------------
+
+    def _serialize_transaction_type(self, parameter: Parameter) -> Dict[str, Any]:
+        return {
+            "id": parameter.id,
+            "name": parameter.value,
+            "budget_rule_id": parameter.budget_rule_id,
+            "budget_rule_name": parameter.budget_rule.name if parameter.budget_rule else None,
+            "is_deletable": bool(parameter.is_deletable),
+        }
+
+    def _serialize_budget_rule(self, rule: BudgetRule) -> Dict[str, Any]:
+        in_use = Parameter.select().where(Parameter.budget_rule == rule).exists()
+        return {
+            "id": rule.id,
+            "name": rule.name,
+            "percentage": float(rule.percentage or 0),
+            "is_deletable": not in_use,
+        }
+
+    def get_transaction_types_overview(self) -> List[Dict[str, Any]]:
+        query = (
+            Parameter
+            .select(Parameter, BudgetRule)
+            .join(BudgetRule, JOIN.LEFT_OUTER)
+            .where(Parameter.group == "Tipo de Transacción")
+            .order_by(Parameter.id)
+        )
+        return [self._serialize_transaction_type(param) for param in query]
+
+    def get_budget_rules(self) -> List[Dict[str, Any]]:
+        return [self._serialize_budget_rule(rule) for rule in BudgetRule.select().order_by(BudgetRule.id)]
+
+    def add_transaction_type(self, name: str, budget_rule_id: Optional[int]) -> Dict[str, Any]:
+        name = (name or "").strip()
+        if not name:
+            return {"error": "El nombre del tipo de transacción es obligatorio."}
+
+        existing = Parameter.get_or_none(
+            (Parameter.group == "Tipo de Transacción") & (Parameter.value == name)
+        )
+        if existing:
+            return {"error": "Ya existe un tipo de transacción con ese nombre."}
+
+        budget_rule = None
+        if budget_rule_id is not None:
+            budget_rule = BudgetRule.get_or_none(BudgetRule.id == budget_rule_id)
+            if not budget_rule:
+                return {"error": "La regla de presupuesto seleccionada no existe."}
+
+        parameter = Parameter.create(
+            group="Tipo de Transacción",
+            value=name,
+            budget_rule=budget_rule,
+        )
+        return self._serialize_transaction_type(parameter)
+
+    def update_transaction_type(self, parameter_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            parameter = Parameter.get_by_id(parameter_id)
+        except Parameter.DoesNotExist:
+            return {"error": "El tipo de transacción no existe."}
+
+        if parameter.group != "Tipo de Transacción":
+            return {"error": "El parámetro seleccionado no es un tipo de transacción."}
+
+        updates: Dict[str, Any] = {}
+        original_name = parameter.value
+
+        if "name" in data:
+            new_name = (data["name"] or "").strip()
+            if not new_name:
+                return {"error": "El nombre del tipo de transacción es obligatorio."}
+
+            duplicate = Parameter.select().where(
+                (Parameter.group == "Tipo de Transacción")
+                & (Parameter.value == new_name)
+                & (Parameter.id != parameter.id)
+            ).exists()
+            if duplicate:
+                return {"error": "Ya existe un tipo de transacción con ese nombre."}
+
+            updates["value"] = new_name
+
+        if "budget_rule_id" in data:
+            budget_rule_id = data["budget_rule_id"]
+            if budget_rule_id is None:
+                updates["budget_rule"] = None
+            else:
+                budget_rule = BudgetRule.get_or_none(BudgetRule.id == budget_rule_id)
+                if not budget_rule:
+                    return {"error": "La regla de presupuesto seleccionada no existe."}
+                updates["budget_rule"] = budget_rule
+
+        if updates:
+            Parameter.update(updates).where(Parameter.id == parameter.id).execute()
+
+            if "value" in updates and updates["value"] != original_name:
+                new_name = updates["value"]
+                Transaction.update(type=new_name).where(Transaction.type == original_name).execute()
+                BudgetEntry.update(type=new_name).where(BudgetEntry.type == original_name).execute()
+
+        parameter = Parameter.get_by_id(parameter.id)
+        return self._serialize_transaction_type(parameter)
+
+    def delete_transaction_type(self, parameter_id: int) -> Dict[str, Any]:
+        try:
+            parameter = Parameter.get_by_id(parameter_id)
+        except Parameter.DoesNotExist:
+            return {"error": "El tipo de transacción no existe."}
+
+        if parameter.group != "Tipo de Transacción":
+            return {"error": "El parámetro seleccionado no es un tipo de transacción."}
+
+        if not parameter.is_deletable:
+            return {"error": "Este tipo de transacción no puede eliminarse."}
+
+        if Parameter.select().where(Parameter.parent == parameter).exists():
+            return {"error": "No se puede eliminar un tipo que todavía tiene categorías asociadas."}
+
+        if Transaction.select().where(Transaction.type == parameter.value).exists():
+            return {"error": "No se puede eliminar un tipo que está siendo utilizado por transacciones."}
+
+        if BudgetEntry.select().where(BudgetEntry.type == parameter.value).exists():
+            return {"error": "No se puede eliminar un tipo que está siendo utilizado por presupuestos."}
+
+        parameter.delete_instance()
+        return {"success": True}
+
+    def add_budget_rule(self, name: str, percentage: float) -> Dict[str, Any]:
+        name = (name or "").strip()
+        if not name:
+            return {"error": "El nombre de la regla es obligatorio."}
+
+        if BudgetRule.select().where(fn.LOWER(BudgetRule.name) == name.lower()).exists():
+            return {"error": "Ya existe una regla de presupuesto con ese nombre."}
+
+        try:
+            percentage_value = float(percentage)
+        except (TypeError, ValueError):
+            return {"error": "El porcentaje debe ser un número."}
+
+        rule = BudgetRule.create(name=name, percentage=percentage_value)
+        return self._serialize_budget_rule(rule)
+
+    def update_budget_rule(self, rule_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            rule = BudgetRule.get_by_id(rule_id)
+        except BudgetRule.DoesNotExist:
+            return {"error": "La regla de presupuesto no existe."}
+
+        updates: Dict[str, Any] = {}
+
+        if "name" in data:
+            new_name = (data["name"] or "").strip()
+            if not new_name:
+                return {"error": "El nombre de la regla es obligatorio."}
+
+            duplicate = BudgetRule.select().where(
+                (fn.LOWER(BudgetRule.name) == new_name.lower()) & (BudgetRule.id != rule.id)
+            ).exists()
+            if duplicate:
+                return {"error": "Ya existe una regla de presupuesto con ese nombre."}
+
+            updates["name"] = new_name
+
+        if "percentage" in data:
+            try:
+                updates["percentage"] = float(data["percentage"])
+            except (TypeError, ValueError):
+                return {"error": "El porcentaje debe ser un número."}
+
+        if updates:
+            BudgetRule.update(updates).where(BudgetRule.id == rule.id).execute()
+
+        rule = BudgetRule.get_by_id(rule.id)
+        return self._serialize_budget_rule(rule)
+
+    def delete_budget_rule(self, rule_id: int) -> Dict[str, Any]:
+        try:
+            rule = BudgetRule.get_by_id(rule_id)
+        except BudgetRule.DoesNotExist:
+            return {"error": "La regla de presupuesto no existe."}
+
+        if Parameter.select().where(Parameter.budget_rule == rule).exists():
+            return {"error": "No se puede eliminar una regla asociada a tipos de transacción."}
+
+        rule.delete_instance()
+        return {"success": True}
+
+    # -----------------------------------------------------------------
+    # --- Tipos de cuenta ---
+    # -----------------------------------------------------------------
+
+    def _serialize_account_type(self, parameter: Parameter) -> Dict[str, Any]:
+        has_accounts = Account.select().where(Account.account_type == parameter.value).exists()
+        return {
+            "id": parameter.id,
+            "name": parameter.value,
+            "is_deletable": bool(parameter.is_deletable) and not has_accounts,
+        }
+
+    def get_account_type_parameters(self) -> List[Dict[str, Any]]:
+        query = Parameter.select().where(Parameter.group == "Tipo de Cuenta").order_by(Parameter.id)
+        return [self._serialize_account_type(param) for param in query]
+
+    def add_account_type(self, name: str) -> Dict[str, Any]:
+        name = (name or "").strip()
+        if not name:
+            return {"error": "El nombre del tipo de cuenta es obligatorio."}
+
+        if Parameter.select().where(
+            (Parameter.group == "Tipo de Cuenta") & (fn.LOWER(Parameter.value) == name.lower())
+        ).exists():
+            return {"error": "Ya existe un tipo de cuenta con ese nombre."}
+
+        parameter = Parameter.create(group="Tipo de Cuenta", value=name)
+        return self._serialize_account_type(parameter)
+
+    def update_account_type_parameter(self, parameter_id: int, name: str) -> Dict[str, Any]:
+        try:
+            parameter = Parameter.get_by_id(parameter_id)
+        except Parameter.DoesNotExist:
+            return {"error": "El tipo de cuenta no existe."}
+
+        if parameter.group != "Tipo de Cuenta":
+            return {"error": "El parámetro seleccionado no es un tipo de cuenta."}
+
+        name = (name or "").strip()
+        if not name:
+            return {"error": "El nombre del tipo de cuenta es obligatorio."}
+
+        duplicate = Parameter.select().where(
+            (Parameter.group == "Tipo de Cuenta")
+            & (fn.LOWER(Parameter.value) == name.lower())
+            & (Parameter.id != parameter.id)
+        ).exists()
+        if duplicate:
+            return {"error": "Ya existe un tipo de cuenta con ese nombre."}
+
+        old_name = parameter.value
+        Parameter.update(value=name).where(Parameter.id == parameter.id).execute()
+        Account.update(account_type=name).where(Account.account_type == old_name).execute()
+
+        parameter = Parameter.get_by_id(parameter.id)
+        return self._serialize_account_type(parameter)
+
+    def delete_account_type_parameter(self, parameter_id: int) -> Dict[str, Any]:
+        try:
+            parameter = Parameter.get_by_id(parameter_id)
+        except Parameter.DoesNotExist:
+            return {"error": "El tipo de cuenta no existe."}
+
+        if parameter.group != "Tipo de Cuenta":
+            return {"error": "El parámetro seleccionado no es un tipo de cuenta."}
+
+        if not parameter.is_deletable:
+            return {"error": "Este tipo de cuenta no puede eliminarse."}
+
+        if Account.select().where(Account.account_type == parameter.value).exists():
+            return {"error": "No se puede eliminar un tipo que está siendo utilizado por cuentas."}
+
+        parameter.delete_instance()
+        return {"success": True}
+
+    # -----------------------------------------------------------------
+    # --- Categorías ---
+    # -----------------------------------------------------------------
+
+    def _serialize_category(self, category: Parameter, parent: Parameter) -> Dict[str, Any]:
+        in_use = Transaction.select().where(Transaction.category == category.value).exists() or \
+            BudgetEntry.select().where(BudgetEntry.category == category.value).exists()
+        return {
+            "id": category.id,
+            "name": category.value,
+            "parent_id": parent.id,
+            "parent_name": parent.value,
+            "is_deletable": bool(category.is_deletable) and not in_use,
+        }
+
+    def get_category_overview(self) -> List[Dict[str, Any]]:
+        parent_alias = Parameter.alias()
+        query = (
+            Parameter
+            .select(Parameter, parent_alias)
+            .join(parent_alias, on=(Parameter.parent == parent_alias.id))
+            .where(Parameter.group == "Categoría")
+            .order_by(parent_alias.value, Parameter.value)
+        )
+
+        results: List[Dict[str, Any]] = []
+        for category in query:
+            results.append(self._serialize_category(category, category.parent))
+        return results
+
+    def add_category(self, name: str, parent_id: int) -> Dict[str, Any]:
+        name = (name or "").strip()
+        if not name:
+            return {"error": "El nombre de la categoría es obligatorio."}
+
+        try:
+            parent = Parameter.get_by_id(parent_id)
+        except Parameter.DoesNotExist:
+            return {"error": "El tipo de transacción seleccionado no existe."}
+
+        if parent.group != "Tipo de Transacción":
+            return {"error": "La categoría debe pertenecer a un tipo de transacción válido."}
+
+        if Parameter.select().where(
+            (Parameter.group == "Categoría")
+            & (Parameter.parent == parent)
+            & (fn.LOWER(Parameter.value) == name.lower())
+        ).exists():
+            return {"error": "Ya existe una categoría con ese nombre para el tipo seleccionado."}
+
+        category = Parameter.create(group="Categoría", value=name, parent=parent)
+        return self._serialize_category(category, parent)
+
+    def update_category(self, category_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            category = Parameter.get_by_id(category_id)
+        except Parameter.DoesNotExist:
+            return {"error": "La categoría no existe."}
+
+        if category.group != "Categoría":
+            return {"error": "El parámetro seleccionado no es una categoría."}
+
+        updates: Dict[str, Any] = {}
+        original_name = category.value
+
+        if "name" in data:
+            new_name = (data["name"] or "").strip()
+            if not new_name:
+                return {"error": "El nombre de la categoría es obligatorio."}
+
+            duplicate = Parameter.select().where(
+                (Parameter.group == "Categoría")
+                & (Parameter.parent == category.parent)
+                & (fn.LOWER(Parameter.value) == new_name.lower())
+                & (Parameter.id != category.id)
+            ).exists()
+            if duplicate:
+                return {"error": "Ya existe una categoría con ese nombre para el tipo seleccionado."}
+
+            updates["value"] = new_name
+
+        if "parent_id" in data:
+            new_parent_id = data["parent_id"]
+            try:
+                new_parent = Parameter.get_by_id(new_parent_id)
+            except Parameter.DoesNotExist:
+                return {"error": "El tipo de transacción seleccionado no existe."}
+
+            if new_parent.group != "Tipo de Transacción":
+                return {"error": "La categoría debe pertenecer a un tipo de transacción válido."}
+
+            updates["parent"] = new_parent
+
+        if updates:
+            Parameter.update(updates).where(Parameter.id == category.id).execute()
+
+            if "value" in updates and updates["value"] != original_name:
+                new_value = updates["value"]
+                Transaction.update(category=new_value).where(Transaction.category == original_name).execute()
+                BudgetEntry.update(category=new_value).where(BudgetEntry.category == original_name).execute()
+
+        category = Parameter.get_by_id(category.id)
+        parent = category.parent
+        return self._serialize_category(category, parent)
+
+    def delete_category(self, category_id: int) -> Dict[str, Any]:
+        try:
+            category = Parameter.get_by_id(category_id)
+        except Parameter.DoesNotExist:
+            return {"error": "La categoría no existe."}
+
+        if category.group != "Categoría":
+            return {"error": "El parámetro seleccionado no es una categoría."}
+
+        if not category.is_deletable:
+            return {"error": "Esta categoría no puede eliminarse."}
+
+        if Transaction.select().where(Transaction.category == category.value).exists():
+            return {"error": "No se puede eliminar una categoría utilizada por transacciones."}
+
+        if BudgetEntry.select().where(BudgetEntry.category == category.value).exists():
+            return {"error": "No se puede eliminar una categoría utilizada por presupuestos."}
+
+        category.delete_instance()
+        return {"success": True}
+
+    # -----------------------------------------------------------------
+    # --- Preferencias de visualización ---
+    # -----------------------------------------------------------------
+
+    def _parse_bool_flag(self, value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        if isinstance(value, (int, float)):
+            return value != 0
+        value_str = str(value).strip().lower()
+        return value_str in {"1", "true", "sí", "si", "yes"}
+
+    def get_display_preferences(self) -> Dict[str, Any]:
+        abbreviate_param = Parameter.get_or_none(
+            (Parameter.group == "Display") & (Parameter.value == "AbbreviateNumbers")
+        )
+        threshold_param = Parameter.get_or_none(
+            (Parameter.group == "Display") & (Parameter.value == "AbbreviationThreshold")
+        )
+
+        abbreviate = False
+        threshold = 1_000_000
+
+        if abbreviate_param and abbreviate_param.extra_data is not None:
+            abbreviate = self._parse_bool_flag(abbreviate_param.extra_data)
+
+        if threshold_param and threshold_param.extra_data is not None:
+            try:
+                threshold = int(threshold_param.extra_data)
+            except (TypeError, ValueError):
+                threshold = 1_000_000
+
+        return {"abbreviate_numbers": abbreviate, "threshold": threshold}
+
+    def update_display_preferences(self, abbreviate_numbers: bool, threshold: int) -> Dict[str, Any]:
+        threshold_value = max(1_000, int(threshold or 1_000))
+
+        abbrev_param, _ = Parameter.get_or_create(
+            group="Display",
+            value="AbbreviateNumbers",
+            defaults={"extra_data": "1" if abbreviate_numbers else "0", "is_deletable": False},
+        )
+        abbrev_param.extra_data = "1" if abbreviate_numbers else "0"
+        abbrev_param.is_deletable = False
+        abbrev_param.save()
+
+        threshold_param, _ = Parameter.get_or_create(
+            group="Display",
+            value="AbbreviationThreshold",
+            defaults={"extra_data": str(threshold_value), "is_deletable": False},
+        )
+        threshold_param.extra_data = str(threshold_value)
+        threshold_param.is_deletable = False
+        threshold_param.save()
+
+        return self.get_display_preferences()
 
 
     # =================================================================
