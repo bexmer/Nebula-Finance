@@ -154,59 +154,36 @@ class DashboardView(QWidget):
         self.expense_type_chart_card = self._create_chart_card("Gastos por Tipo", plot_type="pie")
         self._legend_widgets = []
 
-        purple_main_layout = QHBoxLayout()
-        purple_main_layout.setSpacing(15)
-        main_layout.addLayout(purple_main_layout, 1)
-
-        purple_left_widget = QWidget()
-        purple_left_layout = QVBoxLayout(purple_left_widget)
-        purple_left_layout.setContentsMargins(0, 0, 0, 0)
-        purple_left_layout.setSpacing(15)
-        purple_main_layout.addWidget(purple_left_widget, 2)
-
-        purple_right_widget = QWidget()
-        purple_right_layout = QVBoxLayout(purple_right_widget)
-        purple_right_layout.setContentsMargins(0, 0, 0, 0)
-        purple_right_layout.setSpacing(15)
-        purple_main_layout.addWidget(purple_right_widget, 1)
-
-        red_top_widget = QWidget()
-        red_top_layout = QHBoxLayout(red_top_widget)
-        red_top_layout.setContentsMargins(0, 0, 0, 0)
-        red_top_layout.setSpacing(15)
-        purple_left_layout.addWidget(red_top_widget, 1)
-
-        red_bottom_widget = QWidget()
-        red_bottom_layout = QHBoxLayout(red_bottom_widget)
-        red_bottom_layout.setContentsMargins(0, 0, 0, 0)
-        red_bottom_layout.setSpacing(15)
-        purple_left_layout.addWidget(red_bottom_widget, 2)
-
-        green_top_left_layout = QVBoxLayout()
-        red_top_layout.addLayout(green_top_left_layout, 2)
-        red_top_layout.addWidget(self.budget_rule_card, 1)
-
-        green_bottom_left_layout = QVBoxLayout()
-        red_bottom_layout.addLayout(green_bottom_left_layout, 1)
-        red_bottom_layout.addWidget(self.expense_dist_card, 1)
-
         kpi_layout = QGridLayout()
         kpi_layout.addWidget(self.income_kpi, 0, 0)
         kpi_layout.addWidget(self.expense_kpi, 0, 1)
         kpi_layout.addWidget(self.net_kpi, 0, 2)
-        
-        green_top_left_layout.addLayout(kpi_layout, 0)
-        green_top_left_layout.addWidget(self.switchable_chart_card, 1)
 
-        budget_vs_real_layout = QHBoxLayout()
-        budget_vs_real_layout.addWidget(self.budget_income_card)
-        budget_vs_real_layout.addWidget(self.budget_expense_card)
-        
-        green_bottom_left_layout.addLayout(budget_vs_real_layout, 0)
-        green_bottom_left_layout.addWidget(self.main_goals_card, 1)
+        main_layout.addLayout(kpi_layout)
 
-        purple_right_layout.addWidget(self.accounts_card, 1)
-        purple_right_layout.addWidget(self.expense_type_chart_card, 2)
+        content_grid = QGridLayout()
+        content_grid.setContentsMargins(0, 0, 0, 0)
+        content_grid.setSpacing(15)
+
+        content_grid.addWidget(self.switchable_chart_card, 0, 0, 2, 2)
+        content_grid.addWidget(self.budget_rule_card, 0, 2, 2, 1)
+
+        content_grid.addWidget(self.budget_income_card, 2, 0)
+        content_grid.addWidget(self.budget_expense_card, 2, 1)
+        content_grid.addWidget(self.accounts_card, 2, 2)
+
+        content_grid.addWidget(self.main_goals_card, 3, 0)
+        content_grid.addWidget(self.expense_dist_card, 3, 1)
+        content_grid.addWidget(self.expense_type_chart_card, 3, 2)
+
+        content_grid.setColumnStretch(0, 1)
+        content_grid.setColumnStretch(1, 1)
+        content_grid.setColumnStretch(2, 1)
+        content_grid.setRowStretch(0, 3)
+        content_grid.setRowStretch(2, 1)
+        content_grid.setRowStretch(3, 1)
+
+        main_layout.addLayout(content_grid, 1)
 
         self.quick_add_button = QPushButton("+")
         self.quick_add_button.setObjectName("QuickAddButton")
@@ -230,7 +207,7 @@ class DashboardView(QWidget):
         header_layout = QHBoxLayout()
         self.switchable_chart_title = QLabel("Evolución de Patrimonio Neto")
         self.switchable_chart_title.setObjectName("Chart_Title")
-        
+
         self.prev_chart_btn = QPushButton()
         self.prev_chart_btn.setIcon(qta.icon('fa5s.chevron-left'))
         self.prev_chart_btn.setObjectName("CardNavButton")
@@ -242,9 +219,23 @@ class DashboardView(QWidget):
         self.next_chart_btn.setObjectName("CardNavButton")
         self.next_chart_btn.setFixedSize(25, 25)
         self.next_chart_btn.clicked.connect(self.show_next_chart)
-        
+
         header_layout.addWidget(self.switchable_chart_title)
         header_layout.addStretch()
+
+        range_label = QLabel("Rango:")
+        range_label.setObjectName("Chart_Subtitle")
+        self.chart_range_combo = QComboBox()
+        self.chart_range_combo.setObjectName("ChartRangeCombo")
+        self.chart_range_combo.addItem("Últimos 3 meses", "3m")
+        self.chart_range_combo.addItem("Últimos 6 meses", "6m")
+        self.chart_range_combo.addItem("Últimos 12 meses", "12m")
+        self.chart_range_combo.addItem("Año en curso", "ytd")
+        self.chart_range_combo.addItem("Todo", "all")
+        self.chart_range_combo.setCurrentIndex(1)
+
+        header_layout.addWidget(range_label)
+        header_layout.addWidget(self.chart_range_combo)
         header_layout.addWidget(self.prev_chart_btn)
         header_layout.addWidget(self.next_chart_btn)
         layout.addLayout(header_layout)
@@ -446,10 +437,22 @@ class DashboardView(QWidget):
         self._display_current_account()
     
     def update_budget_vs_real_cards(self, income_data, expense_data):
-        self.budget_income_card.value_label.setText(f"${income_data['budgeted_amount']:,.2f}")
-        self.budget_income_card.comparison_label.setText(f"Real: ${income_data['real_amount']:,.2f}")
-        self.budget_expense_card.value_label.setText(f"${expense_data['budgeted_amount']:,.2f}")
-        self.budget_expense_card.comparison_label.setText(f"Real: ${expense_data['real_amount']:,.2f}")
+        self._update_metric_card(self.budget_income_card, income_data)
+        self._update_metric_card(self.budget_expense_card, expense_data)
+
+    def _update_metric_card(self, card, data):
+        budget_value = data.get('budgeted_amount', 0)
+        real_value = data.get('real_amount', 0)
+        if self.controller:
+            formatted_budget = self.controller.format_currency(budget_value)
+            formatted_real = self.controller.format_currency(real_value)
+            card.value_label.setText(formatted_budget.get('display', f"${budget_value:,.2f}"))
+            card.value_label.setToolTip(formatted_budget.get('tooltip', ''))
+            card.comparison_label.setText(f"Real: {formatted_real.get('display', f'${real_value:,.2f}')}")
+            card.comparison_label.setToolTip(formatted_real.get('tooltip', ''))
+        else:
+            card.value_label.setText(f"${budget_value:,.2f}")
+            card.comparison_label.setText(f"Real: ${real_value:,.2f}")
 
     def update_kpis(self, income, expense, net_flow, income_comp=None, expense_comp=None):
         if self.controller:
@@ -493,7 +496,9 @@ class DashboardView(QWidget):
         layout = QVBoxLayout(widget)
         title_layout = QHBoxLayout()
         name_label = QLabel(f"<b>{goal_data['name']}</b>")
-        percentage = (goal_data['current'] / goal_data['target']) * 100 if goal_data['target'] > 0 else 0
+        current_value = goal_data.get('current', goal_data.get('current_amount', 0))
+        target_value = goal_data.get('target', goal_data.get('target_amount', 0))
+        percentage = (current_value / target_value) * 100 if target_value > 0 else 0
         amount_label = QLabel(f"<b>{percentage:.1f}%</b>")
         title_layout.addWidget(name_label); title_layout.addStretch(); title_layout.addWidget(amount_label)
         progress_bar = QProgressBar(); progress_bar.setValue(int(percentage)); progress_bar.setTextVisible(False)
@@ -534,14 +539,26 @@ class DashboardView(QWidget):
         layout = QVBoxLayout(widget)
         title_layout = QHBoxLayout()
         name_label = QLabel(f"<b>{item_data['name']}</b> ({item_data['ideal_percent']:.0f}%)")
-        amount_label = QLabel(f"${item_data['actual_amount']:,.2f}")
-        if item_data['state'] == 'critical': amount_label.setText(f"<font color='#E06C75'>Excedido</font>")
+        amount_value = item_data.get('actual_amount', 0)
+        if self.controller:
+            formatted = self.controller.format_currency(amount_value)
+            amount_text = formatted.get('display', f"${amount_value:,.2f}")
+            amount_label = QLabel(amount_text)
+            amount_label.setToolTip(formatted.get('tooltip', amount_text))
+        else:
+            amount_label = QLabel(f"${amount_value:,.2f}")
+        state = item_data.get('state', 'good')
+        if state == 'critical':
+            amount_label.setText(f"<font color='#E06C75'>{amount_label.text()}</font>")
+        elif state == 'warning':
+            amount_label.setText(f"<font color='#E5C07B'>{amount_label.text()}</font>")
         title_layout.addWidget(name_label); title_layout.addStretch(); title_layout.addWidget(amount_label)
         progress_bar = QProgressBar(); progress_bar.setTextVisible(False)
-        progress_bar.setValue(min(100, int(item_data['actual_percent'])))
-        progress_bar.setProperty("state", item_data['state']); progress_bar.style().polish(progress_bar)
+        progress_bar.setValue(min(150, int(item_data.get('actual_percent', 0))))
+        progress_bar.setProperty("state", state); progress_bar.style().polish(progress_bar)
         layout.addLayout(title_layout); layout.addWidget(progress_bar)
-        percent_label = QLabel(f"{item_data['actual_percent']:.1f}% del ingreso"); percent_label.setObjectName("BudgetPercentLabel"); percent_label.setAlignment(Qt.AlignRight)
+        percent_text = f"{item_data.get('actual_percent', 0):.1f}% del ingreso · Objetivo {item_data.get('ideal_percent', 0):.0f}%"
+        percent_label = QLabel(percent_text); percent_label.setObjectName("BudgetPercentLabel"); percent_label.setAlignment(Qt.AlignRight)
         layout.addWidget(percent_label)
         return widget
 
@@ -592,7 +609,17 @@ class DashboardView(QWidget):
         self.year_filter.currentTextChanged.emit(self.year_filter.currentText())
 
     def get_selected_filters(self):
-        return {"year": int(self.year_filter.currentText()), "months": [a.data() for a in self.month_actions if a.isChecked()]}
+        return {
+            "year": int(self.year_filter.currentText()),
+            "months": [a.data() for a in self.month_actions if a.isChecked()],
+            "chart_range": self.get_selected_chart_range(),
+        }
+
+    def get_selected_chart_range(self):
+        if hasattr(self, 'chart_range_combo') and self.chart_range_combo:
+            data = self.chart_range_combo.currentData()
+            return data if data else '6m'
+        return '6m'
 
     def set_default_month_filter(self):
         current_month_index = QDate.currentDate().month() - 1
@@ -603,7 +630,23 @@ class DashboardView(QWidget):
         plot_widget = self.net_worth_plot
         plot_widget.clear()
         if dates and values:
-            timestamps = [datetime.strptime(str(d), "%Y%m%d").timestamp() for d in dates]
+            timestamps = []
+            for date_value in dates:
+                dt_obj = None
+                if isinstance(date_value, datetime):
+                    dt_obj = date_value
+                elif hasattr(date_value, 'year') and hasattr(date_value, 'month') and hasattr(date_value, 'day'):
+                    dt_obj = datetime(date_value.year, date_value.month, date_value.day)
+                else:
+                    text_value = str(date_value)
+                    try:
+                        dt_obj = datetime.strptime(text_value, "%Y%m%d")
+                    except ValueError:
+                        try:
+                            dt_obj = datetime.fromisoformat(text_value)
+                        except ValueError:
+                            continue
+                timestamps.append(dt_obj.timestamp())
             pen_color = '#61AFEF' if pg.getConfigOption('foreground') == '#FFFFFF' else '#364765'
             plot_widget.plot(timestamps, values, pen=pg.mkPen(color=pen_color, width=3))
 

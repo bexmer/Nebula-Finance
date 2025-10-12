@@ -219,6 +219,8 @@ class MainWindow(QMainWindow):
         for action in dashboard_page.month_actions:
             action.triggered.connect(self.controller.update_dashboard)
         dashboard_page.all_year_action.triggered.connect(self.controller.update_dashboard)
+        if hasattr(dashboard_page, 'chart_range_combo'):
+            dashboard_page.chart_range_combo.currentIndexChanged.connect(self.controller.update_dashboard)
         
         analysis_page = self.analysis_page
         analysis_page.year_selector.currentTextChanged.connect(self.controller.update_analysis_view)

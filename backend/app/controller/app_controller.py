@@ -1,7 +1,7 @@
 from collections import defaultdict
 import calendar
 import datetime
-from typing import Optional
+from typing import Optional, Dict, List
 from dateutil.relativedelta import relativedelta
 from peewee import fn
 
@@ -79,13 +79,13 @@ class AppController:
     
     def get_dashboard_data(self, year, months):
         """Agrega y devuelve todos los datos necesarios para el Dashboard."""
-        
+
         # Lógica de KPIs (Ingresos, Gastos, Ahorro)
         kpis = self._get_dashboard_kpis(year, months)
 
         # Lógica para Gráfico de Patrimonio Neto
         net_worth_data = self._get_net_worth_data_for_chart()
-        
+
         # Lógica para Gráfico de Flujo de Efectivo
         cash_flow_data = self._get_cash_flow_data_for_chart(year, months)
 
@@ -94,16 +94,183 @@ class AppController:
 
         # Lógica para Cuentas
         accounts_summary = self.get_accounts_data_for_view()
-        
+
+        budget_rules = self._get_budget_rule_performance(year, months)
+        budget_vs_real = self._get_budget_vs_real_summary(year, months)
+        expense_distribution = self._get_expense_distribution(year, months)
+        expense_type_breakdown = self._get_expense_type_breakdown(year, months)
+
         dashboard_data = {
             "kpis": kpis,
             "net_worth_chart": net_worth_data,
             "cash_flow_chart": cash_flow_data,
             "goals_summary": goals_summary,
             "accounts_summary": accounts_summary,
-            # ... se pueden añadir más datos aquí (presupuesto, distribución de gastos, etc.)
+            "budget_rules": budget_rules,
+            "budget_vs_real": budget_vs_real,
+            "expense_distribution": expense_distribution,
+            "expense_type_breakdown": expense_type_breakdown,
         }
         return dashboard_data
+
+    def _get_budget_rule_performance(self, year: int, months: List[int]) -> List[Dict[str, float]]:
+        start_date, end_date = self._get_date_range(year, months)
+
+        total_income = (
+            Transaction.select(fn.SUM(Transaction.amount))
+            .where(
+                (Transaction.type == 'Ingreso') &
+                (Transaction.date.between(start_date, end_date))
+            )
+            .scalar()
+            or 0.0
+        )
+
+        rule_totals: Dict[int, float] = {rule.id: 0.0 for rule in BudgetRule.select()}
+
+        type_to_rule: Dict[str, BudgetRule] = {}
+        for param in Parameter.select().where(Parameter.group == 'Tipo de Transacción'):
+            if param.budget_rule_id:
+                type_to_rule[param.value] = param.budget_rule
+
+        expense_query = (
+            Transaction
+            .select(Transaction.type, fn.SUM(Transaction.amount).alias('total'))
+            .where(
+                (Transaction.date.between(start_date, end_date)) &
+                (Transaction.type != 'Ingreso')
+            )
+            .group_by(Transaction.type)
+        )
+
+        for row in expense_query.dicts():
+            rule = type_to_rule.get(row['type'])
+            if not rule:
+                continue
+            amount = float(row['total'] or 0)
+            rule_totals[rule.id] = rule_totals.get(rule.id, 0.0) + abs(amount)
+
+        results: List[Dict[str, float]] = []
+        for rule in BudgetRule.select():
+            actual_amount = rule_totals.get(rule.id, 0.0)
+            ideal_percent = float(rule.percentage or 0.0)
+            actual_percent = (actual_amount / total_income * 100) if total_income > 0 else 0.0
+
+            if actual_percent <= ideal_percent:
+                state = 'good'
+            elif actual_percent <= ideal_percent * 1.2:
+                state = 'warning'
+            else:
+                state = 'critical'
+
+            results.append({
+                'name': rule.name,
+                'ideal_percent': ideal_percent,
+                'actual_amount': actual_amount,
+                'actual_percent': actual_percent,
+                'state': state,
+            })
+
+        return results
+
+    def _get_budget_vs_real_summary(self, year: int, months: List[int]) -> Dict[str, Dict[str, float]]:
+        start_date, end_date = self._get_date_range(year, months)
+
+        budget_query = (
+            BudgetEntry
+            .select(BudgetEntry.type, fn.SUM(BudgetEntry.budgeted_amount).alias('total'))
+            .where(BudgetEntry.due_date.between(start_date, end_date))
+            .group_by(BudgetEntry.type)
+        )
+
+        budget_totals: Dict[str, float] = {}
+        for row in budget_query.dicts():
+            budget_totals[row['type']] = float(row['total'] or 0.0)
+
+        actual_income = (
+            Transaction.select(fn.SUM(Transaction.amount))
+            .where(
+                (Transaction.type == 'Ingreso') &
+                (Transaction.date.between(start_date, end_date))
+            )
+            .scalar()
+            or 0.0
+        )
+
+        actual_expense = (
+            Transaction.select(fn.SUM(Transaction.amount))
+            .where(
+                (Transaction.type != 'Ingreso') &
+                (Transaction.date.between(start_date, end_date))
+            )
+            .scalar()
+            or 0.0
+        )
+
+        planned_income = budget_totals.get('Ingreso', 0.0)
+        planned_expense = sum(amount for key, amount in budget_totals.items() if key != 'Ingreso')
+
+        return {
+            'income': {
+                'budgeted_amount': planned_income,
+                'real_amount': actual_income,
+            },
+            'expense': {
+                'budgeted_amount': planned_expense,
+                'real_amount': actual_expense,
+            }
+        }
+
+    def _get_expense_distribution(self, year: int, months: List[int]) -> Dict[str, List[float]]:
+        start_date, end_date = self._get_date_range(year, months)
+
+        query = (
+            Transaction
+            .select(Transaction.category, fn.SUM(Transaction.amount).alias('total'))
+            .where(
+                (Transaction.type != 'Ingreso') &
+                (Transaction.date.between(start_date, end_date))
+            )
+            .group_by(Transaction.category)
+            .order_by(fn.SUM(Transaction.amount).desc())
+        )
+
+        categories: List[str] = []
+        amounts: List[float] = []
+        for row in query.dicts():
+            categories.append(row['category'])
+            amounts.append(abs(float(row['total'] or 0.0)))
+
+        if len(categories) > 6:
+            top_categories = categories[:5]
+            top_amounts = amounts[:5]
+            other_total = sum(amounts[5:])
+            categories = top_categories + ['Otros']
+            amounts = top_amounts + [other_total]
+
+        return {'categories': categories, 'amounts': amounts}
+
+    def _get_expense_type_breakdown(self, year: int, months: List[int]) -> Dict[str, List[float]]:
+        start_date, end_date = self._get_date_range(year, months)
+
+        query = (
+            Transaction
+            .select(Transaction.type, fn.SUM(Transaction.amount).alias('total'))
+            .where(
+                (Transaction.type != 'Ingreso') &
+                (Transaction.date.between(start_date, end_date))
+            )
+            .group_by(Transaction.type)
+            .order_by(fn.SUM(Transaction.amount).desc())
+        )
+
+        labels: List[str] = []
+        values: List[float] = []
+        for row in query.dicts():
+            labels.append(row['type'])
+            values.append(abs(float(row['total'] or 0.0)))
+
+        return {'labels': labels, 'values': values}
 
     def _get_dashboard_kpis(self, year, months):
         """Calcula los KPIs de ingresos, gastos y ahorro para el período seleccionado."""

@@ -41,6 +41,7 @@ LIGHT_STYLE = """
         color: #364765;
     }
     QLabel#Chart_Title, QLabel#MetricTitle { font-size: 15px; font-weight: 600; color: #364765; }
+    QLabel#Chart_Subtitle { font-size: 12px; color: #6b7280; font-weight: 500; }
     QLabel#KPI_Comparison, QLabel#MetricComparison { font-size: 12px; color: #979ba5; font-weight: 500; }
     QLabel#MetricValue { font-size: 22px; font-weight: 700; color: #364765; }
     QLabel#BudgetPercentLabel {
@@ -102,6 +103,10 @@ LIGHT_STYLE = """
     QLineEdit, QComboBox, QDateEdit, QSpinBox {
         background-color: #f4f4ff; border: 1px solid #d5daed;
         padding: 7px 11px; border-radius: 8px; color: #364765;
+    }
+
+    QComboBox#ChartRangeCombo {
+        min-width: 150px;
     }
     
     /* --- ESTILOS DE TABLA --- */
@@ -194,6 +199,7 @@ QLabel#ProjectionLabel {
     QLabel { color: #EAEAEA; }
     QLabel#DashboardTitle { font-size: 22px; font-weight: 600; color: #EAEAEA; }
     QLabel#Chart_Title, QLabel#MetricTitle { font-size: 14px; font-weight: 600; color: #EAEAEA; }
+    QLabel#Chart_Subtitle { font-size: 11px; color: #A3A3A3; font-weight: 500; }
     QLabel#KPI_Comparison, QLabel#MetricComparison { font-size: 11px; color: #979ba5; font-weight: 500; }
     QLabel#MetricValue { font-size: 18px; font-weight: 700; color: #EAEAEA; }
     QLabel#BudgetPercentLabel { color: #979ba5; font-size: 11px; }
@@ -257,6 +263,10 @@ QLabel#ProjectionLabel {
     QLineEdit, QComboBox, QDateEdit, QSpinBox {
         background-color: #232533; border: 1px solid #3A404D;
         padding: 7px 11px; border-radius: 8px; color: #EAEAEA;
+    }
+
+    QComboBox#ChartRangeCombo {
+        min-width: 150px;
     }
     
     /* --- ESTILOS DE TABLA --- */
