@@ -4,6 +4,8 @@ interface DebtData {
   current_balance: number;
   total_amount: number;
   percentage: number;
+  minimum_payment?: number;
+  interest_rate?: number;
 }
 
 interface CardProps {
@@ -12,38 +14,68 @@ interface CardProps {
   onDelete: () => void;
 }
 
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat("es-MX", {
+    style: "currency",
+    currency: "MXN",
+    minimumFractionDigits: 2,
+  }).format(value || 0);
+
 export function DebtProgressCard({ debt, onEdit, onDelete }: CardProps) {
-  const paid_amount = debt.total_amount - debt.current_balance;
+  const paidAmount = Math.max(debt.total_amount - debt.current_balance, 0);
+  const progress = Math.min(100, Math.max(0, debt.percentage));
 
   return (
-    <div className="bg-gray-800 p-4 rounded-lg flex items-center space-x-4">
-      <div className="flex-grow">
-        <div className="flex justify-between items-center mb-1">
-          <span className="font-semibold text-white">{debt.name}</span>
-          <span className="text-sm font-medium text-gray-300">
-            {debt.percentage.toFixed(1)}% Pagado
-          </span>
+    <div className="flex flex-col justify-between rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-white">{debt.name}</p>
+          <p className="mt-1 text-xs text-slate-400">
+            {formatCurrency(debt.current_balance)} restante
+          </p>
         </div>
-        <div className="w-full bg-gray-700 rounded-full h-2.5">
-          <div
-            className="bg-green-500 h-2.5 rounded-full"
-            style={{ width: `${debt.percentage}%` }}
-          ></div>
-        </div>
-        <div className="text-right text-xs text-gray-400 mt-1">
-          Pagado: ${paid_amount.toFixed(2)} / ${debt.total_amount.toFixed(2)}
-        </div>
+        <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-semibold text-emerald-300">
+          {progress.toFixed(1)}% pagado
+        </span>
       </div>
-      <div className="flex flex-col space-y-2">
+      <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-800">
+        <div
+          className="h-full rounded-full bg-emerald-500"
+          style={{ width: `${progress}%` }}
+        ></div>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-300">
+        <div>
+          <p className="font-semibold text-slate-200">Acumulado</p>
+          <p>{formatCurrency(paidAmount)}</p>
+        </div>
+        <div>
+          <p className="font-semibold text-slate-200">Total</p>
+          <p>{formatCurrency(debt.total_amount)}</p>
+        </div>
+        {typeof debt.minimum_payment === "number" && (
+          <div>
+            <p className="font-semibold text-slate-200">Pago mínimo</p>
+            <p>{formatCurrency(debt.minimum_payment)}</p>
+          </div>
+        )}
+        {typeof debt.interest_rate === "number" && (
+          <div>
+            <p className="font-semibold text-slate-200">Tasa anual</p>
+            <p>{debt.interest_rate.toFixed(2)}%</p>
+          </div>
+        )}
+      </div>
+      <div className="mt-4 flex items-center justify-end gap-3 text-xs">
         <button
           onClick={onEdit}
-          className="text-blue-400 hover:text-blue-300 text-sm"
+          className="rounded-full bg-slate-800 px-3 py-1 font-medium text-sky-400 transition hover:bg-slate-700"
         >
           Editar
         </button>
         <button
           onClick={onDelete}
-          className="text-red-400 hover:text-red-300 text-sm"
+          className="rounded-full bg-slate-800 px-3 py-1 font-medium text-rose-400 transition hover:bg-slate-700"
         >
           Eliminar
         </button>

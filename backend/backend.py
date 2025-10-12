@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict
 import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 
 # --- CONFIGURACIÓN DE PATH ---
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -93,7 +93,40 @@ class SettingsModel(BaseModel):
     currency_symbol: str
     decimal_places: int
     theme: str
-    
+
+
+class PortfolioSummaryModel(BaseModel):
+    symbol: str
+    name: str
+    asset_type: str
+    quantity: float
+    avg_cost: float
+    market_value: float
+    unrealized_pnl: float
+
+
+class TradeResponseModel(BaseModel):
+    id: int
+    date: datetime.date
+    symbol: str
+    asset_type: str
+    type: Literal["buy", "sell"]
+    quantity: float
+    price: float
+
+
+class TradeCreateModel(BaseModel):
+    symbol: str
+    asset_type: str
+    trade_type: Literal["buy", "sell", "compra", "venta"]
+    quantity: float
+    price: float
+    date: datetime.date
+
+
+class TradeUpdateModel(TradeCreateModel):
+    pass
+
 class DebtCreateModel(BaseModel):
     name: str
     total_amount: float
@@ -249,6 +282,40 @@ def update_debt(debt_id: int, debt: DebtUpdateModel):
 @app.delete("/api/debts/{debt_id}")
 def delete_debt(debt_id: int):
     result = controller.delete_debt(debt_id)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@app.get("/api/portfolio/summary", response_model=List[PortfolioSummaryModel])
+def get_portfolio_summary():
+    return controller.get_portfolio_assets()
+
+
+@app.get("/api/portfolio/history", response_model=List[TradeResponseModel])
+def get_portfolio_history():
+    return controller.get_trade_history()
+
+
+@app.post("/api/portfolio/trades", response_model=TradeResponseModel, status_code=201)
+def create_trade(trade: TradeCreateModel):
+    result = controller.add_trade(trade.model_dump())
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.put("/api/portfolio/trades/{trade_id}", response_model=TradeResponseModel)
+def update_trade(trade_id: int, trade: TradeUpdateModel):
+    result = controller.update_trade(trade_id, trade.model_dump())
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@app.delete("/api/portfolio/trades/{trade_id}")
+def delete_trade(trade_id: int):
+    result = controller.delete_trade(trade_id)
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
     return result

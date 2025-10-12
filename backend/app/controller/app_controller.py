@@ -969,6 +969,7 @@ class AppController:
                 {
                     "symbol": asset.symbol,
                     "name": asset.asset_type,
+                    "asset_type": asset.asset_type,
                     "quantity": quantity,
                     "avg_cost": avg_cost,
                     "market_value": market_value,
@@ -989,52 +990,270 @@ class AppController:
 
         history = []
         for trade in trades:
-            trade_type = (trade.trade_type or "").strip().lower()
-            normalized_type = "buy" if trade_type == "compra" else "sell" if trade_type == "venta" else trade_type
-
-            history.append(
-                {
-                    "id": trade.id,
-                    "date": trade.date.isoformat() if trade.date else None,
-                    "symbol": trade.asset.symbol,
-                    "type": normalized_type,
-                    "quantity": float(trade.quantity or 0),
-                    "price": float(trade.price_per_unit or 0),
-                }
-            )
+            history.append(self._serialize_trade(trade))
 
         return history
 
     def add_trade(self, data):
         try:
-            quantity = float(data["quantity"])
-            price = float(data["price"])
-        except ValueError:
-            return {"error": "Cantidad y Precio deben ser números válidos."}
+            payload = self._parse_trade_payload(data)
+        except ValueError as exc:
+            return {"error": str(exc)}
 
         asset, created = PortfolioAsset.get_or_create(
-            symbol=data["symbol"].upper(), defaults={"asset_type": data["asset_type"]}
+            symbol=payload["symbol"], defaults={"asset_type": payload["asset_type"]}
         )
-        if data["operation"] == "Compra":
-            new_total_quantity = asset.total_quantity + quantity
-            new_cost = (asset.total_quantity * asset.avg_cost_price) + (quantity * price)
-            asset.avg_cost_price = new_cost / new_total_quantity if new_total_quantity > 0 else 0
-            asset.total_quantity = new_total_quantity
-        else: # Venta
-            if quantity > asset.total_quantity:
-                return {"error": "No puedes vender más activos de los que posees."}
-            asset.total_quantity -= quantity
+        if payload["asset_type"] and asset.asset_type != payload["asset_type"]:
+            asset.asset_type = payload["asset_type"]
+            asset.save()
 
-        Trade.create(
-            asset=asset, trade_type=data["operation"], quantity=quantity,
-            price_per_unit=price, date=data["date"],
+        projected_entries = self._build_trade_entries(asset)
+        projected_entries.append({
+            "id": None,
+            "date": payload["date"],
+            "trade_type": payload["trade_type"],
+            "quantity": payload["quantity"],
+            "price": payload["price"],
+        })
+
+        try:
+            total_qty, avg_cost, last_price = self._project_portfolio_asset(projected_entries, strict=True)
+        except ValueError as exc:
+            return {"error": str(exc)}
+
+        trade = Trade.create(
+            asset=asset,
+            trade_type=payload["trade_type"],
+            quantity=payload["quantity"],
+            price_per_unit=payload["price"],
+            date=payload["date"],
         )
-        asset.current_price = price
+
+        asset.total_quantity = total_qty
+        asset.avg_cost_price = avg_cost
+        asset.current_price = last_price
         asset.save()
-        return asset._data
 
+        return self._serialize_trade(trade)
+
+    def update_trade(self, trade_id, data):
+        try:
+            trade = Trade.get_by_id(trade_id)
+        except Trade.DoesNotExist:
+            return {"error": "La operación no existe."}
+
+        try:
+            payload = self._parse_trade_payload(data)
+        except ValueError as exc:
+            return {"error": str(exc)}
+
+        original_asset = trade.asset
+        target_asset, created = PortfolioAsset.get_or_create(
+            symbol=payload["symbol"], defaults={"asset_type": payload["asset_type"]}
+        )
+        if payload["asset_type"] and target_asset.asset_type != payload["asset_type"]:
+            target_asset.asset_type = payload["asset_type"]
+            target_asset.save()
+
+        # Construimos la proyección para el activo destino
+        target_entries = self._build_trade_entries(target_asset, exclude_id=trade.id if target_asset.id == original_asset.id else None)
+        target_entries.append({
+            "id": trade.id,
+            "date": payload["date"],
+            "trade_type": payload["trade_type"],
+            "quantity": payload["quantity"],
+            "price": payload["price"],
+        })
+
+        try:
+            target_qty, target_avg, target_price = self._project_portfolio_asset(target_entries, strict=True)
+        except ValueError as exc:
+            return {"error": str(exc)}
+
+        # Si el activo cambia, recalculamos también el original excluyendo la operación
+        if original_asset.id != target_asset.id:
+            original_entries = self._build_trade_entries(original_asset, exclude_id=trade.id)
+            try:
+                orig_qty, orig_avg, orig_price = self._project_portfolio_asset(original_entries, strict=True)
+            except ValueError as exc:
+                return {"error": str(exc)}
+        else:
+            orig_qty, orig_avg, orig_price = target_qty, target_avg, target_price
+
+        trade.asset = target_asset
+        trade.trade_type = payload["trade_type"]
+        trade.quantity = payload["quantity"]
+        trade.price_per_unit = payload["price"]
+        trade.date = payload["date"]
+        trade.save()
+
+        target_asset.total_quantity = target_qty
+        target_asset.avg_cost_price = target_avg
+        target_asset.current_price = target_price
+        target_asset.save()
+
+        if original_asset.id != target_asset.id:
+            original_asset.total_quantity = orig_qty
+            original_asset.avg_cost_price = orig_avg
+            original_asset.current_price = orig_price
+            original_asset.save()
+
+        return self._serialize_trade(trade)
+
+    def delete_trade(self, trade_id):
+        try:
+            trade = Trade.get_by_id(trade_id)
+        except Trade.DoesNotExist:
+            return {"error": "La operación no existe."}
+
+        asset = trade.asset
+        trade.delete_instance()
+        self._recalculate_portfolio_asset(asset)
+        return {"success": True}
 
     # --- Métodos de utilidad internos ---
+
+    def _parse_trade_payload(self, data):
+        required_fields = ["symbol", "quantity", "price", "date"]
+        missing = [field for field in required_fields if not data.get(field)]
+        if missing:
+            raise ValueError(f"Faltan campos obligatorios: {', '.join(missing)}")
+
+        try:
+            quantity = float(data["quantity"])
+            price = float(data["price"])
+        except (TypeError, ValueError):
+            raise ValueError("Cantidad y precio deben ser números válidos.")
+
+        if quantity <= 0 or price <= 0:
+            raise ValueError("Cantidad y precio deben ser mayores que cero.")
+
+        raw_date = data.get("date")
+        if isinstance(raw_date, datetime.date):
+            trade_date = raw_date
+        else:
+            try:
+                trade_date = datetime.datetime.strptime(str(raw_date), "%Y-%m-%d").date()
+            except ValueError as exc:
+                raise ValueError(f"Fecha inválida: {exc}")
+
+        trade_type = data.get("trade_type") or data.get("operation")
+        normalized_type = self._normalize_trade_type(trade_type)
+
+        symbol = str(data["symbol"]).strip().upper()
+        asset_type = str(data.get("asset_type", "")).strip()
+
+        if not symbol:
+            raise ValueError("El símbolo del activo es obligatorio.")
+
+        return {
+            "symbol": symbol,
+            "asset_type": asset_type or "Activo",
+            "trade_type": normalized_type,
+            "quantity": quantity,
+            "price": price,
+            "date": trade_date,
+        }
+
+    def _normalize_trade_type(self, raw_type):
+        if not raw_type:
+            raise ValueError("El tipo de operación es obligatorio.")
+
+        value = str(raw_type).strip().lower()
+        if value in {"compra", "buy", "purchase"}:
+            return "Compra"
+        if value in {"venta", "sell"}:
+            return "Venta"
+        raise ValueError("Tipo de operación no reconocido. Usa Compra o Venta.")
+
+    def _serialize_trade(self, trade):
+        normalized = self._normalize_trade_type(trade.trade_type)
+        response_type = "buy" if normalized == "Compra" else "sell"
+        return {
+            "id": trade.id,
+            "date": trade.date,
+            "symbol": trade.asset.symbol,
+            "asset_type": trade.asset.asset_type,
+            "type": response_type,
+            "quantity": float(trade.quantity or 0),
+            "price": float(trade.price_per_unit or 0),
+        }
+
+    def _build_trade_entries(self, asset, exclude_id=None):
+        entries = []
+        for trade in asset.trades:
+            if exclude_id and trade.id == exclude_id:
+                continue
+            entries.append({
+                "id": trade.id,
+                "date": trade.date,
+                "trade_type": trade.trade_type,
+                "quantity": float(trade.quantity or 0),
+                "price": float(trade.price_per_unit or 0),
+            })
+        return entries
+
+    def _project_portfolio_asset(self, entries, strict=True):
+        if not entries:
+            return 0.0, 0.0, 0.0
+
+        ordered = sorted(
+            entries,
+            key=lambda item: (
+                item.get("date") or datetime.date.today(),
+                item.get("id") or 0,
+            ),
+        )
+
+        total_quantity = 0.0
+        avg_cost = 0.0
+        last_price = 0.0
+
+        for entry in ordered:
+            normalized = self._normalize_trade_type(entry["trade_type"])
+            quantity = float(entry.get("quantity") or 0)
+            price = float(entry.get("price") or 0)
+            last_price = price or last_price
+
+            if normalized == "Compra":
+                total_cost = (total_quantity * avg_cost) + (quantity * price)
+                total_quantity += quantity
+                avg_cost = total_cost / total_quantity if total_quantity > 0 else 0.0
+            else:
+                if strict and quantity > total_quantity + 1e-6:
+                    raise ValueError("No puedes vender más activos de los que posees.")
+                total_quantity = max(total_quantity - quantity, 0.0)
+
+        if total_quantity <= 0:
+            return 0.0, 0.0, last_price
+        return total_quantity, avg_cost, last_price
+
+    def _recalculate_portfolio_asset(self, asset, strict=False):
+        entries = self._build_trade_entries(asset)
+        if not entries:
+            asset.total_quantity = 0.0
+            asset.avg_cost_price = 0.0
+            asset.current_price = 0.0
+            asset.save()
+            return asset
+
+        try:
+            total_qty, avg_cost, last_price = self._project_portfolio_asset(entries, strict=strict)
+        except ValueError as exc:
+            if strict:
+                raise
+            # En modo no estricto, mantenemos los valores actuales y registramos el problema.
+            total_qty = asset.total_quantity
+            avg_cost = asset.avg_cost_price
+            last_price = asset.current_price
+
+        asset.total_quantity = total_qty
+        asset.avg_cost_price = avg_cost
+        asset.current_price = last_price
+        asset.save()
+        return asset
+
+
     def _get_date_range(self, year, months):
         """Calcula las fechas de inicio y fin para un período."""
         if not months:

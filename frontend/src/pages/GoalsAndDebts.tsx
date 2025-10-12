@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import axios from "axios";
 import { GoalProgressCard } from "../components/GoalProgressCard";
 import { DebtProgressCard } from "../components/DebtProgressCard";
@@ -27,6 +27,7 @@ export function GoalsAndDebts() {
   const [goals, setGoals] = useState<GoalData[]>([]);
   const [debts, setDebts] = useState<DebtData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<"goal" | "debt">("goal");
@@ -36,15 +37,23 @@ export function GoalsAndDebts() {
 
   const fetchData = async () => {
     setLoading(true);
+    setError(null);
     try {
       const [goalsRes, debtsRes] = await Promise.all([
         axios.get("http://127.0.0.1:8000/api/dashboard-goals"),
         axios.get("http://127.0.0.1:8000/api/debts"),
       ]);
       setGoals(goalsRes.data);
-      setDebts(debtsRes.data);
+      setDebts(
+        debtsRes.data.map((debt: any) => ({
+          ...debt,
+          percentage:
+            debt.percentage ?? debt.completion_percentage ?? debt.progress ?? 0,
+        }))
+      );
     } catch (error) {
       console.error("Error al obtener datos:", error);
+      setError("No pudimos cargar tus metas y deudas. Inténtalo nuevamente.");
     } finally {
       setLoading(false);
     }
@@ -89,81 +98,232 @@ export function GoalsAndDebts() {
         : "text-gray-300 hover:bg-gray-700"
     }`;
 
+  const goalsSummary = useMemo(() => {
+    const totalTarget = goals.reduce((acc, goal) => acc + goal.target_amount, 0);
+    const totalCurrent = goals.reduce((acc, goal) => acc + goal.current_amount, 0);
+    const progress = totalTarget > 0 ? (totalCurrent / totalTarget) * 100 : 0;
+    const topGoal = goals
+      .slice()
+      .sort((a, b) => b.percentage - a.percentage)[0];
+
+    return {
+      count: goals.length,
+      totalTarget,
+      totalCurrent,
+      progress,
+      topGoal,
+    };
+  }, [goals]);
+
+  const debtsSummary = useMemo(() => {
+    const totalDebt = debts.reduce((acc, debt) => acc + debt.total_amount, 0);
+    const totalBalance = debts.reduce(
+      (acc, debt) => acc + debt.current_balance,
+      0
+    );
+    const paid = totalDebt - totalBalance;
+    const coverage = totalDebt > 0 ? (paid / totalDebt) * 100 : 0;
+    const highestPayment = debts
+      .slice()
+      .sort((a, b) => b.minimum_payment - a.minimum_payment)[0];
+
+    return {
+      count: debts.length,
+      totalDebt,
+      totalBalance,
+      paid,
+      coverage,
+      highestPayment,
+    };
+  }, [debts]);
+
+  const formatCurrency = (value: number) =>
+    new Intl.NumberFormat("es-MX", {
+      style: "currency",
+      currency: "MXN",
+      minimumFractionDigits: 2,
+    }).format(value || 0);
+
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Metas y Deudas</h1>
-        <div className="space-x-4">
+    <div className="space-y-10">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-white">Metas y Deudas</h1>
+          <p className="text-sm text-slate-400">
+            Controla tus objetivos financieros y mantén al día los compromisos de pago.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-3">
           <button
             onClick={() => handleOpenModal("goal", null)}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md"
+            className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-sky-500"
           >
-            Añadir Meta
+            Añadir meta
           </button>
           <button
             onClick={() => handleOpenModal("debt", null)}
-            className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md"
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-emerald-500"
           >
-            Añadir Deuda
+            Añadir deuda
           </button>
         </div>
       </div>
 
-      <div className="mb-6 border-b border-gray-700">
-        <nav className="flex space-x-2" aria-label="Tabs">
-          <button
-            className={tabButtonClasses("goals")}
-            onClick={() => setActiveTab("goals")}
-          >
-            Metas
-          </button>
-          <button
-            className={tabButtonClasses("debts")}
-            onClick={() => setActiveTab("debts")}
-          >
-            Deudas
-          </button>
-        </nav>
-      </div>
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <article className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+          <p className="text-xs uppercase tracking-wide text-slate-400">Metas activas</p>
+          <p className="mt-2 text-3xl font-semibold text-white">{goalsSummary.count}</p>
+          <p className="mt-1 text-xs text-slate-400">
+            {goalsSummary.count === 0
+              ? "Comienza creando tu primera meta"
+              : `${goalsSummary.progress.toFixed(1)}% del objetivo global cubierto`}
+          </p>
+        </article>
+        <article className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+          <p className="text-xs uppercase tracking-wide text-slate-400">Ahorro acumulado</p>
+          <p className="mt-2 text-3xl font-semibold text-white">
+            {formatCurrency(goalsSummary.totalCurrent)}
+          </p>
+          <p className="mt-1 text-xs text-slate-400">
+            Meta conjunta: {formatCurrency(goalsSummary.totalTarget)}
+          </p>
+        </article>
+        <article className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+          <p className="text-xs uppercase tracking-wide text-slate-400">Deudas activas</p>
+          <p className="mt-2 text-3xl font-semibold text-white">{debtsSummary.count}</p>
+          <p className="mt-1 text-xs text-slate-400">
+            Cobertura actual: {debtsSummary.coverage.toFixed(1)}%
+          </p>
+        </article>
+        <article className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+          <p className="text-xs uppercase tracking-wide text-slate-400">Saldo pendiente</p>
+          <p className="mt-2 text-3xl font-semibold text-white">
+            {formatCurrency(debtsSummary.totalBalance)}
+          </p>
+          <p className="mt-1 text-xs text-slate-400">
+            Pagado a la fecha: {formatCurrency(debtsSummary.paid)}
+          </p>
+        </article>
+      </section>
 
-      {loading ? (
-        <p className="text-gray-400">Cargando...</p>
-      ) : (
-        <div>
-          {activeTab === "goals" && (
-            <div className="space-y-4">
-              {goals.length > 0 ? (
-                goals.map((g) => (
+      <div className="flex flex-col gap-6 lg:flex-row">
+        <section className="flex-1 space-y-6">
+          <div className="border-b border-slate-800">
+            <nav className="flex space-x-2" aria-label="Tabs">
+              <button
+                className={tabButtonClasses("goals")}
+                onClick={() => setActiveTab("goals")}
+              >
+                Metas
+              </button>
+              <button
+                className={tabButtonClasses("debts")}
+                onClick={() => setActiveTab("debts")}
+              >
+                Deudas
+              </button>
+            </nav>
+          </div>
+
+          {loading ? (
+            <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-900/40 p-6 text-sm text-slate-400">
+              Cargando tus registros...
+            </div>
+          ) : error ? (
+            <div className="rounded-2xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-200">
+              {error}
+            </div>
+          ) : activeTab === "goals" ? (
+            goals.length > 0 ? (
+              <div className="grid gap-4 md:grid-cols-2">
+                {goals.map((g) => (
                   <GoalProgressCard
                     key={g.id}
                     goal={g}
                     onEdit={() => handleOpenModal("goal", g)}
                     onDelete={() => handleDelete("goal", g.id)}
                   />
-                ))
-              ) : (
-                <p className="text-gray-400">No hay metas activas.</p>
-              )}
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-900/40 p-6 text-sm text-slate-400">
+                Aún no tienes metas registradas. Agrega tu primera meta para comenzar a monitorear tu progreso.
+              </div>
+            )
+          ) : debts.length > 0 ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              {debts.map((d) => (
+                <DebtProgressCard
+                  key={d.id}
+                  debt={d}
+                  onEdit={() => handleOpenModal("debt", d)}
+                  onDelete={() => handleDelete("debt", d.id)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-900/40 p-6 text-sm text-slate-400">
+              No tienes deudas activas. Mantente así registrando tus pagos a tiempo.
             </div>
           )}
-          {activeTab === "debts" && (
-            <div className="space-y-4">
-              {debts.length > 0 ? (
-                debts.map((d) => (
-                  <DebtProgressCard
-                    key={d.id}
-                    debt={d}
-                    onEdit={() => handleOpenModal("debt", d)}
-                    onDelete={() => handleDelete("debt", d.id)}
-                  />
-                ))
-              ) : (
-                <p className="text-gray-400">No hay deudas activas.</p>
-              )}
+        </section>
+
+        <aside className="w-full max-w-xl space-y-6">
+          <div className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-900/80 to-sky-900/40 p-6 shadow">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
+              Panorama de metas
+            </h3>
+            <p className="mt-3 text-2xl font-semibold text-white">
+              {goalsSummary.topGoal ? goalsSummary.topGoal.name : "Sin metas"}
+            </p>
+            <p className="mt-1 text-sm text-slate-400">
+              {goalsSummary.topGoal
+                ? `${goalsSummary.topGoal.percentage.toFixed(1)}% completado`
+                : "Añade una meta para comenzar"}
+            </p>
+            <div className="mt-4 space-y-2 text-xs text-slate-300">
+              <p>
+                Aportado: {formatCurrency(goalsSummary.totalCurrent)} | Restante: {formatCurrency(
+                  Math.max(goalsSummary.totalTarget - goalsSummary.totalCurrent, 0)
+                )}
+              </p>
+              <p>
+                Ritmo sugerido: {(
+                  goalsSummary.totalTarget > 0
+                    ? goalsSummary.totalTarget / Math.max(goalsSummary.count, 1)
+                    : 0
+                ).toLocaleString("es-MX", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })} por meta
+              </p>
             </div>
-          )}
-        </div>
-      )}
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
+              Próximo pago recomendado
+            </h3>
+            {debtsSummary.highestPayment ? (
+              <div className="mt-3 space-y-2 text-sm text-slate-200">
+                <p className="text-lg font-semibold text-white">
+                  {debtsSummary.highestPayment.name}
+                </p>
+                <p className="text-sm text-slate-400">
+                  Pago mínimo: {formatCurrency(debtsSummary.highestPayment.minimum_payment)}
+                </p>
+                <p className="text-sm text-slate-400">
+                  Saldo restante: {formatCurrency(debtsSummary.highestPayment.current_balance)}
+                </p>
+              </div>
+            ) : (
+              <p className="mt-3 text-sm text-slate-400">
+                Registra tus deudas para recibir recordatorios de seguimiento.
+              </p>
+            )}
+          </div>
+        </aside>
+      </div>
 
       <GoalDebtModal
         isOpen={isModalOpen}
