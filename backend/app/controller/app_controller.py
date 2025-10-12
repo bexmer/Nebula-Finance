@@ -496,12 +496,62 @@ class AppController:
     # =================================================================
     
     def get_portfolio_assets(self):
-        """Obtiene todos los activos del portafolio."""
-        return list(PortfolioAsset.select().where(PortfolioAsset.total_quantity > 0).dicts())
+        """Obtiene todos los activos del portafolio listos para la vista del frontend."""
+        assets = (
+            PortfolioAsset
+            .select()
+            .where(PortfolioAsset.total_quantity > 0)
+            .order_by(PortfolioAsset.symbol)
+        )
+
+        summary = []
+        for asset in assets:
+            quantity = float(asset.total_quantity or 0)
+            avg_cost = float(asset.avg_cost_price or 0)
+            current_price = float(asset.current_price or 0)
+            market_value = quantity * current_price
+            cost_basis = quantity * avg_cost
+            unrealized_pnl = market_value - cost_basis
+
+            summary.append(
+                {
+                    "symbol": asset.symbol,
+                    "name": asset.asset_type,
+                    "quantity": quantity,
+                    "avg_cost": avg_cost,
+                    "market_value": market_value,
+                    "unrealized_pnl": unrealized_pnl,
+                }
+            )
+
+        return summary
 
     def get_trade_history(self):
-        """Obtiene el historial de ventas."""
-        return list(Trade.select().join(PortfolioAsset).where(Trade.trade_type == "Venta").order_by(Trade.date.desc()).dicts(True))
+        """Obtiene el historial de operaciones listo para la vista del frontend."""
+        trades = (
+            Trade
+            .select(Trade, PortfolioAsset)
+            .join(PortfolioAsset)
+            .order_by(Trade.date.desc())
+        )
+
+        history = []
+        for trade in trades:
+            trade_type = (trade.trade_type or "").strip().lower()
+            normalized_type = "buy" if trade_type == "compra" else "sell" if trade_type == "venta" else trade_type
+
+            history.append(
+                {
+                    "id": trade.id,
+                    "date": trade.date.isoformat() if trade.date else None,
+                    "symbol": trade.asset.symbol,
+                    "type": normalized_type,
+                    "quantity": float(trade.quantity or 0),
+                    "price": float(trade.price_per_unit or 0),
+                }
+            )
+
+        return history
 
     def add_trade(self, data):
         try:
