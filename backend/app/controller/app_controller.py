@@ -17,6 +17,13 @@ from app.model.parameter import Parameter
 from app.model.budget_rule import BudgetRule
 
 
+DEFAULT_APP_SETTINGS = {
+    "currency_symbol": "$",
+    "decimal_places": 2,
+    "theme": "dark",
+}
+
+
 class AppController:
     """
     Controlador de la aplicación que maneja la lógica de negocio.
@@ -404,6 +411,68 @@ class AppController:
         Obtiene los parámetros (categorías) que son hijos de otro parámetro (tipo).
         """
         return list(Parameter.select().where(Parameter.parent == parent_id).dicts())
+
+
+    # =================================================================
+    # --- SECCIÓN: CONFIGURACIÓN DE LA APLICACIÓN ---
+    # =================================================================
+
+    def get_app_settings(self):
+        """Obtiene la configuración general de la aplicación."""
+        settings = DEFAULT_APP_SETTINGS.copy()
+
+        for param in Parameter.select().where(Parameter.group == 'Settings'):
+            key = param.value
+            if key not in settings:
+                continue
+
+            stored_value = param.extra_data if param.extra_data is not None else param.value
+
+            if key == 'decimal_places':
+                try:
+                    settings[key] = int(stored_value)
+                except (TypeError, ValueError):
+                    continue
+            else:
+                settings[key] = stored_value
+
+        return settings
+
+    def update_app_settings(self, data):
+        """Actualiza la configuración general de la aplicación."""
+        validated_settings = self.get_app_settings()
+
+        if 'currency_symbol' in data and isinstance(data['currency_symbol'], str):
+            symbol = data['currency_symbol'].strip()
+            if symbol:
+                validated_settings['currency_symbol'] = symbol
+
+        if 'theme' in data and isinstance(data['theme'], str):
+            theme = data['theme'].strip().lower()
+            if theme in {'dark', 'light'}:
+                validated_settings['theme'] = theme
+
+        if 'decimal_places' in data:
+            try:
+                validated_settings['decimal_places'] = max(0, int(data['decimal_places']))
+            except (TypeError, ValueError):
+                pass
+
+        for key, value in validated_settings.items():
+            param, _ = Parameter.get_or_create(
+                group='Settings',
+                value=key,
+                defaults={'extra_data': str(value), 'is_deletable': False}
+            )
+
+            # Garantiza que no se eliminen accidentalmente desde la interfaz
+            if param.is_deletable:
+                param.is_deletable = False
+
+            param.extra_data = str(value)
+            param.save()
+
+        return validated_settings
 
 
     # =================================================================

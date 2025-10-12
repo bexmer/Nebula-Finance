@@ -75,15 +75,10 @@ class DebtModel(BaseModel):
     current_balance: float
 
 
-class BudgetEntryPayload(BaseModel):
-    description: Optional[str] = None
-    category: str
-    type: str = "Gasto"
-    amount: Optional[float] = None
-    budgeted_amount: Optional[float] = None
-    month: Optional[int] = None
-    year: Optional[int] = None
-    due_date: Optional[datetime.date] = None
+class SettingsModel(BaseModel):
+    currency_symbol: str
+    decimal_places: int
+    theme: str
 
 # ===============================================
 # --- ENDPOINTS DE LA API ---
@@ -216,12 +211,17 @@ def get_transaction(transaction_id: int):
     return transaction
 
 
-@app.get("/api/analysis/cash-flow")
-def get_cash_flow_analysis(year: Optional[int] = None, month: Optional[int] = None):
-    """Obtiene datos de flujo de efectivo por categoría para análisis."""
-    if month is not None and not 1 <= month <= 12:
-        raise HTTPException(status_code=400, detail="El mes debe estar entre 1 y 12")
-    return controller.get_cash_flow_analysis(year=year, month=month)
+@app.get("/api/settings", response_model=SettingsModel)
+def get_settings():
+    """Obtiene la configuración de la aplicación."""
+    return controller.get_app_settings()
+
+
+@app.post("/api/settings")
+def update_settings(settings: SettingsModel):
+    """Actualiza y persiste la configuración de la aplicación."""
+    updated_settings = controller.update_app_settings(settings.model_dump())
+    return {"message": "Configuración actualizada correctamente.", "settings": updated_settings}
 
 # ===============================================
 # --- INICIADOR DEL SERVIDOR ---
