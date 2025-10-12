@@ -246,87 +246,90 @@ class AppController:
     # =================================================================
 
     def get_transactions_data(self, filters=None):
-        """Devuelve una lista de transacciones, aplicando filtros y ordenamiento."""
         query = Transaction.select(Transaction, Account).join(Account)
         
         if filters:
             if filters.get('search'):
                 query = query.where(Transaction.description.contains(filters['search']))
-            if filters.get('startDate'):
-                query = query.where(Transaction.date >= filters['startDate'])
-            if filters.get('endDate'):
-                query = query.where(Transaction.date <= filters['endDate'])
-            
-            # Lógica de ordenamiento
-            sortBy = filters.get('sortBy', 'date_desc')
-            if sortBy == 'date_desc':
-                query = query.order_by(Transaction.date.desc())
-            elif sortBy == 'date_asc':
-                query = query.order_by(Transaction.date.asc())
-            elif sortBy == 'amount_desc':
-                query = query.order_by(Transaction.amount.desc())
-            elif sortBy == 'amount_asc':
-                query = query.order_by(Transaction.amount.asc())
+            if filters.get('start_date'):
+                query = query.where(Transaction.date >= filters['start_date'])
+            if filters.get('end_date'):
+                query = query.where(Transaction.date <= filters['end_date'])
+            if filters.get('type'):
+                query = query.where(Transaction.type == filters['type'])
+            if filters.get('category'):
+                query = query.where(Transaction.category == filters['category'])
+
+            sortBy = filters.get('sort_by', 'date_desc')
+            if sortBy == 'date_asc': query = query.order_by(Transaction.date.asc())
+            elif sortBy == 'amount_desc': query = query.order_by(Transaction.amount.desc())
+            elif sortBy == 'amount_asc': query = query.order_by(Transaction.amount.asc())
+            else: query = query.order_by(Transaction.date.desc())
         else:
             query = query.order_by(Transaction.date.desc())
             
-        return list(query.dicts())
+        results = []
+        for transaction in query:
+            t_data = transaction.__data__
+            t_data['account'] = transaction.account.__data__ # Anidar info de la cuenta
+            results.append(t_data)
+        return results
+            
     
     def add_transaction(self, data):
-        """Añade una nueva transacción y actualiza el saldo de la cuenta."""
         try:
+            is_recurring = data.pop('is_recurring', False)
+            frequency = data.pop('frequency', None)
+            day_of_month = data.pop('day_of_month', None)
+
             amount = float(data['amount'])
             account = Account.get_by_id(data['account_id'])
-            
-            if data['type'] == 'Ingreso':
-                account.current_balance += amount
-            else:
-                account.current_balance -= amount
+            if data['type'] == 'Ingreso': account.current_balance += amount
+            else: account.current_balance -= amount
             account.save()
             
             transaction = Transaction.create(**data)
-            return transaction._data
+
+            if is_recurring:
+                RecurringTransaction.create(
+                    description=data['description'], amount=amount, type=data['type'],
+                    category=data['category'], frequency=frequency, day_of_month=day_of_month,
+                    start_date=data['date'], last_processed_date=data['date']
+                )
+            return transaction.__data__
         except Exception as e:
-            return {"error": f"Datos de transacción inválidos: {e}"}
-        
+            return {"error": f"Datos inválidos: {e}"}
+
     def update_transaction(self, transaction_id, data):
-        """Actualiza una transacción existente y recalcula los saldos."""
         try:
-            # 1. Obtener la transacción original
             original_transaction = Transaction.get_by_id(transaction_id)
-            original_account = original_transaction.account
             
-            # 2. Revertir el monto original en la cuenta original
+            original_account = Account.get_by_id(original_transaction.account_id)
             if original_transaction.type == 'Ingreso': original_account.current_balance -= original_transaction.amount
             else: original_account.current_balance += original_transaction.amount
-            original_account.save()
             
-            # 3. Actualizar la transacción con los nuevos datos
-            updated_transaction = Transaction.update(**data).where(Transaction.id == transaction_id).execute()
-            
-            # 4. Aplicar el nuevo monto a la nueva (o la misma) cuenta
-            new_amount = float(data['amount'])
             new_account = Account.get_by_id(data['account_id'])
+            new_amount = float(data['amount'])
             if data['type'] == 'Ingreso': new_account.current_balance += new_amount
             else: new_account.current_balance -= new_amount
-            new_account.save()
+
+            original_account.save()
+            if original_account.id != new_account.id: new_account.save()
+                
+            query = Transaction.update(**data).where(Transaction.id == transaction_id)
+            query.execute()
             
-            return Transaction.get_by_id(transaction_id)._data
+            return Transaction.get_by_id(transaction_id).__data__
         except Exception as e:
-            return {"error": f"Error al actualizar la transacción: {e}"}
+            return {"error": f"Error al actualizar: {e}"}
 
     def delete_transaction(self, transaction_id):
-        """Elimina una transacción y revierte el efecto en el saldo de la cuenta."""
         try:
             transaction = Transaction.get_by_id(transaction_id)
             account = transaction.account
-            
-            if transaction.type == 'Ingreso':
-                account.current_balance -= transaction.amount
-            else:
-                account.current_balance += transaction.amount
+            if transaction.type == 'Ingreso': account.current_balance -= transaction.amount
+            else: account.current_balance += transaction.amount
             account.save()
-            
             transaction.delete_instance()
             return {"success": True}
         except Transaction.DoesNotExist:

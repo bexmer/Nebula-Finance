@@ -1,39 +1,37 @@
 import { Outlet } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
-import { AddTransactionModal } from "./AddTransactionModal";
-import { useStore } from "../store/useStore"; // <-- 1. Importar el store
+import { Suspense } from "react";
+import { Plus } from "lucide-react";
+import { useStore } from "../store/useStore"; // Importar el store
+import { TransactionModal } from "./TransactionModal"; // Importar el modal
 
 export function Layout() {
-  // 2. Obtener el estado y las acciones del store
-  const {
-    isTransactionModalOpen,
-    openTransactionModal,
-    closeTransactionModal,
-    fetchTransactions,
-  } = useStore();
+  // Obtenemos la función para abrir el modal desde nuestro store global
+  const { openTransactionModal } = useStore();
 
   return (
     <div className="flex h-screen bg-gray-900 text-white">
       <Sidebar />
-      <main className="flex-1 p-8 overflow-y-auto relative">
-        <Outlet />
-
-        <button
-          // 3. Usar la acción del store para abrir el modal en modo "crear"
-          onClick={() => openTransactionModal(null)}
-          className="absolute bottom-8 right-8 bg-blue-600 hover:bg-blue-700 text-white rounded-full w-14 h-14 flex items-center justify-center text-3xl shadow-lg"
+      <main className="flex-grow p-6 overflow-auto">
+        <Suspense
+          fallback={<div className="text-center">Cargando página...</div>}
         >
-          +
-        </button>
+          <Outlet />
+        </Suspense>
       </main>
 
-      <AddTransactionModal
-        // 4. Pasar el estado y las acciones al modal
-        isOpen={isTransactionModalOpen}
-        onClose={closeTransactionModal}
-        onSave={fetchTransactions} // Al guardar, simplemente volvemos a pedir los datos
-        transaction={null} // Modo "crear", no hay transacción seleccionada
-      />
+      {/* --- BOTÓN FLOTANTE GLOBAL Y ÚNICO --- */}
+      <button
+        onClick={() => openTransactionModal(null)}
+        className="fixed bottom-8 right-8 bg-blue-600 hover:bg-blue-700 text-white w-14 h-14 rounded-full flex items-center justify-center shadow-lg z-40 transition-transform hover:scale-110"
+        aria-label="Añadir Transacción"
+      >
+        <Plus size={28} />
+      </button>
+
+      {/* --- MODAL GLOBAL Y ÚNICO --- */}
+      {/* El modal ahora vive aquí para poder ser llamado desde cualquier página */}
+      <TransactionModal />
     </div>
   );
 }
