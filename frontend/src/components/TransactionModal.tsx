@@ -162,7 +162,7 @@ export const TransactionModal = () => {
           submissionData
         );
       }
-      fetchTransactions(useStore.getState().filters); // Recarga con los filtros actuales
+      await fetchTransactions(); // Recarga con los filtros actuales
       closeTransactionModal();
     } catch (err) {
       setError("No se pudo guardar la transacción. Revisa los datos.");
