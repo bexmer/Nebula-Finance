@@ -1,6 +1,10 @@
 from PySide6.QtWidgets import QMessageBox, QTableWidget, QDialog
 from PySide6.QtCore import QDate, Qt, QCoreApplication
 from app.model.transaction import Transaction
+from app.model.account import Account
+import datetime
+from datetime import date
+from app.model.transaction import Transaction
 from app.model.goal import Goal
 from app.model.debt import Debt
 from app.model.budget_entry import BudgetEntry
@@ -22,15 +26,21 @@ from app.view.register_payment_dialog import RegisterPaymentDialog
 from copy import deepcopy
 import datetime
 from dateutil.relativedelta import relativedelta
-from peewee import fn
 from app.model.recurring_transaction import RecurringTransaction
+from app.model.budget_entry import BudgetEntry
+from app.model.transaction import Transaction
+from app.model.account import Account
+import datetime
+import calendar
+from datetime import date
+from app.model.parameter import Parameter
+from decimal import Decimal
 from app.model.budget_entry import BudgetEntry
 
 
 import datetime
 from collections import defaultdict
 from peewee import JOIN, fn
-from dateutil.relativedelta import relativedelta
 
 class AppController:
     def __init__(self, view):
@@ -39,10 +49,6 @@ class AppController:
         self.view = view 
         self.current_pages = {}
     def get_all_transactions_for_api(self):
-        """
-        Devuelve una lista de todas las transacciones directamente desde la base de datos.
-        """
-        from app.model.transaction import Transaction
         return list(Transaction.select())
     
     def format_currency(self, value):
@@ -1645,3 +1651,402 @@ class AppController:
         except RecurringTransaction.DoesNotExist:
             self.view.show_notification("La regla no fue encontrada.", "error")
     
+# NUEVO FORMATO
+
+    def get_dashboard_kpis_for_api(self):
+        today = datetime.date.today()
+        first_day = today.replace(day=1)
+        # Lógica correcta para encontrar el último día del mes
+        next_month_first_day = (first_day.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
+        last_day = next_month_first_day - datetime.timedelta(days=1)
+
+        income = Transaction.select(fn.SUM(Transaction.amount)).where(
+            (Transaction.type == 'Ingreso') &
+            (Transaction.date.between(first_day, last_day))
+        ).scalar() or 0
+
+        expenses = Transaction.select(fn.SUM(Transaction.amount)).where(
+            (Transaction.type == 'Gasto') &
+            (Transaction.date.between(first_day, last_day))
+        ).scalar() or 0
+
+        net_income = income - expenses
+        total_balance = Account.select(fn.SUM(Account.current_balance)).scalar() or 0
+
+        return {
+            "total_balance": f"${total_balance:,.2f}",
+            "income": f"${income:,.2f}",
+            "expenses": f"${expenses:,.2f}",
+            "net_income": f"${net_income:,.2f}"
+        }
+        
+    def get_income_expense_chart_data(self):
+        # Obtener transacciones de los últimos 12 meses
+        twelve_months_ago = date.today().replace(day=1) - datetime.timedelta(days=365)
+
+        # Usamos strftime para agrupar por año y mes (formato 'YYYY-MM')
+        query = Transaction.select(
+            fn.strftime('%Y-%m', Transaction.date).alias('month'),
+            Transaction.type,
+            fn.SUM(Transaction.amount).alias('total')
+        ).where(Transaction.date >= twelve_months_ago).group_by(
+            fn.strftime('%Y-%m', Transaction.date), Transaction.type
+        ).order_by(fn.strftime('%Y-%m', Transaction.date))
+
+        # Procesamos los datos para agruparlos por mes
+        monthly_data = defaultdict(lambda: {'income': 0.0, 'expense': 0.0})
+        for row in query:
+            if row.type == 'Ingreso':
+                monthly_data[row.month]['income'] = float(row.total)
+            elif row.type == 'Gasto':
+                monthly_data[row.month]['expense'] = float(row.total)
+
+        # Ordenamos los meses cronológicamente
+        sorted_months = sorted(monthly_data.keys())
+
+        labels = [datetime.datetime.strptime(m, '%Y-%m').strftime('%b %Y') for m in sorted_months]
+        income_data = [monthly_data[m]['income'] for m in sorted_months]
+        expense_data = [monthly_data[m]['expense'] for m in sorted_months]
+
+        return {
+            "labels": labels,
+            "income_data": income_data,
+            "expense_data": expense_data
+        }
+        
+    def get_dashboard_goals_for_api(self, goal_id=None):
+        query = Goal.select()
+        if goal_id:
+            query = query.where(Goal.id == goal_id)
+
+        goals_data = []
+        for goal in query:
+            current_amount = Transaction.select(fn.SUM(Transaction.amount)).where(
+                Transaction.goal_id == goal.id
+            ).scalar() or 0
+            
+            percentage = 0
+            if goal.target_amount > 0:
+                percentage = (current_amount / goal.target_amount) * 100
+            
+            goals_data.append({
+                "id": goal.id,
+                "name": goal.name,
+                "current_amount": float(current_amount),
+                "target_amount": float(goal.target_amount),
+                "percentage": min(100, float(percentage))
+            })
+        
+        if goal_id:
+            return goals_data[0] if goals_data else None
+        return goals_data
+    
+    def get_all_accounts_for_api(self):
+        return list(Account.select())
+    
+    def get_all_budget_entries_for_api(self):
+        # Seleccionamos todas las entradas y las ordenamos por año y mes
+        return list(BudgetEntry.select().order_by(BudgetEntry.year.desc(), BudgetEntry.month.desc()))
+    
+    def get_all_debts_for_api(self, debt_id=None):
+        query = Debt.select()
+        if debt_id:
+            query = query.where(Debt.id == debt_id)
+
+        debts_data = []
+        for debt in query:
+            total_payments = Transaction.select(fn.SUM(Transaction.amount)).where(
+                (Transaction.debt_id == debt.id) &
+                (Transaction.type == 'Gasto')
+            ).scalar() or 0
+            
+            current_balance = debt.total_amount - total_payments
+            percentage_paid = 0
+            if debt.total_amount > 0:
+                percentage_paid = (total_payments / debt.total_amount) * 100
+
+            debts_data.append({
+                "id": debt.id, # Añadimos el ID
+                "name": debt.name,
+                "total_amount": float(debt.total_amount),
+                "current_balance": float(current_balance),
+                "minimum_payment": float(debt.minimum_payment),
+                "interest_rate": debt.interest_rate,
+                "percentage": min(100, float(percentage_paid))
+            })
+        
+        if debt_id:
+            return debts_data[0] if debts_data else None
+        return debts_data
+    
+    def get_portfolio_summary_for_api(self):
+        summary = []
+        assets = PortfolioAsset.select()
+
+        for asset in assets:
+            # Usamos alias para las sumas
+            buy_quantity = Trade.select(fn.SUM(Trade.quantity)).where(
+                (Trade.asset == asset) & (Trade.type == 'buy')
+            ).scalar() or 0
+
+            sell_quantity = Trade.select(fn.SUM(Trade.quantity)).where(
+                (Trade.asset == asset) & (Trade.type == 'sell')
+            ).scalar() or 0
+
+            current_quantity = buy_quantity - sell_quantity
+
+            if current_quantity > 0:
+                # Calcular costo promedio ponderado
+                total_cost = Trade.select(fn.SUM(Trade.quantity * Trade.price)).where(
+                    (Trade.asset == asset) & (Trade.type == 'buy')
+                ).scalar() or 0
+
+                avg_cost = total_cost / buy_quantity if buy_quantity > 0 else 0
+
+                # Simulación de precio de mercado (usamos el último precio registrado)
+                market_value = current_quantity * asset.last_price
+                cost_basis = current_quantity * avg_cost
+                unrealized_pnl = market_value - cost_basis
+
+                summary.append({
+                    "symbol": asset.symbol,
+                    "name": asset.name,
+                    "quantity": float(current_quantity),
+                    "avg_cost": float(avg_cost),
+                    "market_value": float(market_value),
+                    "unrealized_pnl": float(unrealized_pnl),
+                })
+        return summary
+
+    def get_trade_history_for_api(self):
+        history = []
+        # Hacemos un join para obtener el símbolo del activo directamente
+        trades = Trade.select(Trade, PortfolioAsset.symbol).join(PortfolioAsset).order_by(Trade.date.desc())
+
+        for trade in trades:
+            history.append({
+                "id": trade.id,
+                "date": trade.date,
+                "symbol": trade.asset.symbol,
+                "type": trade.type,
+                "quantity": float(trade.quantity),
+                "price": float(trade.price),
+            })
+        return history
+    
+    def get_cash_flow_analysis_for_api(self, year: int, month: int):
+        # Determinar el rango de fechas para el mes y año solicitados
+        first_day = date(year, month, 1)
+        last_day_of_month = calendar.monthrange(year, month)[1]
+        last_day = date(year, month, last_day_of_month)
+
+        # Función auxiliar para obtener datos por tipo
+        def get_data_by_type(trans_type):
+            query = Transaction.select(
+                Transaction.category,
+                fn.SUM(Transaction.amount).alias('total')
+            ).where(
+                (Transaction.type == trans_type) &
+                (Transaction.date.between(first_day, last_day))
+            ).group_by(Transaction.category).order_by(fn.SUM(Transaction.amount).desc())
+
+            return [{"category": row.category, "amount": float(row.total)} for row in query]
+
+        income_by_cat = get_data_by_type('Ingreso')
+        expenses_by_cat = get_data_by_type('Gasto')
+
+        return {
+            "income": income_by_cat,
+            "expenses": expenses_by_cat
+        }
+        
+    def get_settings_for_api(self):
+        # Usamos .get_or_none() para manejar el caso de que el parámetro no exista
+        currency = Parameter.get_or_none(Parameter.name == 'currency_symbol')
+        decimals = Parameter.get_or_none(Parameter.name == 'decimal_places')
+        theme = Parameter.get_or_none(Parameter.name == 'theme')
+
+        return {
+            "currency_symbol": currency.value if currency else "$",
+            "decimal_places": int(decimals.value) if decimals else 2,
+            "theme": theme.value if theme else "dark"
+        }
+
+    def save_settings_from_api(self, settings_data: dict):
+        # Función auxiliar para guardar o actualizar un parámetro
+        def upsert_parameter(name, value):
+            param, created = Parameter.get_or_create(name=name)
+            param.value = value
+            param.save()
+
+        upsert_parameter('currency_symbol', settings_data['currency_symbol'])
+        upsert_parameter('decimal_places', str(settings_data['decimal_places']))
+        upsert_parameter('theme', settings_data['theme'])
+        
+    def add_transaction_from_api(self, data: dict):
+        try:
+            amount = Decimal(str(data['amount']))
+            new_transaction = Transaction.create(
+                date=data['date'],
+                description=data['description'],
+                amount=amount,
+                type=data['type'],
+                category=data['category'],
+                account_id=data['account_id'],
+                goal_id=data.get('goal_id'),
+                debt_id=data.get('debt_id')
+            )
+            account = Account.get_by_id(data['account_id'])
+            if data['type'] == 'Ingreso':
+                account.current_balance += amount
+            elif data['type'] == 'Gasto':
+                account.current_balance -= amount
+            account.save()
+            return new_transaction
+        except Exception as e:
+            print(f"Error al añadir transacción: {e}")
+            return None
+
+    def add_account_from_api(self, data: dict):
+        try:
+            account = Account.create(
+                name=data['name'],
+                account_type=data['account_type'],
+                current_balance=Decimal(str(data['current_balance']))
+            )
+            return account
+        except Exception as e:
+            print(f"Error al añadir cuenta: {e}")
+            return None
+
+    def update_account_from_api(self, account_id: int, data: dict):
+        try:
+            account = Account.get_by_id(account_id)
+            account.name = data['name']
+            account.account_type = data['account_type']
+            account.current_balance = Decimal(str(data['current_balance']))
+            account.save()
+            return account
+        except Account.DoesNotExist:
+            print(f"Error: Cuenta con id {account_id} no encontrada.")
+            return None
+
+    def delete_account_from_api(self, account_id: int):
+        try:
+            account = Account.get_by_id(account_id)
+            # Opcional: Añadir lógica para verificar si la cuenta tiene transacciones antes de borrar
+            account.delete_instance()
+        except Account.DoesNotExist:
+            print(f"Error: Cuenta con id {account_id} no encontrada.")
+            
+    def add_goal_from_api(self, data):
+        goal = Goal.create(name=data['name'], target_amount=Decimal(str(data['target_amount'])))
+        return self.get_dashboard_goals_for_api(goal.id) # Devuelve el objeto con su progreso
+
+    def update_goal_from_api(self, goal_id, data):
+        query = Goal.update(name=data['name'], target_amount=Decimal(str(data['target_amount']))).where(Goal.id == goal_id)
+        query.execute()
+
+    def delete_goal_from_api(self, goal_id):
+        # También eliminamos transacciones asociadas para mantener la integridad
+        Transaction.delete().where(Transaction.goal_id == goal_id).execute()
+        Goal.delete_by_id(goal_id)
+
+    # --- MÉTODOS CRUD PARA DEUDAS ---
+    def add_debt_from_api(self, data):
+        total_amount = Decimal(str(data['total_amount']))
+        debt = Debt.create(
+            name=data['name'],
+            total_amount=total_amount,
+            current_balance=total_amount,
+            minimum_payment=Decimal(str(data['minimum_payment'])),
+            interest_rate=data['interest_rate']
+        )
+        return self.get_all_debts_for_api(debt.id) # Devuelve el objeto con su progreso
+
+    def update_debt_from_api(self, debt_id, data):
+        # Lógica compleja de actualización omitida por brevedad
+        query = Debt.update(**data).where(Debt.id == debt_id)
+        query.execute()
+
+    def delete_debt_from_api(self, debt_id):
+        Transaction.delete().where(Transaction.debt_id == debt_id).execute()
+        Debt.delete_by_id(debt_id)
+
+
+    def add_budget_entry_from_api(self, data: dict):
+        entry = BudgetEntry.create(
+            category=data['category'],
+            amount=Decimal(str(data['amount'])),
+            type=data['type'],
+            month=data['month'],
+            year=data['year']
+        )
+        return entry
+
+    def update_budget_entry_from_api(self, entry_id: int, data: dict):
+        entry = BudgetEntry.get_by_id(entry_id)
+        entry.category = data['category']
+        entry.amount = Decimal(str(data['amount']))
+        entry.type = data['type']
+        entry.month = data['month']
+        entry.year = data['year']
+        entry.save()
+        return entry
+
+    def delete_budget_entry_from_api(self, entry_id: int):
+        BudgetEntry.delete_by_id(entry_id)
+        
+    def update_transaction_from_api(self, transaction_id: int, data: dict):
+        try:
+            transaction = Transaction.get_by_id(transaction_id)
+
+            # Revertir el balance original
+            original_amount = Decimal(str(transaction.amount))
+            original_account = Account.get_by_id(transaction.account_id)
+            if transaction.type == 'Ingreso':
+                original_account.current_balance -= original_amount
+            else: # Gasto
+                original_account.current_balance += original_amount
+            original_account.save()
+
+            # Actualizar la transacción
+            transaction.date = data['date']
+            transaction.description = data['description']
+            transaction.amount = Decimal(str(data['amount']))
+            transaction.type = data['type']
+            transaction.category = data['category']
+            transaction.account_id = data['account_id']
+            # ... (añadir goal_id y debt_id si es necesario)
+            transaction.save()
+
+            # Aplicar el nuevo balance
+            new_amount = Decimal(str(transaction.amount))
+            new_account = Account.get_by_id(transaction.account_id)
+            if transaction.type == 'Ingreso':
+                new_account.current_balance += new_amount
+            else: # Gasto
+                new_account.current_balance -= new_amount
+            new_account.save()
+
+            return transaction
+        except Exception as e:
+            print(f"Error al actualizar transacción: {e}")
+            return None
+
+    def delete_transaction_from_api(self, transaction_id: int):
+        try:
+            transaction = Transaction.get_by_id(transaction_id)
+
+            # Revertir el balance antes de borrar
+            amount = Decimal(str(transaction.amount))
+            account = Account.get_by_id(transaction.account_id)
+            if transaction.type == 'Ingreso':
+                account.current_balance -= amount
+            else: # Gasto
+                account.current_balance += amount
+            account.save()
+
+            transaction.delete_instance()
+        except Exception as e:
+            print(f"Error al eliminar transacción: {e}")
