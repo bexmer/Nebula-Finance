@@ -1,7 +1,7 @@
 from collections import defaultdict
 import calendar
 import datetime
-from typing import Optional
+from typing import Optional, Iterable, List
 from dateutil.relativedelta import relativedelta
 from peewee import fn
 
