@@ -1,115 +1,889 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  ArcElement,
+  Tooltip,
+  Legend,
+  Filler,
+} from "chart.js";
+import { Line, Bar, Doughnut } from "react-chartjs-2";
+import {
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  PieChart,
+  Target,
+  TrendingDown,
+  TrendingUp,
+  Wallet,
+} from "lucide-react";
 import { KpiCard } from "../components/KpiCard";
-import { IncomeExpenseChart } from "../components/IncomeExpenseChart";
-import { GoalProgressCard } from "../components/GoalProgressCard";
+import { GoalProgressCard, GoalData } from "../components/GoalProgressCard";
 
-// Define KPI data type (adjust fields as needed based on your API response)
-interface KpiData {
-  total_balance: number;
-  income: number;
-  expenses: number;
-  net_income: number;
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  ArcElement,
+  Tooltip,
+  Legend,
+  Filler,
+);
+
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";
+
+const MONTH_OPTIONS = [
+  { value: 1, label: "Enero" },
+  { value: 2, label: "Febrero" },
+  { value: 3, label: "Marzo" },
+  { value: 4, label: "Abril" },
+  { value: 5, label: "Mayo" },
+  { value: 6, label: "Junio" },
+  { value: 7, label: "Julio" },
+  { value: 8, label: "Agosto" },
+  { value: 9, label: "Septiembre" },
+  { value: 10, label: "Octubre" },
+  { value: 11, label: "Noviembre" },
+  { value: 12, label: "Diciembre" },
+];
+
+const currencyFormatter = new Intl.NumberFormat("es-MX", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+const monthFormatter = new Intl.DateTimeFormat("es-MX", {
+  month: "short",
+  year: "numeric",
+});
+
+const formatCurrency = (value: number) => {
+  if (!Number.isFinite(value)) {
+    return "$0.00";
+  }
+  const sign = value < 0 ? "-" : "";
+  return `${sign}$${currencyFormatter.format(Math.abs(value))}`;
+};
+
+const formatSignedCurrency = (value: number) => {
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${formatCurrency(Math.abs(value))}`;
+};
+
+const formatPercentage = (value?: number | null) => {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "—";
+  }
+  const rounded = Number(value.toFixed(1));
+  const sign = rounded > 0 ? "+" : rounded < 0 ? "" : "";
+  return `${sign}${rounded}%`;
+};
+
+interface AmountComparison {
+  amount: number;
+  comparison: number | null;
 }
 
-// Define ChartData type (adjust fields as needed based on your API response)
-interface ChartData {
-  labels: string[];
-  income_data: number[];
-  expense_data: number[];
+interface BudgetSummary {
+  budgeted: number;
+  actual: number;
+  difference: number;
+  remaining: number;
+  execution: number | null;
 }
 
-interface GoalData {
+interface BudgetRuleItem {
+  name: string;
+  ideal_percent: number;
+  actual_amount: number;
+  actual_percent: number;
+  state: "ok" | "warning" | "critical" | "neutral";
+}
+
+interface AccountSummary {
   id: number;
   name: string;
-  current_amount: number;
-  target_amount: number;
-  percentage: number;
+  account_type: string;
+  initial_balance: number;
+  current_balance: number;
+}
+
+interface DashboardData {
+  kpis: {
+    income: AmountComparison;
+    expense: AmountComparison;
+    net: AmountComparison;
+  };
+  net_worth_chart: {
+    dates: string[];
+    values: number[];
+  };
+  cash_flow_chart: {
+    months: string[];
+    income: number[];
+    expense: number[];
+  };
+  budget_vs_actual: {
+    income: BudgetSummary;
+    expense: BudgetSummary;
+  };
+  budget_rule_control: BudgetRuleItem[];
+  accounts: AccountSummary[];
+  goals: GoalData[];
+  expense_distribution: {
+    categories: string[];
+    amounts: number[];
+  };
+  expense_type_comparison: {
+    labels: string[];
+    amounts: number[];
+  };
+}
+
+interface MonthMultiSelectProps {
+  value: number[];
+  onChange: (months: number[]) => void;
 }
 
 export function Dashboard() {
-  const [kpiData, setKpiData] = useState<KpiData | null>(null);
-  const [chartData, setChartData] = useState<ChartData | null>(null);
-  const [goalsData, setGoalsData] = useState<GoalData[] | null>(null); // <-- 3. Nuevo estado
+  const currentYear = new Date().getFullYear();
+  const [year, setYear] = useState(currentYear);
+  const [selectedMonths, setSelectedMonths] = useState<number[]>([
+    new Date().getMonth() + 1,
+  ]);
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [activeChart, setActiveChart] = useState<"netWorth" | "cashFlow">(
+    "netWorth",
+  );
+  const [activeAccountIndex, setActiveAccountIndex] = useState(0);
 
   useEffect(() => {
-    const fetchData = async () => {
+    let isMounted = true;
+
+    const fetchDashboard = async () => {
+      setIsLoading(true);
+      setError(null);
       try {
-        // Pedimos todos los datos del dashboard al mismo tiempo
-        const [kpiRes, chartRes, goalsRes] = await Promise.all([
-          axios.get("http://127.0.0.1:8000/api/dashboard-kpis"),
-          axios.get("http://127.0.0.1:8000/api/charts/income-expense"),
-          axios.get("http://127.0.0.1:8000/api/dashboard-goals"), // <-- 4. Nueva petición
-        ]);
-        setKpiData(kpiRes.data);
-        setChartData(chartRes.data);
-        setGoalsData(goalsRes.data); // <-- 5. Guardar los datos
-      } catch (error) {
-        console.error("Error al obtener los datos del dashboard:", error);
+        const params = new URLSearchParams();
+        params.append("year", year.toString());
+        selectedMonths.forEach((month) =>
+          params.append("months", month.toString()),
+        );
+
+        const response = await axios.get<DashboardData>(
+          `${API_BASE_URL}/api/dashboard?${params.toString()}`,
+        );
+
+        if (!isMounted) return;
+        setData(response.data);
+        setActiveAccountIndex(0);
+      } catch (fetchError) {
+        if (!isMounted) return;
+        console.error("Error al cargar el dashboard:", fetchError);
+        setError("No pudimos cargar el dashboard. Intenta nuevamente.");
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     };
-    fetchData();
-  }, []);
+
+    fetchDashboard();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [year, selectedMonths]);
+
+  const netWorthChartData = useMemo(() => {
+    if (!data) return null;
+    const labels = data.net_worth_chart.dates.map((dateString) =>
+      monthFormatter.format(new Date(dateString)),
+    );
+    return {
+      labels,
+      datasets: [
+        {
+          label: "Patrimonio Neto",
+          data: data.net_worth_chart.values,
+          borderColor: "#38bdf8",
+          backgroundColor: "rgba(56, 189, 248, 0.2)",
+          fill: true,
+          tension: 0.35,
+          pointRadius: 3,
+        },
+      ],
+    };
+  }, [data]);
+
+  const cashFlowChartData = useMemo(() => {
+    if (!data) return null;
+    const labels = data.cash_flow_chart.months.map((item) => {
+      const [yearPart, monthPart] = item.split("-");
+      const date = new Date(Number(yearPart), Number(monthPart) - 1, 1);
+      return monthFormatter.format(date);
+    });
+
+    return {
+      labels,
+      datasets: [
+        {
+          label: "Ingresos",
+          data: data.cash_flow_chart.income,
+          backgroundColor: "rgba(56, 189, 248, 0.7)",
+          borderRadius: 8,
+          borderSkipped: false as const,
+        },
+        {
+          label: "Gastos",
+          data: data.cash_flow_chart.expense,
+          backgroundColor: "rgba(248, 113, 113, 0.7)",
+          borderRadius: 8,
+          borderSkipped: false as const,
+        },
+      ],
+    };
+  }, [data]);
+
+  const expenseDistributionChartData = useMemo(() => {
+    if (!data || data.expense_distribution.categories.length === 0) {
+      return null;
+    }
+    const palette = [
+      "#38bdf8",
+      "#f97316",
+      "#a855f7",
+      "#22c55e",
+      "#facc15",
+      "#f43f5e",
+      "#14b8a6",
+    ];
+    return {
+      labels: data.expense_distribution.categories,
+      datasets: [
+        {
+          label: "Gasto",
+          data: data.expense_distribution.amounts,
+          backgroundColor: data.expense_distribution.amounts.map(
+            (_, index) => palette[index % palette.length],
+          ),
+          borderRadius: 8,
+          borderSkipped: false as const,
+        },
+      ],
+    };
+  }, [data]);
+
+  const expenseTypeChartData = useMemo(() => {
+    if (!data || data.expense_type_comparison.labels.length === 0) {
+      return null;
+    }
+    const palette = [
+      "#38bdf8",
+      "#f97316",
+      "#a855f7",
+      "#22c55e",
+      "#facc15",
+      "#f43f5e",
+      "#14b8a6",
+    ];
+    return {
+      labels: data.expense_type_comparison.labels,
+      datasets: [
+        {
+          label: "Gasto",
+          data: data.expense_type_comparison.amounts,
+          backgroundColor: data.expense_type_comparison.amounts.map(
+            (_, index) => palette[index % palette.length],
+          ),
+          borderColor: "rgba(30, 41, 59, 0.4)",
+          borderWidth: 1,
+        },
+      ],
+    };
+  }, [data]);
+
+  const netWorthOptions = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        labels: {
+          color: "#94a3b8",
+        },
+      },
+      tooltip: {
+        callbacks: {
+          label: (context: any) => formatCurrency(context.parsed.y),
+        },
+      },
+    },
+    scales: {
+      x: {
+        ticks: {
+          color: "#94a3b8",
+        },
+        grid: {
+          color: "rgba(148, 163, 184, 0.1)",
+        },
+      },
+      y: {
+        ticks: {
+          color: "#94a3b8",
+          callback: (value: string | number) => formatCurrency(Number(value)),
+        },
+        grid: {
+          color: "rgba(148, 163, 184, 0.1)",
+        },
+      },
+    },
+  }), []);
+
+  const barOptions = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        labels: {
+          color: "#94a3b8",
+        },
+      },
+      tooltip: {
+        callbacks: {
+          label: (context: any) => `${context.dataset.label}: ${formatCurrency(context.parsed.y)}`,
+        },
+      },
+    },
+    scales: {
+      x: {
+        ticks: { color: "#94a3b8" },
+        grid: { color: "rgba(148, 163, 184, 0.08)" },
+      },
+      y: {
+        ticks: {
+          color: "#94a3b8",
+          callback: (value: string | number) => formatCurrency(Number(value)),
+        },
+        grid: { color: "rgba(148, 163, 184, 0.08)" },
+      },
+    },
+  }), []);
+
+  const doughnutOptions = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: "bottom" as const,
+        labels: {
+          color: "#94a3b8",
+          padding: 16,
+        },
+      },
+      tooltip: {
+        callbacks: {
+          label: (context: any) => `${context.label}: ${formatCurrency(context.parsed)}`,
+        },
+      },
+    },
+  }), []);
+
+  const accounts = data?.accounts ?? [];
+  const activeAccount = accounts[activeAccountIndex] ?? null;
 
   return (
-    <div className="space-y-8">
-      <h1 className="text-3xl font-bold text-white">Dashboard</h1>
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h1 className="text-3xl font-semibold text-white">Dashboard</h1>
+          <p className="mt-1 text-sm text-slate-400">
+            Controla tus finanzas personales con una vista integral de tu patrimonio.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex flex-col text-sm text-slate-400">
+            <span className="mb-1 inline-flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500">
+              <Calendar className="h-4 w-4" /> Año
+            </span>
+            <select
+              value={year}
+              onChange={(event) => setYear(Number(event.target.value))}
+              className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-white focus:border-sky-500 focus:outline-none"
+            >
+              {Array.from({ length: 7 }).map((_, index) => {
+                const optionYear = currentYear - 3 + index;
+                return (
+                  <option key={optionYear} value={optionYear}>
+                    {optionYear}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+          <div className="flex flex-col">
+            <span className="mb-1 inline-flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500">
+              <PieChart className="h-4 w-4" /> Meses
+            </span>
+            <MonthMultiSelect
+              value={selectedMonths}
+              onChange={setSelectedMonths}
+            />
+          </div>
+        </div>
+      </div>
 
-      {/* Sección de KPIs */}
-      {!kpiData ? (
-        <p>Cargando KPIs...</p>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <KpiCard
-            title="Balance Total"
-            value={kpiData.total_balance.toString()}
-          />
-          <KpiCard title="Ingresos (Mes)" value={kpiData.income.toString()} />
-          <KpiCard title="Gastos (Mes)" value={kpiData.expenses.toString()} />
-          <KpiCard
-            title="Ahorro Neto (Mes)"
-            value={kpiData.net_income.toString()}
-          />
+      {isLoading && (
+        <div className="flex min-h-[200px] items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/60 text-slate-400">
+          Cargando información...
         </div>
       )}
 
-      {/* Sección de Gráficos y Metas */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2">
-          {!chartData ? (
-            <p>Cargando gráfico...</p>
-          ) : (
-            <IncomeExpenseChart
-              data={{
-                labels: chartData.labels,
-                income_data: chartData.income_data,
-                expense_data: chartData.expense_data,
-              }}
-            />
-          )}
+      {error && !isLoading && (
+        <div className="rounded-2xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-200">
+          {error}
         </div>
+      )}
 
-        {/* --- 6. NUEVA Sección de Metas --- */}
-        <div className="space-y-4">
-          <h2 className="text-xl font-semibold text-white">
-            Metas Financieras
-          </h2>
-          {!goalsData ? (
-            <p>Cargando metas...</p>
-          ) : goalsData.length > 0 ? (
-            goalsData.map((goal) => (
-              <GoalProgressCard
-                key={goal.name}
-                goal={goal}
-                onEdit={() => {/* implement edit logic or leave empty */}}
-                onDelete={() => {/* implement delete logic or leave empty */}}
+      {!isLoading && !error && data && (
+        <>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <KpiCard
+              title="Ganancias"
+              value={formatCurrency(data.kpis.income.amount)}
+              comparison={data.kpis.income.comparison}
+              icon={<TrendingUp className="h-5 w-5" />}
+            />
+            <KpiCard
+              title="Gastos"
+              value={formatCurrency(data.kpis.expense.amount)}
+              comparison={data.kpis.expense.comparison}
+              inverse
+              icon={<TrendingDown className="h-5 w-5" />}
+            />
+            <KpiCard
+              title="Ahorro Neto"
+              value={formatCurrency(data.kpis.net.amount)}
+              comparison={data.kpis.net.comparison}
+              icon={<Wallet className="h-5 w-5" />}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+            <div className="space-y-6 xl:col-span-2">
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-lg font-semibold text-white">
+                      {activeChart === "netWorth"
+                        ? "Evolución de Patrimonio Neto"
+                        : "Flujo de Efectivo Mensual"}
+                    </h2>
+                    <p className="text-sm text-slate-400">
+                      Visualiza tendencias y anticipa tus necesidades de efectivo.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setActiveChart("netWorth")}
+                      className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                        activeChart === "netWorth"
+                          ? "bg-sky-500 text-white"
+                          : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                      }`}
+                    >
+                      Patrimonio
+                    </button>
+                    <button
+                      onClick={() => setActiveChart("cashFlow")}
+                      className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                        activeChart === "cashFlow"
+                          ? "bg-sky-500 text-white"
+                          : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                      }`}
+                    >
+                      Flujo
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-6 h-80">
+                  {activeChart === "netWorth" ? (
+                    netWorthChartData && netWorthChartData.labels.length > 0 ? (
+                      <Line data={netWorthChartData} options={netWorthOptions} />
+                    ) : (
+                      <EmptyState message="Sin movimientos suficientes para mostrar la evolución." />
+                    )
+                  ) : cashFlowChartData && cashFlowChartData.labels.length > 0 ? (
+                    <Bar data={cashFlowChartData} options={barOptions} />
+                  ) : (
+                    <EmptyState message="Aún no hay flujo de efectivo registrado." />
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                <BudgetSummaryCard
+                  title="Ingresos PPTO"
+                  summary={data.budget_vs_actual.income}
+                  accentClass="from-emerald-500/80 to-sky-500/80"
+                />
+                <BudgetSummaryCard
+                  title="Gastos PPTO"
+                  summary={data.budget_vs_actual.expense}
+                  accentClass="from-rose-500/80 to-orange-500/80"
+                />
+              </div>
+
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold text-white">Metas activas</h2>
+                  <Target className="h-5 w-5 text-sky-400" />
+                </div>
+                <p className="mt-1 text-sm text-slate-400">
+                  Da seguimiento a tus objetivos financieros y mantén la motivación.
+                </p>
+                <div className="mt-4 space-y-3">
+                  {data.goals.length > 0 ? (
+                    data.goals.map((goal) => (
+                      <GoalProgressCard
+                        key={goal.id}
+                        goal={goal}
+                      />
+                    ))
+                  ) : (
+                    <EmptyState message="No has definido metas todavía." />
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <BudgetRuleCard rules={data.budget_rule_control} incomeTotal={data.kpis.income.amount} />
+              <AccountsCard
+                accounts={accounts}
+                activeIndex={activeAccountIndex}
+                onPrev={() =>
+                  setActiveAccountIndex((prev) =>
+                    prev === 0 ? accounts.length - 1 : prev - 1,
+                  )
+                }
+                onNext={() =>
+                  setActiveAccountIndex((prev) =>
+                    prev === accounts.length - 1 ? 0 : prev + 1,
+                  )
+                }
+                activeAccount={activeAccount}
               />
-            ))
-          ) : (
-            <p className="text-gray-400">No hay metas activas.</p>
-          )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
+            <div className="lg:col-span-1 xl:col-span-2 rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-white">Distribución de gastos</h2>
+                <PieChart className="h-5 w-5 text-sky-400" />
+              </div>
+              <p className="mt-1 text-sm text-slate-400">
+                Identifica en qué categorías se concentra tu gasto.
+              </p>
+              <div className="mt-6 h-80">
+                {expenseDistributionChartData ? (
+                  <Bar data={expenseDistributionChartData} options={barOptions} />
+                ) : (
+                  <EmptyState message="Aún no registras gastos para este periodo." />
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-white">Gastos por tipo</h2>
+                <PieChart className="h-5 w-5 text-sky-400" />
+              </div>
+              <p className="mt-1 text-sm text-slate-400">
+                Compara gastos fijos, variables y otros compromisos.
+              </p>
+              <div className="mt-6 h-72">
+                {expenseTypeChartData ? (
+                  <Doughnut data={expenseTypeChartData} options={doughnutOptions} />
+                ) : (
+                  <EmptyState message="No hay datos de gastos para comparar." />
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function MonthMultiSelect({ value, onChange }: MonthMultiSelectProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const toggleMonth = (month: number) => {
+    const exists = value.includes(month);
+    let updated = exists
+      ? value.filter((item) => item !== month)
+      : [...value, month];
+    updated = [...new Set(updated)].sort((a, b) => a - b);
+    onChange(updated);
+  };
+
+  const toggleAll = () => {
+    if (value.length === MONTH_OPTIONS.length) {
+      onChange([]);
+    } else {
+      onChange(MONTH_OPTIONS.map((option) => option.value));
+    }
+  };
+
+  const label = (() => {
+    if (value.length === 0) return "Todo el año";
+    if (value.length === 12) return "Todos los meses";
+    if (value.length === 1) {
+      const found = MONTH_OPTIONS.find((month) => month.value === value[0]);
+      return found ? found.label : "1 mes";
+    }
+    return `${value.length} meses seleccionados`;
+  })();
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        onClick={() => setIsOpen((previous) => !previous)}
+        className="flex items-center justify-between gap-3 rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:border-slate-600 focus:border-sky-500 focus:outline-none"
+      >
+        {label}
+        <span className="text-xs text-slate-400">▼</span>
+      </button>
+      {isOpen && (
+        <div className="absolute right-0 z-20 mt-2 w-56 rounded-xl border border-slate-700 bg-slate-900/95 p-4 shadow-xl">
+          <button
+            onClick={toggleAll}
+            className="w-full rounded-lg bg-slate-800 px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-slate-300 hover:bg-slate-700"
+          >
+            {value.length === MONTH_OPTIONS.length
+              ? "Limpiar selección"
+              : "Seleccionar todo"}
+          </button>
+          <div className="mt-3 grid max-h-64 grid-cols-2 gap-2 overflow-y-auto pr-1 text-sm">
+            {MONTH_OPTIONS.map((month) => (
+              <label
+                key={month.value}
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-slate-200 hover:bg-slate-800"
+              >
+                <input
+                  type="checkbox"
+                  checked={value.includes(month.value)}
+                  onChange={() => toggleMonth(month.value)}
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500 focus:ring-sky-500"
+                />
+                {month.label}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BudgetSummaryCard({
+  title,
+  summary,
+  accentClass,
+}: {
+  title: string;
+  summary: BudgetSummary;
+  accentClass: string;
+}) {
+  const execution = summary.execution ?? 0;
+  const progress = Math.max(0, Math.min(100, execution));
+
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
+      <div className="flex items-center justify-between">
+        <h3 className="text-base font-semibold text-white">{title}</h3>
+        <span className="text-xs font-medium text-slate-400">
+          {summary.execution ? formatPercentage(summary.execution) : "—"}
+        </span>
+      </div>
+      <p className="mt-1 text-sm text-slate-400">
+        Planificado: <span className="font-semibold text-slate-100">{formatCurrency(summary.budgeted)}</span>
+      </p>
+      <p className="mt-1 text-sm text-slate-400">
+        Real: <span className="font-semibold text-slate-100">{formatCurrency(summary.actual)}</span>
+      </p>
+      <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-800">
+        <div
+          className={`h-full rounded-full bg-gradient-to-r ${accentClass}`}
+          style={{ width: `${progress}%` }}
+        ></div>
+      </div>
+      <div className="mt-3 text-xs text-slate-400">
+        Variación: <span className="font-semibold text-slate-200">{formatSignedCurrency(summary.difference)}</span>
+      </div>
+      <div className="mt-1 text-xs text-slate-400">
+        Restante: <span className="font-semibold text-slate-200">{formatSignedCurrency(summary.remaining)}</span>
+      </div>
+    </div>
+  );
+}
+
+function BudgetRuleCard({
+  rules,
+  incomeTotal,
+}: {
+  rules: BudgetRuleItem[];
+  incomeTotal: number;
+}) {
+  if (!rules.length) {
+    return (
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
+        <h2 className="text-lg font-semibold text-white">Control de gastos</h2>
+        <EmptyState message="Aún no has configurado reglas de presupuesto." />
+      </div>
+    );
+  }
+
+  const stateClasses: Record<BudgetRuleItem["state"], string> = {
+    ok: "bg-emerald-500/80",
+    warning: "bg-amber-400/80",
+    critical: "bg-rose-500/80",
+    neutral: "bg-slate-500/60",
+  };
+
+  const stateLabels: Record<BudgetRuleItem["state"], string> = {
+    ok: "En rango",
+    warning: "Revisa",
+    critical: "Excedido",
+    neutral: "Sin datos",
+  };
+
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-white">Control de gastos</h2>
+        <span className="text-xs text-slate-400">Basado en {formatCurrency(incomeTotal)} de ingresos</span>
+      </div>
+      <div className="mt-5 space-y-4">
+        {rules.map((rule) => {
+          const percent = Math.min(150, Math.max(0, rule.actual_percent));
+          return (
+            <div key={rule.name} className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-semibold text-white">{rule.name}</span>
+                <span className="text-xs text-slate-400">Ideal {rule.ideal_percent.toFixed(0)}%</span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                <div
+                  className={`h-full ${stateClasses[rule.state]}`}
+                  style={{ width: `${percent}%` }}
+                ></div>
+              </div>
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span>{formatCurrency(rule.actual_amount)}</span>
+                <span className="font-semibold text-slate-200">
+                  {formatPercentage(rule.actual_percent)} • {stateLabels[rule.state]}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AccountsCard({
+  accounts,
+  activeIndex,
+  activeAccount,
+  onPrev,
+  onNext,
+}: {
+  accounts: AccountSummary[];
+  activeIndex: number;
+  activeAccount: AccountSummary | null;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-white">Cuentas</h2>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onPrev}
+            disabled={accounts.length <= 1}
+            className="rounded-full border border-slate-700 p-2 text-slate-300 transition hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <button
+            onClick={onNext}
+            disabled={accounts.length <= 1}
+            className="rounded-full border border-slate-700 p-2 text-slate-300 transition hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
         </div>
       </div>
+      {activeAccount ? (
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-sky-500 via-blue-500 to-indigo-500 p-6 text-white">
+          <div className="text-sm uppercase tracking-wide text-white/70">
+            {activeAccount.account_type}
+          </div>
+          <div className="mt-3 text-3xl font-semibold">
+            {formatCurrency(activeAccount.current_balance)}
+          </div>
+          <div className="mt-8 text-sm">
+            <p className="font-medium">{activeAccount.name}</p>
+            <p className="text-xs text-white/70">
+              Variación {formatSignedCurrency(activeAccount.current_balance - activeAccount.initial_balance)}
+            </p>
+          </div>
+          {accounts.length > 1 && (
+            <span className="absolute bottom-4 right-6 text-xs font-medium text-white/70">
+              {activeIndex + 1} / {accounts.length}
+            </span>
+          )}
+        </div>
+      ) : (
+        <EmptyState message="Aún no has creado cuentas." />
+      )}
+    </div>
+  );
+}
+
+function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-900/40 px-4 py-8 text-center text-sm text-slate-500">
+      {message}
     </div>
   );
 }

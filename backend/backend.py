@@ -134,6 +134,13 @@ def get_transactions(
 
     return controller.get_transactions_data(filters if filters else None)
 
+
+@app.get("/api/dashboard")
+def get_dashboard(year: int, months: Optional[List[int]] = Query(None)):
+    month_values = list(months) if months else []
+    return controller.get_dashboard_data(year, month_values)
+
+
 @app.post("/api/transactions", status_code=201)
 def create_transaction(transaction: TransactionModel):
     result = controller.add_transaction(transaction.dict())

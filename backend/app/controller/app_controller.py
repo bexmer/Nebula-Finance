@@ -77,59 +77,76 @@ class AppController:
     # --- SECCIÓN: DASHBOARD ---
     # =================================================================
     
-    def get_dashboard_data(self, year, months):
+    def get_dashboard_data(self, year: int, months: Optional[Iterable[int]]):
         """Agrega y devuelve todos los datos necesarios para el Dashboard."""
-        
-        # Lógica de KPIs (Ingresos, Gastos, Ahorro)
-        kpis = self._get_dashboard_kpis(year, months)
 
-        # Lógica para Gráfico de Patrimonio Neto
+        month_list = list(months) if months else []
+        transactions = list(self._get_transactions_for_period(year, month_list))
+
+        kpis = self._get_dashboard_kpis(year, month_list, transactions)
         net_worth_data = self._get_net_worth_data_for_chart()
-        
-        # Lógica para Gráfico de Flujo de Efectivo
-        cash_flow_data = self._get_cash_flow_data_for_chart(year, months)
+        cash_flow_data = self._get_cash_flow_data_for_chart(year, month_list)
 
-        # Lógica para Resumen de Metas
         goals_summary = self.get_goals_summary()
 
-        # Lógica para Cuentas
-        accounts_summary = self.get_accounts_data_for_view()
-        
+        accounts_summary = [
+            {
+                "id": account.id,
+                "name": account.name,
+                "account_type": account.account_type,
+                "initial_balance": float(account.initial_balance or 0),
+                "current_balance": float(account.current_balance or 0),
+            }
+            for account in Account.select().order_by(Account.name)
+        ]
+
+        budget_vs_actual = self._get_budget_vs_actual_summary(year, month_list, transactions)
+        budget_rule_control = self._get_budget_rule_control(transactions, kpis["income"]["amount"])
+        expense_distribution = self._get_expense_distribution(transactions)
+        expense_type_comparison = self._get_expense_type_comparison(transactions)
+
         dashboard_data = {
             "kpis": kpis,
             "net_worth_chart": net_worth_data,
             "cash_flow_chart": cash_flow_data,
-            "goals_summary": goals_summary,
-            "accounts_summary": accounts_summary,
-            # ... se pueden añadir más datos aquí (presupuesto, distribución de gastos, etc.)
+            "goals": goals_summary,
+            "accounts": accounts_summary,
+            "budget_vs_actual": budget_vs_actual,
+            "budget_rule_control": budget_rule_control,
+            "expense_distribution": expense_distribution,
+            "expense_type_comparison": expense_type_comparison,
         }
         return dashboard_data
 
-    def _get_dashboard_kpis(self, year, months):
+    def _get_dashboard_kpis(self, year: int, months: List[int], transactions: Optional[List[Transaction]] = None):
         """Calcula los KPIs de ingresos, gastos y ahorro para el período seleccionado."""
         start_date, end_date = self._get_date_range(year, months)
-        
-        # Periodo actual
-        current_trans = list(Transaction.select().where(Transaction.date.between(start_date, end_date)))
-        income = sum(t.amount for t in current_trans if t.type == "Ingreso")
-        expense = sum(t.amount for t in current_trans if t.type != "Ingreso")
+
+        if transactions is None:
+            transactions = list(Transaction.select().where(Transaction.date.between(start_date, end_date)))
+
+        income = sum(float(t.amount or 0) for t in transactions if t.type == "Ingreso")
+        expense = sum(abs(float(t.amount or 0)) for t in transactions if t.type != "Ingreso")
         net = income - expense
 
-        # Periodo anterior para comparación
         num_months = len(months) if months else 12
         previous_start = start_date - relativedelta(months=num_months)
         previous_end = start_date - relativedelta(days=1)
-        
-        previous_trans = list(Transaction.select().where(Transaction.date.between(previous_start, previous_end)))
-        prev_income = sum(t.amount for t in previous_trans if t.type == "Ingreso")
-        prev_expense = sum(t.amount for t in previous_trans if t.type != "Ingreso")
 
-        income_comp = ((income - prev_income) / prev_income * 100) if prev_income > 0 else None
-        expense_comp = ((expense - prev_expense) / prev_expense * 100) if prev_expense > 0 else None
-        
+        previous_trans = list(Transaction.select().where(Transaction.date.between(previous_start, previous_end)))
+        prev_income = sum(float(t.amount or 0) for t in previous_trans if t.type == "Ingreso")
+        prev_expense = sum(abs(float(t.amount or 0)) for t in previous_trans if t.type != "Ingreso")
+        prev_net = prev_income - prev_expense
+
+        def _comparison(current_value, previous_value):
+            if previous_value is None or previous_value == 0:
+                return None
+            return ((current_value - previous_value) / abs(previous_value)) * 100
+
         return {
-            "income": income, "expense": expense, "net": net,
-            "income_comparison": income_comp, "expense_comparison": expense_comp
+            "income": {"amount": income, "comparison": _comparison(income, prev_income)},
+            "expense": {"amount": expense, "comparison": _comparison(expense, prev_expense)},
+            "net": {"amount": net, "comparison": _comparison(net, prev_net)},
         }
 
     def _get_net_worth_data_for_chart(self):
@@ -149,26 +166,168 @@ class AppController:
             values.append(total_balance - liabilities)
         return {"dates": dates, "values": values}
 
-    def _get_cash_flow_data_for_chart(self, year, months):
+    def _get_cash_flow_data_for_chart(self, year: int, months: List[int]):
         """Prepara los datos para el gráfico de flujo de efectivo mensual."""
-        start_date, _ = self._get_date_range(year, months)
+        start_date, end_date = self._get_date_range(year, months)
 
-        query = (Transaction
-                 .select(fn.strftime('%Y-%m', Transaction.date).alias('month'),
-                         fn.SUM(Transaction.amount).alias('total'),
-                         Transaction.type)
-                 .where(Transaction.date >= start_date)
-                 .group_by(fn.strftime('%Y-%m', Transaction.date), Transaction.type)
-                 .order_by(fn.strftime('%Y-%m', Transaction.date)))
+        query = (
+            Transaction
+            .select(fn.strftime('%Y-%m', Transaction.date).alias('month'),
+                    fn.SUM(Transaction.amount).alias('total'),
+                    Transaction.type)
+            .where((Transaction.date >= start_date) & (Transaction.date <= end_date))
+            .group_by(fn.strftime('%Y-%m', Transaction.date), Transaction.type)
+            .order_by(fn.strftime('%Y-%m', Transaction.date))
+        )
 
-        monthly_data = defaultdict(lambda: {'income': 0, 'expense': 0})
+        monthly_data: Dict[str, Dict[str, float]] = defaultdict(lambda: {'income': 0.0, 'expense': 0.0})
         for row in query.dicts():
+            month_key = row['month']
+            amount = float(row['total'] or 0)
             if row['type'] == 'Ingreso':
-                monthly_data[row['month']]['income'] = row['total']
+                monthly_data[month_key]['income'] = amount
             else:
-                monthly_data[row['month']]['expense'] += row['total']
+                monthly_data[month_key]['expense'] += abs(amount)
 
-        return dict(sorted(monthly_data.items()))
+        sorted_items = sorted(monthly_data.items())
+        labels = [month for month, _ in sorted_items]
+        income_data = [values['income'] for _, values in sorted_items]
+        expense_data = [values['expense'] for _, values in sorted_items]
+
+        return {
+            "months": labels,
+            "income": income_data,
+            "expense": expense_data,
+        }
+
+    def _get_transactions_for_period(self, year: int, months: List[int]):
+        """Obtiene las transacciones dentro del periodo seleccionado."""
+        start_date, end_date = self._get_date_range(year, months)
+        return Transaction.select().where(Transaction.date.between(start_date, end_date))
+
+    def _get_budget_vs_actual_summary(
+        self,
+        year: int,
+        months: List[int],
+        transactions: List[Transaction],
+    ):
+        """Construye el resumen de presupuesto vs. gasto real para ingresos y gastos."""
+
+        start_date, end_date = self._get_date_range(year, months)
+        entries = list(BudgetEntry.select().where(BudgetEntry.due_date.between(start_date, end_date)))
+
+        budgeted_income = 0.0
+        budgeted_expense = 0.0
+        for entry in entries:
+            amount = float(getattr(entry, 'budgeted_amount', 0) or 0)
+            if entry.type == 'Ingreso':
+                budgeted_income += amount
+            else:
+                budgeted_expense += amount
+
+        actual_income = sum(float(t.amount or 0) for t in transactions if t.type == 'Ingreso')
+        actual_expense = sum(abs(float(t.amount or 0)) for t in transactions if t.type != 'Ingreso')
+
+        def _build_summary(budgeted: float, actual: float) -> Dict[str, Optional[float]]:
+            execution = (actual / budgeted * 100) if budgeted else None
+            return {
+                "budgeted": budgeted,
+                "actual": actual,
+                "difference": actual - budgeted,
+                "remaining": budgeted - actual,
+                "execution": execution,
+            }
+
+        return {
+            "income": _build_summary(budgeted_income, actual_income),
+            "expense": _build_summary(budgeted_expense, actual_expense),
+        }
+
+    def _get_budget_rule_control(self, transactions: List[Transaction], total_income: float):
+        """Calcula el cumplimiento de las reglas de presupuesto basadas en el ingreso."""
+
+        parameters = Parameter.select().where(Parameter.group == 'Tipo de Transacción')
+        type_to_rule = {}
+        for param in parameters:
+            if param.budget_rule_id:
+                type_to_rule[param.value] = param.budget_rule
+
+        totals: Dict[str, float] = defaultdict(float)
+        for transaction in transactions:
+            if transaction.type == 'Ingreso':
+                continue
+            amount = abs(float(transaction.amount or 0))
+            rule = type_to_rule.get(transaction.type)
+            if rule:
+                totals[rule.name] += amount
+            else:
+                totals['Sin Regla'] += amount
+
+        results = []
+        for rule in BudgetRule.select().order_by(BudgetRule.id):
+            actual_amount = totals.pop(rule.name, 0.0)
+            actual_percent = (actual_amount / total_income * 100) if total_income else 0.0
+            if total_income == 0:
+                state = 'neutral'
+            elif actual_percent <= rule.percentage * 0.95:
+                state = 'ok'
+            elif actual_percent <= rule.percentage * 1.1:
+                state = 'warning'
+            else:
+                state = 'critical'
+
+            results.append({
+                "name": rule.name,
+                "ideal_percent": rule.percentage,
+                "actual_amount": actual_amount,
+                "actual_percent": actual_percent,
+                "state": state,
+            })
+
+        other_amount = totals.pop('Sin Regla', 0.0)
+        if other_amount:
+            actual_percent = (other_amount / total_income * 100) if total_income else 0.0
+            results.append({
+                "name": 'Sin Regla',
+                "ideal_percent": 0.0,
+                "actual_amount": other_amount,
+                "actual_percent": actual_percent,
+                "state": 'warning' if actual_percent else 'neutral',
+            })
+
+        return results
+
+    def _get_expense_distribution(self, transactions: List[Transaction]):
+        """Distribución de gastos por categoría para gráficas de barras."""
+
+        totals: Dict[str, float] = defaultdict(float)
+        for transaction in transactions:
+            if transaction.type == 'Ingreso':
+                continue
+            category = transaction.category or 'Sin categoría'
+            totals[category] += abs(float(transaction.amount or 0))
+
+        sorted_items = sorted(totals.items(), key=lambda item: item[1], reverse=True)
+        categories = [item[0] for item in sorted_items]
+        amounts = [item[1] for item in sorted_items]
+
+        return {"categories": categories, "amounts": amounts}
+
+    def _get_expense_type_comparison(self, transactions: List[Transaction]):
+        """Distribución de gastos por tipo (ej. fijo, variable)."""
+
+        totals: Dict[str, float] = defaultdict(float)
+        for transaction in transactions:
+            if transaction.type == 'Ingreso':
+                continue
+            label = transaction.type or 'Sin tipo'
+            totals[label] += abs(float(transaction.amount or 0))
+
+        sorted_items = sorted(totals.items(), key=lambda item: item[1], reverse=True)
+        labels = [item[0] for item in sorted_items]
+        amounts = [item[1] for item in sorted_items]
+
+        return {"labels": labels, "amounts": amounts}
 
     def get_cash_flow_analysis(self, year: Optional[int] = None, month: Optional[int] = None):
         """Obtiene el flujo de efectivo agrupado por categoría para un período."""
