@@ -74,18 +74,16 @@ class DebtModel(BaseModel):
     total_amount: float
     current_balance: float
 
-class DebtCreateModel(BaseModel):
-    name: str
-    total_amount: float
-    minimum_payment: Optional[float] = 0
-    interest_rate: Optional[float] = 0
 
-class DebtUpdateModel(BaseModel):
-    name: Optional[str] = None
-    total_amount: Optional[float] = None
-    current_balance: Optional[float] = None
-    minimum_payment: Optional[float] = None
-    interest_rate: Optional[float] = None
+class BudgetEntryPayload(BaseModel):
+    description: Optional[str] = None
+    category: str
+    type: str = "Gasto"
+    amount: Optional[float] = None
+    budgeted_amount: Optional[float] = None
+    month: Optional[int] = None
+    year: Optional[int] = None
+    due_date: Optional[datetime.date] = None
 
 # ===============================================
 # --- ENDPOINTS DE LA API ---
@@ -218,71 +216,35 @@ def get_transaction(transaction_id: int):
     return transaction
 
 
-def _resolve_year_and_months(year: Optional[int], months: Optional[List[int]]):
-    """Helper to resolve dashboard query parameters with sensible defaults."""
-    today = datetime.date.today()
-    resolved_year = year or today.year
-    resolved_months = months or list(range(1, today.month + 1))
-    return resolved_year, resolved_months
+@app.get("/api/budget")
+def get_budget_entries():
+    return controller.get_budget_entries()
 
 
-@app.get("/api/dashboard-kpis")
-def get_dashboard_kpis(year: Optional[int] = None, months: Optional[List[int]] = Query(None)):
-    resolved_year, resolved_months = _resolve_year_and_months(year, months)
-    dashboard_data = controller.get_dashboard_data(resolved_year, resolved_months)
-    kpis = dashboard_data.get("kpis", {})
-    accounts_summary = dashboard_data.get("accounts_summary", [])
-
-    total_balance = sum(float(account.get("current_balance", 0) or 0) for account in accounts_summary)
-    income = float(kpis.get("income", 0) or 0)
-    raw_expense = float(kpis.get("expense", 0) or 0)
-    expenses = abs(raw_expense)
-    net_income = float(kpis.get("net", income - expenses) or 0)
-
-    return {
-        "total_balance": total_balance,
-        "income": income,
-        "expenses": expenses,
-        "net_income": net_income,
-    }
+@app.post("/api/budget", status_code=201)
+def create_budget_entry(entry: BudgetEntryPayload):
+    result = controller.add_budget_entry(entry.model_dump(exclude_unset=True))
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
 
 
-@app.get("/api/charts/income-expense")
-def get_income_expense_chart(year: Optional[int] = None, months: Optional[List[int]] = Query(None)):
-    resolved_year, resolved_months = _resolve_year_and_months(year, months)
-    cash_flow = controller._get_cash_flow_data_for_chart(resolved_year, resolved_months)
-
-    labels, income_data, expense_data = [], [], []
-    for month, values in cash_flow.items():
-        labels.append(month)
-        income_data.append(float(values.get("income", 0) or 0))
-        expense_value = float(values.get("expense", 0) or 0)
-        expense_data.append(abs(expense_value))
-
-    return {
-        "labels": labels,
-        "income_data": income_data,
-        "expense_data": expense_data,
-    }
+@app.put("/api/budget/{entry_id}")
+def update_budget_entry(entry_id: int, entry: BudgetEntryPayload):
+    result = controller.update_budget_entry(entry_id, entry.model_dump(exclude_unset=True))
+    if "error" in result:
+        if result["error"] == "La entrada de presupuesto no existe.":
+            raise HTTPException(status_code=404, detail=result["error"])
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
 
 
-@app.get("/api/dashboard-goals")
-def get_dashboard_goals():
-    goals = controller.get_goals_summary()
-    normalized_goals = []
-    for goal in goals:
-        target_amount = float(goal.get("target_amount", 0) or 0)
-        current_amount = float(goal.get("current_amount", 0) or 0)
-        percentage = (current_amount / target_amount * 100) if target_amount else 0.0
-        normalized_goals.append({
-            "id": goal.get("id"),
-            "name": goal.get("name"),
-            "target_amount": target_amount,
-            "current_amount": current_amount,
-            "percentage": percentage,
-        })
-
-    return normalized_goals
+@app.delete("/api/budget/{entry_id}")
+def delete_budget_entry(entry_id: int):
+    result = controller.delete_budget_entry(entry_id)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
 
 # ===============================================
 # --- INICIADOR DEL SERVIDOR ---

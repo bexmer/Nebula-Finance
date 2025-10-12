@@ -514,23 +514,106 @@ class AppController:
     # --- SECCIÓN: PRESUPUESTO (Budget) ---
     # =================================================================
 
+    def _serialize_budget_entry(self, entry):
+        """Convierte una entrada de presupuesto en un diccionario apto para la API."""
+        due_date = entry.due_date if hasattr(entry, "due_date") else None
+        if due_date is not None and not isinstance(due_date, datetime.date):
+            # Peewee puede devolver strings si se utilizan .dicts()
+            if isinstance(due_date, str):
+                due_date = datetime.date.fromisoformat(due_date)
+
+        month = due_date.month if due_date else None
+        year = due_date.year if due_date else None
+
+        is_dict = isinstance(entry, dict)
+
+        return {
+            "id": entry["id"] if is_dict else entry.id,
+            "description": entry.get("description") if is_dict else entry.description,
+            "category": entry.get("category") if is_dict else entry.category,
+            "type": entry.get("type") if is_dict else entry.type,
+            "amount": entry.get("budgeted_amount") if is_dict else entry.budgeted_amount,
+            "budgeted_amount": entry.get("budgeted_amount")
+            if is_dict
+            else entry.budgeted_amount,
+            "due_date": due_date.isoformat() if due_date else None,
+            "month": month,
+            "year": year,
+        }
+
+    def _prepare_budget_payload(self, data, existing_entry=None):
+        """Normaliza los datos recibidos desde la API para la base de datos."""
+        try:
+            category = data["category"]
+            entry_type = data.get("type", "Gasto")
+            if data.get("description"):
+                description = data["description"]
+            elif existing_entry is not None:
+                description = existing_entry.description
+            else:
+                description = category
+
+            raw_amount = data.get("budgeted_amount")
+            if raw_amount is None:
+                raw_amount = data.get("amount")
+            if raw_amount is None:
+                raise KeyError("budgeted_amount")
+            amount = float(raw_amount)
+
+            raw_due_date = data.get("due_date")
+            if raw_due_date:
+                if isinstance(raw_due_date, datetime.datetime):
+                    due_date = raw_due_date.date()
+                elif isinstance(raw_due_date, datetime.date):
+                    due_date = raw_due_date
+                else:
+                    due_date = datetime.date.fromisoformat(str(raw_due_date))
+            else:
+                if existing_entry and existing_entry.due_date:
+                    default_month = existing_entry.due_date.month
+                    default_year = existing_entry.due_date.year
+                else:
+                    today = datetime.date.today()
+                    default_month = today.month
+                    default_year = today.year
+                month = int(data.get("month", default_month))
+                year = int(data.get("year", default_year))
+                due_date = datetime.date(year, month, 1)
+
+            return {
+                "description": description,
+                "category": category,
+                "type": entry_type,
+                "budgeted_amount": amount,
+                "due_date": due_date,
+            }
+        except (ValueError, KeyError) as e:
+            raise ValueError(f"Datos de presupuesto inválidos: {e}")
+
     def get_budget_entries(self, filters=None):
         """Obtiene las entradas del presupuesto."""
-        return list(BudgetEntry.select().order_by(BudgetEntry.due_date.desc()).dicts())
+        entries = BudgetEntry.select().order_by(BudgetEntry.due_date.desc())
+        return [self._serialize_budget_entry(entry) for entry in entries]
 
     def add_budget_entry(self, data):
         try:
-            amount = float(data['budgeted_amount'])
-            entry = BudgetEntry.create(
-                description=data['description'],
-                category=data['category'],
-                type=data['type'],
-                budgeted_amount=amount,
-                due_date=data['due_date']
-            )
-            return entry._data
-        except (ValueError, KeyError) as e:
-            return {"error": f"Datos de presupuesto inválidos: {e}"}
+            payload = self._prepare_budget_payload(data)
+            entry = BudgetEntry.create(**payload)
+            return self._serialize_budget_entry(entry)
+        except ValueError as e:
+            return {"error": str(e)}
+
+    def update_budget_entry(self, entry_id, data):
+        try:
+            entry = BudgetEntry.get_by_id(entry_id)
+            payload = self._prepare_budget_payload(data, existing_entry=entry)
+            BudgetEntry.update(**payload).where(BudgetEntry.id == entry_id).execute()
+            updated_entry = BudgetEntry.get_by_id(entry_id)
+            return self._serialize_budget_entry(updated_entry)
+        except BudgetEntry.DoesNotExist:
+            return {"error": "La entrada de presupuesto no existe."}
+        except ValueError as e:
+            return {"error": str(e)}
 
     def delete_budget_entry(self, entry_id):
         try:
