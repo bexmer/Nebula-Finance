@@ -65,6 +65,17 @@ class DebtModel(BaseModel):
     total_amount: float
     current_balance: float
 
+
+class BudgetEntryPayload(BaseModel):
+    description: Optional[str] = None
+    category: str
+    type: str = "Gasto"
+    amount: Optional[float] = None
+    budgeted_amount: Optional[float] = None
+    month: Optional[int] = None
+    year: Optional[int] = None
+    due_date: Optional[datetime.date] = None
+
 # ===============================================
 # --- ENDPOINTS DE LA API ---
 # ===============================================
@@ -123,6 +134,37 @@ def get_transaction(transaction_id: int):
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
     return transaction
+
+
+@app.get("/api/budget")
+def get_budget_entries():
+    return controller.get_budget_entries()
+
+
+@app.post("/api/budget", status_code=201)
+def create_budget_entry(entry: BudgetEntryPayload):
+    result = controller.add_budget_entry(entry.model_dump(exclude_unset=True))
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.put("/api/budget/{entry_id}")
+def update_budget_entry(entry_id: int, entry: BudgetEntryPayload):
+    result = controller.update_budget_entry(entry_id, entry.model_dump(exclude_unset=True))
+    if "error" in result:
+        if result["error"] == "La entrada de presupuesto no existe.":
+            raise HTTPException(status_code=404, detail=result["error"])
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.delete("/api/budget/{entry_id}")
+def delete_budget_entry(entry_id: int):
+    result = controller.delete_budget_entry(entry_id)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
 
 # ===============================================
 # --- INICIADOR DEL SERVIDOR ---
