@@ -15,6 +15,17 @@ export interface Transaction {
   debt_id?: number | null;
 }
 
+export interface TransactionPrefill {
+  description?: string;
+  amount?: number;
+  date?: string;
+  type?: string;
+  category?: string;
+  account_id?: number;
+  goal_id?: number | null;
+  debt_id?: number | null;
+}
+
 export interface TransactionFilters {
   search: string;
   start_date: string;
@@ -30,9 +41,13 @@ interface AppState {
   filters: TransactionFilters;
   isTransactionModalOpen: boolean;
   editingTransaction: Transaction | null;
+  transactionPrefill: TransactionPrefill | null;
   fetchTransactions: (filters?: TransactionFilters) => Promise<void>;
   setFilters: (filters: Partial<TransactionFilters>) => void;
-  openTransactionModal: (transaction: Transaction | null) => void;
+  openTransactionModal: (
+    transaction: Transaction | null,
+    prefill?: TransactionPrefill | null
+  ) => void;
   closeTransactionModal: () => void;
 }
 
@@ -51,6 +66,7 @@ export const useStore = create<AppState>((set, get) => ({
   filters: { ...defaultFilters },
   isTransactionModalOpen: false,
   editingTransaction: null,
+  transactionPrefill: null,
 
   // --- ACCIONES (funciones que modifican el estado) ---
   fetchTransactions: async (filters) => {
@@ -86,11 +102,19 @@ export const useStore = create<AppState>((set, get) => ({
     set({ filters: newFilters });
   },
 
-  openTransactionModal: (transaction) => {
-    set({ isTransactionModalOpen: true, editingTransaction: transaction });
+  openTransactionModal: (transaction, prefill = null) => {
+    set({
+      isTransactionModalOpen: true,
+      editingTransaction: transaction,
+      transactionPrefill: prefill,
+    });
   },
 
   closeTransactionModal: () => {
-    set({ isTransactionModalOpen: false, editingTransaction: null });
+    set({
+      isTransactionModalOpen: false,
+      editingTransaction: null,
+      transactionPrefill: null,
+    });
   },
 }));

@@ -19,8 +19,10 @@ interface BudgetEntry {
   category: string;
   amount: number;
   type: string;
-  month: number;
-  year: number;
+  month?: number;
+  year?: number;
+  description?: string;
+  due_date?: string | null;
 }
 
 interface ModalProps {
@@ -41,7 +43,15 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
 
   useEffect(() => {
     if (entry) {
-      setFormData(entry);
+      setFormData({
+        category: entry.category,
+        type: entry.type,
+        amount: entry.amount,
+        month: entry.month ?? new Date().getMonth() + 1,
+        year: entry.year ?? new Date().getFullYear(),
+        description: entry.description,
+        due_date: entry.due_date,
+      });
     } else {
       setFormData({
         category: "",

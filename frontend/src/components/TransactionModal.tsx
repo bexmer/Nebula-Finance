@@ -30,6 +30,7 @@ export const TransactionModal = () => {
     isTransactionModalOpen,
     closeTransactionModal,
     editingTransaction,
+    transactionPrefill,
     fetchTransactions,
   } = useStore();
 
@@ -61,34 +62,98 @@ export const TransactionModal = () => {
       setGoals(goalsRes.data);
       setDebts(debtsRes.data);
 
+      let nextCategories: ParameterOption[] = [];
+      let nextFormState = {
+        ...initialState,
+        date: new Date().toISOString().split("T")[0],
+      };
+
       if (editingTransaction) {
         const typeObject = typesRes.data.find(
           (t: ParameterOption) => t.value === editingTransaction.type
         );
+
         if (typeObject) {
           const catRes = await axios.get<ParameterOption[]>(
             `http://127.0.0.1:8000/api/parameters/categories/${typeObject.id}`
           );
-          setCategories(catRes.data);
-          setFormData({
-            ...initialState,
+          nextCategories = catRes.data;
+          nextFormState = {
+            ...nextFormState,
             description: editingTransaction.description,
             amount: String(editingTransaction.amount),
-            date: new Date(editingTransaction.date).toISOString().split("T")[0],
+            date: new Date(editingTransaction.date)
+              .toISOString()
+              .split("T")[0],
             account_id: String(editingTransaction.account_id),
             typeId: String(typeObject.id),
             categoryValue: editingTransaction.category,
             goal_id: String(editingTransaction.goal_id || ""),
             debt_id: String(editingTransaction.debt_id || ""),
-          });
+          };
+        } else {
+          nextFormState = {
+            ...nextFormState,
+            description: editingTransaction.description,
+            amount: String(editingTransaction.amount),
+            date: new Date(editingTransaction.date)
+              .toISOString()
+              .split("T")[0],
+            account_id: String(editingTransaction.account_id),
+            goal_id: String(editingTransaction.goal_id || ""),
+            debt_id: String(editingTransaction.debt_id || ""),
+          };
+        }
+      } else if (transactionPrefill) {
+        const normalizedDate = transactionPrefill.date
+          ? new Date(transactionPrefill.date).toISOString().split("T")[0]
+          : nextFormState.date;
+
+        nextFormState = {
+          ...nextFormState,
+          description: transactionPrefill.description || "",
+          amount:
+            transactionPrefill.amount !== undefined
+              ? String(transactionPrefill.amount)
+              : "",
+          date: normalizedDate,
+          account_id: transactionPrefill.account_id
+            ? String(transactionPrefill.account_id)
+            : "",
+          goal_id: transactionPrefill.goal_id
+            ? String(transactionPrefill.goal_id)
+            : "",
+          debt_id: transactionPrefill.debt_id
+            ? String(transactionPrefill.debt_id)
+            : "",
+        };
+
+        if (transactionPrefill.type) {
+          const typeObject = typesRes.data.find(
+            (t: ParameterOption) => t.value === transactionPrefill.type
+          );
+          if (typeObject) {
+            const catRes = await axios.get<ParameterOption[]>(
+              `http://127.0.0.1:8000/api/parameters/categories/${typeObject.id}`
+            );
+            nextCategories = catRes.data;
+            nextFormState = {
+              ...nextFormState,
+              typeId: String(typeObject.id),
+              categoryValue: transactionPrefill.category || "",
+            };
+          }
         }
       }
+
+      setCategories(nextCategories);
+      setFormData(nextFormState);
     } catch (err) {
       setError("No se pudieron cargar los datos del formulario.");
     } finally {
       setIsLoading(false);
     }
-  }, [editingTransaction]);
+  }, [editingTransaction, transactionPrefill]);
 
   useEffect(() => {
     if (isTransactionModalOpen) {
