@@ -369,16 +369,24 @@ class AppController:
     # --- SECCIÓN: METAS Y DEUDAS (Goals & Debts) ---
     # =================================================================
 
-    def get_goals_summary(self):
-        """Devuelve un resumen de las metas para el dashboard."""
+    def get_goals_summary(self, limit=3):
+        """Devuelve un resumen de las metas para el dashboard con progreso normalizado."""
         goals_data = []
-        for g in Goal.select().where(Goal.current_amount < Goal.target_amount).limit(3):
-            goal_dict = g._data.copy()
-            goal_dict["completion_percentage"] = self._calculate_completion_percentage(
-                goal_dict.get("current_amount", 0),
-                goal_dict.get("target_amount", 0),
-            )
-            goals_data.append(goal_dict)
+        query = Goal.select()
+        if limit:
+            query = query.limit(limit)
+
+        for goal in query:
+            target_amount = float(goal.target_amount or 0)
+            current_amount = float(goal.current_amount or 0)
+            percentage = (current_amount / target_amount * 100) if target_amount else 0.0
+            goals_data.append({
+                "id": goal.id,
+                "name": goal.name,
+                "target_amount": target_amount,
+                "current_amount": current_amount,
+                "percentage": percentage,
+            })
         return goals_data
 
     def get_all_goals(self):
