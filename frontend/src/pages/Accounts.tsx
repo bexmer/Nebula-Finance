@@ -72,6 +72,8 @@ export function Accounts() {
   );
 
   useEffect(() => {
+    let isMounted = true;
+
     const fetchInitialData = async () => {
       try {
         const [accountsResponse, typesResponse] = await Promise.all([
@@ -79,22 +81,39 @@ export function Accounts() {
           axios.get<string[]>(`${API_BASE_URL}/api/parameters/account-types`),
         ]);
 
+        if (!isMounted) {
+          return;
+        }
+
         setAccounts(accountsResponse.data);
         setAccountTypes(typesResponse.data);
         setError(null);
-        resetForm(typesResponse.data);
+        setFormState({
+          name: "",
+          accountType: typesResponse.data[0] ?? "",
+          initialBalance: "",
+        });
+        setSelectedAccountId(null);
       } catch (err) {
         console.error("Error al inicializar cuentas:", err);
-        setError(
-          "No se pudieron cargar las cuentas. Asegúrate de que el backend esté funcionando."
-        );
+        if (isMounted) {
+          setError(
+            "No se pudieron cargar las cuentas. Asegúrate de que el backend esté funcionando."
+          );
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
 
     fetchInitialData();
-  }, [resetForm]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleInputChange = (field: keyof AccountFormState, value: string) => {
     setFormState((prev) => ({ ...prev, [field]: value }));
