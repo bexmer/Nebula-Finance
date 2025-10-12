@@ -381,15 +381,56 @@ class AppController:
     def add_account(self, data):
         """Crea una nueva cuenta."""
         try:
-            balance = float(data.get("initial_balance", 0))
+            name = data.get("name", "").strip()
+            account_type = data.get("account_type", "").strip()
+            if not name:
+                return {"error": "El nombre de la cuenta es obligatorio."}
+            if not account_type:
+                return {"error": "El tipo de cuenta es obligatorio."}
+
+            balance = float(data.get("initial_balance", 0) or 0)
             account = Account.create(
-                name=data["name"],
-                account_type=data["account_type"],
+                name=name,
+                account_type=account_type,
                 initial_balance=balance,
-                current_balance=balance
+                current_balance=balance,
             )
-            return account._data
+            return account.__data__
         except (ValueError, KeyError) as e:
+            return {"error": f"Datos inválidos: {e}"}
+
+    def update_account(self, account_id: int, data):
+        """Actualiza los datos básicos de una cuenta."""
+        try:
+            account = Account.get_by_id(account_id)
+        except Account.DoesNotExist:
+            return {"error": "La cuenta no existe."}
+
+        updates = {}
+        try:
+            if "name" in data:
+                name = data["name"].strip()
+                if not name:
+                    return {"error": "El nombre de la cuenta es obligatorio."}
+                updates["name"] = name
+
+            if "account_type" in data:
+                account_type = data["account_type"].strip()
+                if not account_type:
+                    return {"error": "El tipo de cuenta es obligatorio."}
+                updates["account_type"] = account_type
+
+            if "initial_balance" in data:
+                updates["initial_balance"] = float(data["initial_balance"] or 0)
+
+            if "current_balance" in data:
+                updates["current_balance"] = float(data["current_balance"] or 0)
+
+            if updates:
+                Account.update(updates).where(Account.id == account_id).execute()
+
+            return Account.get_by_id(account_id).__data__
+        except (TypeError, ValueError) as e:
             return {"error": f"Datos inválidos: {e}"}
 
     def delete_account(self, account_id):
@@ -405,6 +446,16 @@ class AppController:
             return {"success": True}
         except Account.DoesNotExist:
             return {"error": "La cuenta no existe."}
+
+    def get_account_types(self):
+        """Obtiene la lista de tipos de cuenta configurados."""
+        return [
+            param["value"]
+            for param in Parameter.select()
+            .where(Parameter.group == "Tipo de Cuenta")
+            .order_by(Parameter.id)
+            .dicts()
+        ]
         
     # =================================================================
     # --- SECCIÓN: LÓGICA DE TRANSACCIONES RECURRENTES ---

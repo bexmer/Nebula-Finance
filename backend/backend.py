@@ -39,7 +39,21 @@ class AccountModel(BaseModel):
     id: int
     name: str
     account_type: str
+    initial_balance: float
     current_balance: float
+
+
+class AccountCreateModel(BaseModel):
+    name: str
+    account_type: str
+    initial_balance: float = 0.0
+
+
+class AccountUpdateModel(BaseModel):
+    name: Optional[str] = None
+    account_type: Optional[str] = None
+    initial_balance: Optional[float] = None
+    current_balance: Optional[float] = None
 
 class TransactionModel(BaseModel):
     description: str
@@ -105,6 +119,30 @@ def get_status():
 @app.get("/api/accounts", response_model=List[AccountModel])
 def get_accounts():
     return controller.get_accounts_data_for_view()
+
+
+@app.post("/api/accounts", response_model=AccountModel, status_code=201)
+def create_account(account: AccountCreateModel):
+    result = controller.add_account(account.model_dump())
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.put("/api/accounts/{account_id}", response_model=AccountModel)
+def update_account(account_id: int, account: AccountUpdateModel):
+    result = controller.update_account(account_id, account.model_dump(exclude_none=True))
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.delete("/api/accounts/{account_id}")
+def delete_account(account_id: int):
+    result = controller.delete_account(account_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
 
 @app.get("/api/transactions")
 def get_transactions(
@@ -218,6 +256,11 @@ def delete_debt(debt_id: int):
 @app.get("/api/parameters/transaction-types")
 def get_transaction_types():
     return controller.get_parameters_by_group('Tipo de Transacción')
+
+
+@app.get("/api/parameters/account-types", response_model=List[str])
+def get_account_types():
+    return controller.get_account_types()
 
 @app.get("/api/parameters/categories/{parent_id}")
 def get_categories_by_type(parent_id: int):
