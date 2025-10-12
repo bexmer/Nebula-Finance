@@ -58,12 +58,34 @@ class GoalModel(BaseModel):
     target_amount: float
     current_amount: float
 
+class GoalCreateModel(BaseModel):
+    name: str
+    target_amount: float
+
+class GoalUpdateModel(BaseModel):
+    name: Optional[str] = None
+    target_amount: Optional[float] = None
+    current_amount: Optional[float] = None
+
 class DebtModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     name: str
     total_amount: float
     current_balance: float
+
+class DebtCreateModel(BaseModel):
+    name: str
+    total_amount: float
+    minimum_payment: Optional[float] = 0
+    interest_rate: Optional[float] = 0
+
+class DebtUpdateModel(BaseModel):
+    name: Optional[str] = None
+    total_amount: Optional[float] = None
+    current_balance: Optional[float] = None
+    minimum_payment: Optional[float] = None
+    interest_rate: Optional[float] = None
 
 # ===============================================
 # --- ENDPOINTS DE LA API ---
@@ -128,10 +150,56 @@ def get_goals():
     """Devuelve todas las metas para el select del formulario."""
     return controller.get_all_goals()
 
+@app.get("/api/dashboard-goals")
+def get_dashboard_goals():
+    return controller.get_goals_summary()
+
 @app.get("/api/debts")
 def get_debts():
     """Devuelve todas las deudas para el select del formulario."""
     return controller.get_all_debts()
+
+@app.post("/api/goals", status_code=201)
+def create_goal(goal: GoalCreateModel):
+    result = controller.add_goal(goal.dict())
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@app.put("/api/goals/{goal_id}")
+def update_goal(goal_id: int, goal: GoalUpdateModel):
+    result = controller.update_goal(goal_id, goal.dict(exclude_none=True))
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+@app.delete("/api/goals/{goal_id}")
+def delete_goal(goal_id: int):
+    result = controller.delete_goal(goal_id)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+@app.post("/api/debts", status_code=201)
+def create_debt(debt: DebtCreateModel):
+    result = controller.add_debt(debt.dict())
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@app.put("/api/debts/{debt_id}")
+def update_debt(debt_id: int, debt: DebtUpdateModel):
+    result = controller.update_debt(debt_id, debt.dict(exclude_none=True))
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+@app.delete("/api/debts/{debt_id}")
+def delete_debt(debt_id: int):
+    result = controller.delete_debt(debt_id)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
 
 @app.get("/api/parameters/transaction-types")
 def get_transaction_types():

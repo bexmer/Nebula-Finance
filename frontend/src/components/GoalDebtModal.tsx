@@ -67,23 +67,23 @@ export function GoalDebtModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const isGoal = mode === "goal";
-    const endpoint = isGoal ? `/api/goals` : `/api/debts`;
-    const fullEndpoint = item ? `${endpoint}/${item.id}` : endpoint;
+    const resource = isGoal ? "goals" : "debts";
+    const url = `http://127.0.0.1:8000/api/${resource}${item ? `/${item.id}` : ""}`;
 
     const data = isGoal
       ? { name, target_amount: parseFloat(amount) }
       : {
           name,
           total_amount: parseFloat(amount),
-          minimum_payment: parseFloat(minPayment),
-          interest_rate: parseFloat(interest),
+          minimum_payment: parseFloat(minPayment || "0"),
+          interest_rate: parseFloat(interest || "0"),
         };
 
     try {
       if (item) {
-        await axios.put(`http://127.0.0.1:8000${fullEndpoint}`, data);
+        await axios.put(url, data);
       } else {
-        await axios.post(`http://127.0.0.1:8000${fullEndpoint}`, data);
+        await axios.post(url, data);
       }
       onSave();
       onClose();

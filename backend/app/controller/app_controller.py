@@ -392,6 +392,22 @@ class AppController:
         except (ValueError, KeyError) as e:
             return {"error": f"Datos de meta inválidos: {e}"}
 
+    def update_goal(self, goal_id, data):
+        try:
+            goal = Goal.get_by_id(goal_id)
+            if 'name' in data:
+                goal.name = data['name']
+            if 'target_amount' in data:
+                goal.target_amount = float(data['target_amount'])
+            if 'current_amount' in data:
+                goal.current_amount = float(data['current_amount'])
+            goal.save()
+            return goal._data
+        except Goal.DoesNotExist:
+            return {"error": "La meta no existe."}
+        except (ValueError, KeyError) as e:
+            return {"error": f"Datos de meta inválidos: {e}"}
+
     def add_debt(self, data):
         try:
             total = float(data['total_amount'])
@@ -406,6 +422,26 @@ class AppController:
                 interest_rate=interest
             )
             return debt._data
+        except (ValueError, KeyError) as e:
+            return {"error": f"Datos de deuda inválidos: {e}"}
+
+    def update_debt(self, debt_id, data):
+        try:
+            debt = Debt.get_by_id(debt_id)
+            if 'name' in data:
+                debt.name = data['name']
+            if 'total_amount' in data:
+                debt.total_amount = float(data['total_amount'])
+            if 'current_balance' in data:
+                debt.current_balance = float(data['current_balance'])
+            if 'minimum_payment' in data:
+                debt.minimum_payment = float(data['minimum_payment'])
+            if 'interest_rate' in data:
+                debt.interest_rate = float(data['interest_rate'])
+            debt.save()
+            return debt._data
+        except Debt.DoesNotExist:
+            return {"error": "La deuda no existe."}
         except (ValueError, KeyError) as e:
             return {"error": f"Datos de deuda inválidos: {e}"}
 
