@@ -1,7 +1,7 @@
 from collections import defaultdict
 import calendar
 import datetime
-from typing import Optional, Iterable, List
+from typing import Optional, List
 from dateutil.relativedelta import relativedelta
 from peewee import fn
 
@@ -77,7 +77,7 @@ class AppController:
     # --- SECCIÓN: DASHBOARD ---
     # =================================================================
     
-    def get_dashboard_data(self, year: int, months: Optional[Iterable[int]]):
+    def get_dashboard_data(self, year: int, months: Optional[List[int]]):
         """Agrega y devuelve todos los datos necesarios para el Dashboard."""
 
         month_list = list(months) if months else []
