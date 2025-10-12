@@ -29,7 +29,7 @@ export function Transactions() {
   // Carga inicial de datos para los filtros
   useEffect(() => {
     axios
-      .get("http://127.0.0.1:8000/api/parameters/transaction-types")
+      .get<ParameterOption[]>("http://127.0.0.1:8000/api/parameters/transaction-types")
       .then((res) => setTransactionTypes(res.data));
   }, []);
 
@@ -55,7 +55,7 @@ export function Transactions() {
       const typeObj = transactionTypes.find((t) => t.value === filters.type);
       if (typeObj) {
         axios
-          .get(`http://127.0.0.1:8000/api/parameters/categories/${typeObj.id}`)
+          .get<ParameterOption[]>(`http://127.0.0.1:8000/api/parameters/categories/${typeObj.id}`)
           .then((res) => setCategories(res.data));
       }
     } else {

@@ -62,7 +62,7 @@ export const useStore = create<AppState>((set, get) => ({
         Object.entries(filtersForRequest).filter(([, value]) => value !== "")
       );
 
-      const response = await axios.get(
+      const response = await axios.get<Transaction[]>(
         "http://127.0.0.1:8000/api/transactions",
         { params }
       );

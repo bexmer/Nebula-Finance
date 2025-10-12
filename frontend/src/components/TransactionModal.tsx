@@ -49,10 +49,12 @@ export const TransactionModal = () => {
     setError("");
     try {
       const [accRes, typesRes, goalsRes, debtsRes] = await Promise.all([
-        axios.get("http://127.0.0.1:8000/api/accounts"),
-        axios.get("http://127.0.0.1:8000/api/parameters/transaction-types"),
-        axios.get("http://127.0.0.1:8000/api/goals"),
-        axios.get("http://127.0.0.1:8000/api/debts"),
+        axios.get<SelectOption[]>("http://127.0.0.1:8000/api/accounts"),
+        axios.get<ParameterOption[]>(
+          "http://127.0.0.1:8000/api/parameters/transaction-types"
+        ),
+        axios.get<SelectOption[]>("http://127.0.0.1:8000/api/goals"),
+        axios.get<SelectOption[]>("http://127.0.0.1:8000/api/debts"),
       ]);
       setAccounts(accRes.data);
       setTransactionTypes(typesRes.data);
@@ -61,10 +63,10 @@ export const TransactionModal = () => {
 
       if (editingTransaction) {
         const typeObject = typesRes.data.find(
-          (t) => t.value === editingTransaction.type
+          (t: ParameterOption) => t.value === editingTransaction.type
         );
         if (typeObject) {
-          const catRes = await axios.get(
+          const catRes = await axios.get<ParameterOption[]>(
             `http://127.0.0.1:8000/api/parameters/categories/${typeObject.id}`
           );
           setCategories(catRes.data);
@@ -107,7 +109,9 @@ export const TransactionModal = () => {
     }));
     if (typeId) {
       axios
-        .get(`http://127.0.0.1:8000/api/parameters/categories/${typeId}`)
+        .get<ParameterOption[]>(
+          `http://127.0.0.1:8000/api/parameters/categories/${typeId}`
+        )
         .then((res) => setCategories(res.data));
     } else {
       setCategories([]);

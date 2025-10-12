@@ -79,6 +79,20 @@ class SettingsModel(BaseModel):
     currency_symbol: str
     decimal_places: int
     theme: str
+    
+class DebtCreateModel(BaseModel):
+    name: str
+    total_amount: float
+    minimum_payment: Optional[float] = 0.0
+    interest_rate: Optional[float] = 0.0
+
+
+class DebtUpdateModel(BaseModel):
+    name: Optional[str] = None
+    total_amount: Optional[float] = None
+    current_balance: Optional[float] = None
+    minimum_payment: Optional[float] = None
+    interest_rate: Optional[float] = None
 
 # ===============================================
 # --- ENDPOINTS DE LA API ---
