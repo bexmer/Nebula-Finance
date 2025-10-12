@@ -10,6 +10,7 @@ export interface Transaction {
     type: string;
     category: string;
     account_id: number;
+    account?: { name: string }; // La cuenta puede ser opcional al crear
     goal_id?: number | null;
     debt_id?: number | null;
 }
