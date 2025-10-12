@@ -373,16 +373,56 @@ class AppController:
         """Devuelve un resumen de las metas para el dashboard."""
         goals_data = []
         for g in Goal.select().where(Goal.current_amount < Goal.target_amount).limit(3):
-            goals_data.append(g._data)
+            goal_dict = g._data.copy()
+            goal_dict["completion_percentage"] = self._calculate_completion_percentage(
+                goal_dict.get("current_amount", 0),
+                goal_dict.get("target_amount", 0),
+            )
+            goals_data.append(goal_dict)
         return goals_data
 
     def get_all_goals(self):
         """Devuelve todas las metas con su progreso."""
-        return list(Goal.select().dicts())
-        
+        goals = []
+        for goal in Goal.select():
+            goal_dict = goal._data.copy()
+            goal_dict["completion_percentage"] = self._calculate_completion_percentage(
+                goal_dict.get("current_amount", 0),
+                goal_dict.get("target_amount", 0),
+            )
+            goals.append(goal_dict)
+        return goals
+
     def get_all_debts(self):
         """Devuelve todas las deudas con su progreso."""
-        return list(Debt.select().dicts())
+        debts = []
+        for debt in Debt.select():
+            debt_dict = debt._data.copy()
+            paid_amount = debt_dict.get("total_amount", 0) - debt_dict.get("current_balance", 0)
+            debt_dict["completion_percentage"] = self._calculate_completion_percentage(
+                paid_amount,
+                debt_dict.get("total_amount", 0),
+            )
+            debts.append(debt_dict)
+        return debts
+
+    def _calculate_completion_percentage(self, achieved, total):
+        """Calcula el porcentaje de finalización, evitando divisiones por cero."""
+        try:
+            total_value = float(total)
+            achieved_value = float(achieved)
+        except (TypeError, ValueError):
+            return 0.0
+
+        if total_value == 0:
+            return 0.0
+
+        percentage = (achieved_value / total_value) * 100
+        if percentage < 0:
+            return 0.0
+        if percentage > 100:
+            return 100.0
+        return percentage
 
     def add_goal(self, data):
         try:
