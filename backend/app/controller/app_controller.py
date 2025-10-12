@@ -1,5 +1,6 @@
 from collections import defaultdict
 import datetime
+from typing import Optional
 from dateutil.relativedelta import relativedelta
 from peewee import fn
 
@@ -145,8 +146,8 @@ class AppController:
         start_date, _ = self._get_date_range(year, months)
 
         query = (Transaction
-                 .select(fn.strftime('%Y-%m', Transaction.date).alias('month'), 
-                         fn.SUM(Transaction.amount).alias('total'), 
+                 .select(fn.strftime('%Y-%m', Transaction.date).alias('month'),
+                         fn.SUM(Transaction.amount).alias('total'),
                          Transaction.type)
                  .where(Transaction.date >= start_date)
                  .group_by(fn.strftime('%Y-%m', Transaction.date), Transaction.type)
@@ -158,8 +159,48 @@ class AppController:
                 monthly_data[row['month']]['income'] = row['total']
             else:
                 monthly_data[row['month']]['expense'] += row['total']
-        
+
         return dict(sorted(monthly_data.items()))
+
+    def get_cash_flow_analysis(self, year: Optional[int] = None, month: Optional[int] = None):
+        """Obtiene el flujo de efectivo agrupado por categoría para un período."""
+        today = datetime.date.today()
+        if year is None:
+            year = today.year
+
+        if month:
+            start_date = datetime.date(year, month, 1)
+            end_date = (start_date + relativedelta(months=1)) - datetime.timedelta(days=1)
+        else:
+            start_date = datetime.date(year, 1, 1)
+            end_date = datetime.date(year, 12, 31)
+
+        query = (
+            Transaction
+            .select(
+                Transaction.category,
+                Transaction.type,
+                fn.SUM(Transaction.amount).alias('total')
+            )
+            .where((Transaction.date >= start_date) & (Transaction.date <= end_date))
+            .group_by(Transaction.category, Transaction.type)
+        )
+
+        income = []
+        expenses = []
+        for row in query.dicts():
+            amount = float(row['total'] or 0)
+            entry = {"category": row['category'], "amount": abs(amount) if amount is not None else 0}
+            if row['type'] == 'Ingreso':
+                entry["amount"] = amount
+                income.append(entry)
+            else:
+                expenses.append(entry)
+
+        income.sort(key=lambda item: item["amount"], reverse=True)
+        expenses.sort(key=lambda item: item["amount"], reverse=True)
+
+        return {"income": income, "expenses": expenses}
 
 
     # =================================================================

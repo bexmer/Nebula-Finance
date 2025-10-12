@@ -216,35 +216,12 @@ def get_transaction(transaction_id: int):
     return transaction
 
 
-@app.get("/api/budget")
-def get_budget_entries():
-    return controller.get_budget_entries()
-
-
-@app.post("/api/budget", status_code=201)
-def create_budget_entry(entry: BudgetEntryPayload):
-    result = controller.add_budget_entry(entry.model_dump(exclude_unset=True))
-    if "error" in result:
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result
-
-
-@app.put("/api/budget/{entry_id}")
-def update_budget_entry(entry_id: int, entry: BudgetEntryPayload):
-    result = controller.update_budget_entry(entry_id, entry.model_dump(exclude_unset=True))
-    if "error" in result:
-        if result["error"] == "La entrada de presupuesto no existe.":
-            raise HTTPException(status_code=404, detail=result["error"])
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result
-
-
-@app.delete("/api/budget/{entry_id}")
-def delete_budget_entry(entry_id: int):
-    result = controller.delete_budget_entry(entry_id)
-    if "error" in result:
-        raise HTTPException(status_code=404, detail=result["error"])
-    return result
+@app.get("/api/analysis/cash-flow")
+def get_cash_flow_analysis(year: Optional[int] = None, month: Optional[int] = None):
+    """Obtiene datos de flujo de efectivo por categoría para análisis."""
+    if month is not None and not 1 <= month <= 12:
+        raise HTTPException(status_code=400, detail="El mes debe estar entre 1 y 12")
+    return controller.get_cash_flow_analysis(year=year, month=month)
 
 # ===============================================
 # --- INICIADOR DEL SERVIDOR ---
