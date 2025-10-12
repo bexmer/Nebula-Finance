@@ -124,6 +124,17 @@ def get_transaction(transaction_id: int):
         raise HTTPException(status_code=404, detail="Transaction not found")
     return transaction
 
+
+@app.get("/api/portfolio/summary")
+def get_portfolio_summary():
+    return controller.get_portfolio_assets()
+
+
+@app.get("/api/portfolio/history")
+def get_portfolio_history():
+    return controller.get_trade_history()
+
+
 # ===============================================
 # --- INICIADOR DEL SERVIDOR ---
 # ===============================================
