@@ -1419,46 +1419,49 @@ class AppController:
             query = query.limit(limit)
 
         for goal in query:
-            target_amount = float(goal.target_amount or 0)
-            current_amount = float(goal.current_amount or 0)
-            percentage = (current_amount / target_amount * 100) if target_amount else 0.0
-            goals_data.append({
-                "id": goal.id,
-                "name": goal.name,
-                "target_amount": target_amount,
-                "current_amount": current_amount,
-                "percentage": percentage,
-            })
+            goals_data.append(self._serialize_goal(goal))
         return goals_data
 
     def get_all_goals(self):
         """Devuelve todas las metas con su progreso."""
-        goals = []
-        for goal in Goal.select():
-            goal_dict = goal._data.copy()
-            percentage = self._calculate_completion_percentage(
-                goal_dict.get("current_amount", 0),
-                goal_dict.get("target_amount", 0),
-            )
-            goal_dict["completion_percentage"] = percentage
-            goal_dict["percentage"] = percentage
-            goals.append(goal_dict)
-        return goals
+        return [self._serialize_goal(goal) for goal in Goal.select()]
 
     def get_all_debts(self):
         """Devuelve todas las deudas con su progreso."""
-        debts = []
-        for debt in Debt.select():
-            debt_dict = debt._data.copy()
-            paid_amount = debt_dict.get("total_amount", 0) - debt_dict.get("current_balance", 0)
-            percentage = self._calculate_completion_percentage(
-                paid_amount,
-                debt_dict.get("total_amount", 0),
-            )
-            debt_dict["completion_percentage"] = percentage
-            debt_dict["percentage"] = percentage
-            debts.append(debt_dict)
-        return debts
+        return [self._serialize_debt(debt) for debt in Debt.select()]
+
+    def _serialize_goal(self, goal: Goal) -> Dict[str, Any]:
+        """Prepara una meta con valores numéricos nativos y porcentaje calculado."""
+        target_amount = float(goal.target_amount or 0)
+        current_amount = float(goal.current_amount or 0)
+        percentage = self._calculate_completion_percentage(current_amount, target_amount)
+        return {
+            "id": goal.id,
+            "name": goal.name,
+            "target_amount": target_amount,
+            "current_amount": current_amount,
+            "percentage": percentage,
+            "completion_percentage": percentage,
+        }
+
+    def _serialize_debt(self, debt: Debt) -> Dict[str, Any]:
+        """Devuelve una deuda serializada con sus métricas derivadas."""
+        total_amount = float(debt.total_amount or 0)
+        current_balance = float(debt.current_balance or 0)
+        minimum_payment = float(debt.minimum_payment or 0)
+        interest_rate = float(getattr(debt, "interest_rate", 0) or 0)
+        paid_amount = max(total_amount - current_balance, 0.0)
+        percentage = self._calculate_completion_percentage(paid_amount, total_amount)
+        return {
+            "id": debt.id,
+            "name": debt.name,
+            "total_amount": total_amount,
+            "current_balance": current_balance,
+            "minimum_payment": minimum_payment,
+            "interest_rate": interest_rate,
+            "percentage": percentage,
+            "completion_percentage": percentage,
+        }
 
     def _calculate_completion_percentage(self, achieved, total):
         """Calcula el porcentaje de finalización, evitando divisiones por cero."""
@@ -1482,7 +1485,7 @@ class AppController:
         try:
             target = float(data['target_amount'])
             goal = Goal.create(name=data['name'], target_amount=target, current_amount=0)
-            return goal._data
+            return self._serialize_goal(goal)
         except (ValueError, KeyError) as e:
             return {"error": f"Datos de meta inválidos: {e}"}
 
@@ -1496,7 +1499,7 @@ class AppController:
             if 'current_amount' in data:
                 goal.current_amount = float(data['current_amount'])
             goal.save()
-            return goal._data
+            return self._serialize_goal(goal)
         except Goal.DoesNotExist:
             return {"error": "La meta no existe."}
         except (ValueError, KeyError) as e:
@@ -1522,10 +1525,7 @@ class AppController:
                 minimum_payment=min_payment,
                 interest_rate=interest
             )
-            result = debt._data.copy()
-            result["percentage"] = 0.0
-            result["completion_percentage"] = 0.0
-            return result
+            return self._serialize_debt(debt)
         except (ValueError, KeyError) as e:
             return {"error": f"Datos de deuda inválidos: {e}"}
 
@@ -1553,7 +1553,7 @@ class AppController:
             if 'interest_rate' in data:
                 debt.interest_rate = float(data['interest_rate'])
             debt.save()
-            return debt._data
+            return self._serialize_debt(debt)
         except Debt.DoesNotExist:
             return {"error": "La deuda no existe."}
         except (ValueError, KeyError) as e:

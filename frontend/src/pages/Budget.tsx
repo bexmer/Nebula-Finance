@@ -60,6 +60,7 @@ export function Budget() {
   const [budgetEntries, setBudgetEntries] = useState<BudgetEntry[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<BudgetEntry | null>(null);
+  const [selectedEntryIds, setSelectedEntryIds] = useState<number[]>([]);
   const [transactionTypes, setTransactionTypes] = useState<ParameterOption[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
@@ -76,11 +77,18 @@ export function Budget() {
       amount: entry.amount ?? entry.budgeted_amount ?? 0,
     }));
     setBudgetEntries(entries);
+    setSelectedEntryIds([]);
   };
 
   useEffect(() => {
     fetchBudgetEntries();
   }, []);
+
+  useEffect(() => {
+    setSelectedEntryIds((prev) =>
+      prev.filter((id) => budgetEntries.some((entry) => entry.id === id))
+    );
+  }, [budgetEntries]);
 
   useEffect(() => {
     axios
@@ -189,11 +197,48 @@ export function Budget() {
     fetchBudgetEntries();
   };
 
-  const handleDelete = async (entryId: number) => {
-    if (window.confirm("¿Estás seguro de que quieres eliminar esta entrada?")) {
-      await axios.delete(`http://127.0.0.1:8000/api/budget/${entryId}`);
-      fetchBudgetEntries();
+  const handleToggleEntry = (entryId: number, checked: boolean) => {
+    setSelectedEntryIds((prev) => {
+      if (checked) {
+        if (prev.includes(entryId)) {
+          return prev;
+        }
+        return [...prev, entryId];
+      }
+      return prev.filter((id) => id !== entryId);
+    });
+  };
+
+  const handleToggleAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedEntryIds(filteredEntries.map((entry) => entry.id));
+    } else {
+      setSelectedEntryIds([]);
     }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedEntryIds.length === 0) {
+      return;
+    }
+
+    const confirmationMessage =
+      selectedEntryIds.length === 1
+        ? "¿Deseas eliminar esta entrada del presupuesto?"
+        : `¿Deseas eliminar las ${selectedEntryIds.length} entradas seleccionadas?`;
+
+    if (!window.confirm(confirmationMessage)) {
+      return;
+    }
+
+    await Promise.all(
+      selectedEntryIds.map((entryId) =>
+        axios.delete(`http://127.0.0.1:8000/api/budget/${entryId}`)
+      )
+    );
+
+    fetchBudgetEntries();
+    setSelectedEntryIds([]);
   };
 
   const handleRegisterPayment = (entry: BudgetEntry) => {
@@ -248,6 +293,10 @@ export function Budget() {
       icon: <CheckCircle2 className="h-3.5 w-3.5" />,
     };
   };
+
+  const isAllSelected =
+    filteredEntries.length > 0 &&
+    filteredEntries.every((entry) => selectedEntryIds.includes(entry.id));
 
   return (
     <div className="space-y-6">
@@ -419,21 +468,48 @@ export function Budget() {
       </section>
 
       <section className="rounded-2xl border border-gray-700/60 bg-gray-900/70 shadow-xl shadow-black/20">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-700/60 px-6 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-700/60 px-6 py-4">
           <div>
             <h2 className="text-lg font-semibold">Entradas planificadas</h2>
             <p className="text-sm text-gray-400">
-              Da doble clic para editar o usa los accesos directos para actuar sobre ellas.
+              Selecciona filas para eliminarlas en lote o haz doble clic para editarlas.
             </p>
           </div>
-          <span className="text-sm text-gray-400">
-            {filteredEntries.length} registros mostrados
-          </span>
+          <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center">
+            <span className="text-sm text-gray-400">
+              {filteredEntries.length} registros · {selectedEntryIds.length} seleccionados
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleOpenModal(null)}
+                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold shadow-lg shadow-blue-600/20 transition hover:bg-blue-500"
+              >
+                <Plus className="h-4 w-4" />
+                Añadir entrada
+              </button>
+              <button
+                onClick={handleDeleteSelected}
+                disabled={selectedEntryIds.length === 0}
+                className="inline-flex items-center gap-2 rounded-lg border border-red-500/50 px-4 py-2 text-sm font-semibold text-red-200 transition hover:border-red-400 hover:text-red-100 disabled:cursor-not-allowed disabled:border-red-900 disabled:text-red-700"
+              >
+                <Trash2 className="h-4 w-4" />
+                Eliminar seleccionadas
+              </button>
+            </div>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-800">
             <thead className="bg-gray-800/80">
               <tr>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
+                  <input
+                    type="checkbox"
+                    checked={isAllSelected}
+                    onChange={(event) => handleToggleAll(event.target.checked)}
+                    className="h-4 w-4 cursor-pointer rounded border border-gray-600 bg-gray-900"
+                  />
+                </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
                   Fecha
                 </th>
@@ -460,7 +536,7 @@ export function Budget() {
             <tbody className="divide-y divide-gray-800">
               {filteredEntries.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-gray-500">
+                  <td colSpan={8} className="px-4 py-10 text-center text-gray-500">
                     No hay presupuestos que coincidan con los filtros actuales.
                   </td>
                 </tr>
@@ -468,12 +544,26 @@ export function Budget() {
                 filteredEntries.map((entry) => {
                   const entryDate = parseEntryDate(entry);
                   const status = getStatusPill(entry);
+                  const isSelected = selectedEntryIds.includes(entry.id);
                   return (
                     <tr
                       key={entry.id}
                       onDoubleClick={() => handleOpenModal(entry)}
-                      className="group cursor-pointer bg-gradient-to-r from-transparent via-transparent to-transparent transition hover:from-gray-800/40 hover:to-gray-800/20"
+                      className={`group cursor-pointer bg-gradient-to-r from-transparent via-transparent to-transparent transition hover:from-gray-800/40 hover:to-gray-800/20 ${
+                        isSelected ? "bg-gray-800/50" : ""
+                      }`}
                     >
+                      <td className="px-4 py-4">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(event) =>
+                            handleToggleEntry(entry.id, event.target.checked)
+                          }
+                          onDoubleClick={(event) => event.stopPropagation()}
+                          className="h-4 w-4 cursor-pointer rounded border border-gray-600 bg-gray-900"
+                        />
+                      </td>
                       <td className="px-4 py-4 text-sm text-gray-200">
                         {entryDate.toLocaleDateString()}
                       </td>
@@ -516,13 +606,6 @@ export function Budget() {
                             className="inline-flex items-center gap-1 rounded-full border border-blue-400/60 px-3 py-1.5 text-xs font-semibold text-blue-200 transition hover:border-blue-300"
                           >
                             Editar
-                          </button>
-                          <button
-                            onClick={() => handleDelete(entry.id)}
-                            className="inline-flex items-center gap-1 rounded-full border border-rose-400/60 px-3 py-1.5 text-xs font-semibold text-rose-200 transition hover:border-rose-300"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            Eliminar
                           </button>
                         </div>
                       </td>
