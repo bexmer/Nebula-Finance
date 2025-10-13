@@ -1007,11 +1007,11 @@ export function Settings() {
 
           {activeTab === "categories" && (
             <div className="space-y-6">
-              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
+              <div className="app-card p-6">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div>
-                    <h2 className="text-lg font-semibold text-white">Categorías</h2>
-                    <p className="text-sm text-slate-400">
+                    <h2 className="text-lg font-semibold">Categorías</h2>
+                    <p className="text-sm text-muted">
                       Organiza tus ingresos y gastos agrupándolos en categorías específicas.
                     </p>
                   </div>
@@ -1019,7 +1019,7 @@ export function Settings() {
                 </div>
                 <form onSubmit={handleCategorySubmit} className="mt-4 grid gap-4 md:grid-cols-2">
                   <div className="space-y-1">
-                    <label className="text-sm font-medium text-slate-300" htmlFor="category-name">
+                    <label className="text-sm font-medium text-muted" htmlFor="category-name">
                       Nombre de la categoría
                     </label>
                     <input
@@ -1029,12 +1029,12 @@ export function Settings() {
                       onChange={(event) =>
                         setCategoryForm((prev) => ({ ...prev, name: event.target.value }))
                       }
-                      className="w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-sm text-white outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500/40"
+                      className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 transition focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:text-slate-100"
                       placeholder="Ej. Servicios"
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-sm font-medium text-slate-300" htmlFor="category-parent">
+                    <label className="text-sm font-medium text-muted" htmlFor="category-parent">
                       Pertenece al tipo
                     </label>
                     <select
@@ -1043,7 +1043,7 @@ export function Settings() {
                       onChange={(event) =>
                         setCategoryForm((prev) => ({ ...prev, parentId: event.target.value }))
                       }
-                      className="w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-sm text-white outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-500/40"
+                      className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 transition focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:text-slate-100"
                     >
                       <option value="">Selecciona un tipo...</option>
                       {transactionTypes.map((type) => (
@@ -1056,7 +1056,7 @@ export function Settings() {
                   <div className="flex flex-wrap items-center gap-3 md:col-span-2">
                     <button
                       type="submit"
-                      className="inline-flex items-center justify-center rounded-lg bg-violet-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-400"
+                      className="inline-flex items-center justify-center rounded-lg bg-gradient-to-r from-violet-500 to-indigo-500 px-4 py-2 text-sm font-semibold text-white transition hover:from-violet-400 hover:to-indigo-500"
                     >
                       {categoryForm.id === null ? "Añadir categoría" : "Actualizar categoría"}
                     </button>
@@ -1064,7 +1064,7 @@ export function Settings() {
                       <button
                         type="button"
                         onClick={resetCategoryForm}
-                        className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-slate-400 hover:text-white"
+                        className="rounded-lg border border-[var(--app-border)] px-4 py-2 text-sm font-semibold text-muted transition hover:border-violet-400 hover:text-slate-700 dark:hover:text-slate-100"
                       >
                         Cancelar
                       </button>
@@ -1073,7 +1073,7 @@ export function Settings() {
                       type="button"
                       onClick={handleDeleteCategory}
                       disabled={categoryForm.id === null || selectedCategory?.is_deletable === false}
-                      className="ml-auto inline-flex items-center justify-center rounded-lg border border-rose-500/60 px-4 py-2 text-sm font-semibold text-rose-400 transition hover:border-rose-400 hover:text-rose-300 disabled:cursor-not-allowed disabled:border-slate-700 disabled:text-slate-500"
+                      className="ml-auto inline-flex items-center justify-center rounded-lg border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:border-rose-400 hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-rose-100 disabled:text-rose-300 dark:border-rose-500/50 dark:text-rose-200 dark:hover:bg-rose-500/10"
                     >
                       Eliminar selección
                     </button>
@@ -1081,16 +1081,16 @@ export function Settings() {
                 </form>
               </div>
 
-              <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60">
-                <table className="min-w-full divide-y divide-slate-800 text-sm">
-                  <thead className="bg-slate-900/70 text-slate-300">
+              <div className="app-card overflow-hidden">
+                <table className="min-w-full divide-y divide-[var(--app-border)] text-sm">
+                  <thead className="bg-[var(--app-surface-muted)] text-muted">
                     <tr>
                       <th className="px-4 py-3 text-left font-semibold">Categoría</th>
                       <th className="px-4 py-3 text-left font-semibold">Tipo padre</th>
                       <th className="px-4 py-3 text-right font-semibold">Estado</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800 text-slate-200">
+                  <tbody className="divide-y divide-[var(--app-border)] text-slate-700 dark:text-slate-200">
                     {categories.map((category) => {
                       const isSelected = categoryForm.id === category.id;
                       return (
@@ -1103,19 +1103,19 @@ export function Settings() {
                               parentId: String(category.parent_id),
                             })
                           }
-                          className={`cursor-pointer transition hover:bg-slate-900/60 ${
-                            isSelected ? "bg-violet-500/10 text-white" : ""
+                          className={`cursor-pointer transition hover:bg-sky-50 dark:hover:bg-slate-800/70 ${
+                            isSelected ? "bg-violet-100/60 dark:bg-violet-500/10" : ""
                           }`}
                         >
-                          <td className="px-4 py-3 font-medium">{category.name}</td>
-                          <td className="px-4 py-3 text-slate-300">{category.parent_name}</td>
+                          <td className="px-4 py-3 font-semibold">{category.name}</td>
+                          <td className="px-4 py-3 text-muted">{category.parent_name}</td>
                           <td className="px-4 py-3 text-right">
                             {category.is_deletable ? (
-                              <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-400">
+                              <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-200">
                                 Editable
                               </span>
                             ) : (
-                              <span className="rounded-full bg-slate-700/40 px-3 py-1 text-xs font-semibold text-slate-400">
+                              <span className="rounded-full bg-slate-300/40 px-3 py-1 text-xs font-semibold text-slate-500 dark:bg-slate-700/50 dark:text-slate-300">
                                 En uso
                               </span>
                             )}
@@ -1125,8 +1125,8 @@ export function Settings() {
                     })}
                     {categories.length === 0 && (
                       <tr>
-                        <td colSpan={3} className="px-4 py-6 text-center text-slate-500">
-                          Aún no has configurado categorías.
+                        <td colSpan={3} className="px-4 py-6 text-center text-muted">
+                          Aún no tienes categorías registradas.
                         </td>
                       </tr>
                     )}

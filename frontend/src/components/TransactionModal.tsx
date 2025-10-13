@@ -397,6 +397,9 @@ export const TransactionModal = () => {
         await axios.post(apiPath("/transactions"), submissionData);
       }
       await fetchTransactions();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("nebula:goals-refresh"));
+      }
       if (transactionSuccessHandler) {
         await Promise.resolve(transactionSuccessHandler());
       }

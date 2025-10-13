@@ -292,27 +292,27 @@ export function Budget() {
     if (diffDays < 0) {
       return {
         label: "Vencido",
-        className: "bg-rose-500/15 text-rose-300",
+        className: "bg-rose-500/10 text-rose-600 dark:text-rose-200",
         icon: <Clock className="h-3.5 w-3.5" />,
       };
     }
     if (diffDays <= 7) {
       return {
         label: "Esta semana",
-        className: "bg-amber-500/15 text-amber-300",
+        className: "bg-amber-500/10 text-amber-600 dark:text-amber-200",
         icon: <Clock className="h-3.5 w-3.5" />,
       };
     }
     if (diffDays <= 30) {
       return {
         label: "Próximos 30 días",
-        className: "bg-blue-500/15 text-blue-300",
+        className: "bg-blue-500/10 text-blue-600 dark:text-blue-200",
         icon: <Calendar className="h-3.5 w-3.5" />,
       };
     }
     return {
       label: "Planificado",
-      className: "bg-emerald-500/15 text-emerald-300",
+      className: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-200",
       icon: <CheckCircle2 className="h-3.5 w-3.5" />,
     };
   };
@@ -340,7 +340,7 @@ export function Budget() {
           </button>
           <button
             onClick={resetFilters}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-600 px-4 py-2 text-sm font-semibold text-gray-200 transition hover:border-gray-400"
+            className="inline-flex items-center gap-2 rounded-lg border border-[var(--app-border)] px-4 py-2 text-sm font-semibold text-muted transition hover:border-sky-400 hover:text-slate-700 dark:hover:text-slate-200"
           >
             Reiniciar filtros
           </button>
@@ -433,7 +433,7 @@ export function Budget() {
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-400">
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
               Buscar
             </label>
             <input
@@ -441,17 +441,17 @@ export function Budget() {
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
               placeholder="Categoría o descripción"
-              className="w-full rounded-lg border border-gray-700 bg-gray-800/80 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+              className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-400">
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
               Tipo
             </label>
             <select
               value={typeFilter}
               onChange={(event) => setTypeFilter(event.target.value)}
-              className="w-full rounded-lg border border-gray-700 bg-gray-800/80 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+              className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
             >
               <option value="">Todos</option>
               {transactionTypes.map((type) => (
@@ -462,13 +462,13 @@ export function Budget() {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-400">
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
               Mes
             </label>
             <select
               value={monthFilter}
               onChange={(event) => setMonthFilter(event.target.value)}
-              className="w-full rounded-lg border border-gray-700 bg-gray-800/80 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+              className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
             >
               <option value="all">Todos</option>
               {availableMonths.map((month) => (
@@ -479,13 +479,13 @@ export function Budget() {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-400">
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
               Año
             </label>
             <select
               value={yearFilter}
               onChange={(event) => setYearFilter(event.target.value)}
-              className="w-full rounded-lg border border-gray-700 bg-gray-800/80 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+              className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
             >
               <option value="all">Todos</option>
               {availableYears.map((year) => (
@@ -498,16 +498,16 @@ export function Budget() {
         </div>
       </section>
 
-      <section className="app-card shadow-xl shadow-black/10">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-700/60 px-6 py-4">
+      <section className="app-card overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--app-border)] px-6 py-4">
           <div>
             <h2 className="text-lg font-semibold">Entradas planificadas</h2>
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-muted">
               Selecciona filas para eliminarlas en lote o haz doble clic para editarlas.
             </p>
           </div>
           <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center">
-            <span className="text-sm text-gray-400">
+            <span className="text-sm text-muted">
               {filteredEntries.length} registros · {selectedEntryIds.length} seleccionados
             </span>
             <div className="flex items-center gap-2">
@@ -521,7 +521,7 @@ export function Budget() {
               <button
                 onClick={handleDeleteSelected}
                 disabled={selectedEntryIds.length === 0}
-                className="inline-flex items-center gap-2 rounded-lg border border-red-500/50 px-4 py-2 text-sm font-semibold text-red-200 transition hover:border-red-400 hover:text-red-100 disabled:cursor-not-allowed disabled:border-red-900 disabled:text-red-700"
+                className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:border-rose-400 hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-200 disabled:cursor-not-allowed disabled:border-rose-100 disabled:text-rose-300 dark:border-rose-500/40 dark:text-rose-200 dark:hover:bg-rose-500/10"
               >
                 <Trash2 className="h-4 w-4" />
                 Eliminar seleccionadas
@@ -530,10 +530,10 @@ export function Budget() {
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-800">
-            <thead className="bg-gray-800/80">
+          <table className="min-w-full divide-y divide-[var(--app-border)]">
+            <thead className="bg-[var(--app-surface-muted)]">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
                   <input
                     type="checkbox"
                     checked={isAllSelected}
@@ -541,33 +541,33 @@ export function Budget() {
                     className="h-4 w-4 cursor-pointer rounded border border-[var(--app-border)] bg-[var(--app-surface)]"
                   />
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
                   Fecha
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
                   Descripción
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
                   Categoría
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
                   Tipo
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
                   Estado
                 </th>
-                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-400">
+                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">
                   Monto
                 </th>
-                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-400">
+                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">
                   Acciones
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-800">
+            <tbody className="divide-y divide-[var(--app-border)]">
               {filteredEntries.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-gray-500">
+                  <td colSpan={8} className="px-4 py-10 text-center text-muted">
                     No hay presupuestos que coincidan con los filtros actuales.
                   </td>
                 </tr>
@@ -580,8 +580,10 @@ export function Budget() {
                     <tr
                       key={entry.id}
                       onDoubleClick={() => handleOpenModal(entry)}
-                      className={`group cursor-pointer bg-gradient-to-r from-transparent via-transparent to-transparent transition hover:from-gray-800/40 hover:to-gray-800/20 ${
-                        isSelected ? "bg-gray-800/50" : ""
+                      className={`group cursor-pointer transition hover:bg-sky-50 dark:hover:bg-slate-800/70 ${
+                        isSelected
+                          ? "bg-sky-100/60 dark:bg-slate-800/60"
+                          : "bg-[var(--app-surface)]"
                       }`}
                     >
                       <td className="px-4 py-4">
@@ -595,25 +597,25 @@ export function Budget() {
                           className="h-4 w-4 cursor-pointer rounded border border-[var(--app-border)] bg-[var(--app-surface)]"
                         />
                       </td>
-                      <td className="px-4 py-4 text-sm text-gray-200">
+                      <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-200">
                         {entryDate.toLocaleDateString()}
                       </td>
-                      <td className="px-4 py-4 text-sm font-medium text-gray-100">
-                        <span className="block max-w-xs truncate" title={entry.description}>
+                      <td className="px-4 py-4 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                        <span className="block max-w-xs truncate" title={entry.description ?? entry.category}>
                           {entry.description || entry.category}
                         </span>
                       </td>
-                      <td className="px-4 py-4 text-sm text-gray-300">
-                        <span className="inline-flex rounded-full bg-gray-800/80 px-3 py-1 text-xs">
+                      <td className="px-4 py-4 text-sm text-muted">
+                        <span className="inline-flex rounded-full bg-[var(--app-surface-muted)] px-3 py-1 text-xs font-medium text-muted">
                           {entry.category}
                         </span>
                       </td>
                       <td className="px-4 py-4 text-sm">
-                        <span className="inline-flex rounded-full bg-indigo-500/15 px-3 py-1 text-xs font-semibold text-indigo-200">
+                        <span className="inline-flex rounded-full bg-indigo-500/10 px-3 py-1 text-xs font-semibold text-indigo-600 dark:text-indigo-300">
                           {entry.type}
                         </span>
                       </td>
-                      <td className="px-4 py-4 text-sm text-gray-300">
+                      <td className="px-4 py-4 text-sm text-muted">
                         <span
                           className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${status.className}`}
                         >
@@ -621,20 +623,20 @@ export function Budget() {
                           {status.label}
                         </span>
                       </td>
-                      <td className="px-4 py-4 text-right text-sm font-semibold text-slate-100">
+                      <td className="px-4 py-4 text-right text-sm font-semibold text-slate-900 dark:text-slate-100">
                         {formatCurrency(entry.amount)}
                       </td>
                       <td className="px-4 py-4 text-right text-sm">
                         <div className="flex flex-wrap justify-end gap-2">
                           <button
                             onClick={() => handleRegisterPayment(entry)}
-                            className="inline-flex items-center gap-2 rounded-full bg-emerald-500/15 px-3 py-1.5 text-xs font-semibold text-emerald-200 transition hover:bg-emerald-500/25"
+                            className="inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-600 transition hover:bg-emerald-500/15 dark:text-emerald-300"
                           >
                             Registrar pago
                           </button>
                           <button
                             onClick={() => handleOpenModal(entry)}
-                            className="inline-flex items-center gap-1 rounded-full border border-blue-400/60 px-3 py-1.5 text-xs font-semibold text-blue-200 transition hover:border-blue-300"
+                            className="inline-flex items-center gap-1 rounded-full border border-sky-300 px-3 py-1.5 text-xs font-semibold text-sky-600 transition hover:border-sky-400 hover:text-sky-700 dark:border-sky-500/60 dark:text-sky-200"
                           >
                             Editar
                           </button>

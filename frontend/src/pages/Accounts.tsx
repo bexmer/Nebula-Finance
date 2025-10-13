@@ -1,6 +1,6 @@
 // frontend/src/pages/Accounts.tsx
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
@@ -51,6 +51,8 @@ export function Accounts() {
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
   const { formatCurrency } = useNumberFormatter();
 
   const resetForm = useCallback(
@@ -113,6 +115,10 @@ export function Accounts() {
     const handleNewAccountRequest = () => {
       resetForm();
       setFeedback(null);
+      requestAnimationFrame(() => {
+        formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        nameInputRef.current?.focus();
+      });
     };
 
     window.addEventListener(
@@ -269,7 +275,7 @@ export function Accounts() {
             Completa el formulario para {isEditing ? "actualizar" : "registrar"} una cuenta.
           </p>
 
-          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+          <form ref={formRef} onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div>
               <label className="block text-sm font-medium text-muted">
                 Nombre de la Cuenta
@@ -278,6 +284,7 @@ export function Accounts() {
                 type="text"
                 value={formState.name}
                 onChange={(event) => handleInputChange("name", event.target.value)}
+                ref={nameInputRef}
                 className="mt-1 w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
                 placeholder="Ej. Cuenta Nómina"
               />

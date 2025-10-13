@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import axios from "axios";
 import { Pencil, RefreshCcw, Trash2 } from "lucide-react";
@@ -59,6 +59,8 @@ export function Portfolio() {
   );
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const symbolInputRef = useRef<HTMLInputElement | null>(null);
 
   const { formatCurrency, formatPercent } = useNumberFormatter();
 
@@ -102,6 +104,10 @@ export function Portfolio() {
       setFormState(createDefaultFormState());
       setFormError(null);
       setInitialSnapshot(null);
+      requestAnimationFrame(() => {
+        formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        symbolInputRef.current?.focus();
+      });
     };
     window.addEventListener(
       "nebula:portfolio-request-add",
@@ -690,7 +696,7 @@ export function Portfolio() {
               Completa los campos para guardar una compra o venta en tu
               portafolio.
             </p>
-            <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+            <form ref={formRef} onSubmit={handleSubmit} className="mt-4 space-y-4">
               <div className="space-y-2">
                 <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
                   Símbolo
@@ -700,6 +706,7 @@ export function Portfolio() {
                   value={formState.symbol}
                   onChange={handleFieldChange("symbol")}
                   list={isSale && holdingSymbols.length ? "portfolio-holdings" : undefined}
+                  ref={symbolInputRef}
                   className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
                   placeholder="Ej. AAPL"
                 />

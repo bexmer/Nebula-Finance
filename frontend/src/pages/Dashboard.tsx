@@ -141,6 +141,7 @@ export function Dashboard() {
     "netWorth",
   );
   const [activeAccountIndex, setActiveAccountIndex] = useState(0);
+  const [refreshToken, setRefreshToken] = useState(0);
   const { formatCurrency, formatPercent } = useNumberFormatter();
 
   const formatSignedCurrency = (value: number) => {
@@ -188,7 +189,22 @@ export function Dashboard() {
     return () => {
       isMounted = false;
     };
-  }, [year, selectedMonths]);
+  }, [year, selectedMonths, refreshToken]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const triggerRefresh = () => {
+      setRefreshToken((previous) => previous + 1);
+    };
+    window.addEventListener("nebula:transactions-updated", triggerRefresh);
+    window.addEventListener("nebula:goals-refresh", triggerRefresh);
+    return () => {
+      window.removeEventListener("nebula:transactions-updated", triggerRefresh);
+      window.removeEventListener("nebula:goals-refresh", triggerRefresh);
+    };
+  }, []);
 
   const netWorthChartData = useMemo(() => {
     if (!data) return null;
@@ -441,28 +457,37 @@ export function Dashboard() {
 
       {!isLoading && !error && data && (
         <>
-          <div className="grid gap-6 xl:grid-cols-[2fr_1fr]">
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                <KpiCard
-                  title="Ganancias"
-                  value={formatCurrency(data.kpis.income.amount)}
-                  comparison={data.kpis.income.comparison}
-                  icon={<TrendingUp className="h-5 w-5" />}
-                />
-                <KpiCard
-                  title="Gastos"
-                  value={formatCurrency(data.kpis.expense.amount)}
-                  comparison={data.kpis.expense.comparison}
-                  inverse
-                  icon={<TrendingDown className="h-5 w-5" />}
-                />
-                <KpiCard
-                  title="Ahorro Neto"
-                  value={formatCurrency(data.kpis.net.amount)}
-                  comparison={data.kpis.net.comparison}
-                  icon={<Wallet className="h-5 w-5" />}
-                />
+          <div className="grid gap-6 xl:grid-cols-12">
+            <section className="space-y-6 xl:col-span-8">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-12">
+                <div className="xl:col-span-4">
+                  <KpiCard
+                    title="Ganancias"
+                    value={formatCurrency(data.kpis.income.amount)}
+                    comparison={data.kpis.income.comparison}
+                    icon={<TrendingUp className="h-5 w-5" />}
+                    variant="emerald"
+                  />
+                </div>
+                <div className="xl:col-span-4">
+                  <KpiCard
+                    title="Gastos"
+                    value={formatCurrency(data.kpis.expense.amount)}
+                    comparison={data.kpis.expense.comparison}
+                    inverse
+                    icon={<TrendingDown className="h-5 w-5" />}
+                    variant="rose"
+                  />
+                </div>
+                <div className="xl:col-span-4">
+                  <KpiCard
+                    title="Ahorro Neto"
+                    value={formatCurrency(data.kpis.net.amount)}
+                    comparison={data.kpis.net.comparison}
+                    icon={<Wallet className="h-5 w-5" />}
+                    variant="indigo"
+                  />
+                </div>
               </div>
 
               <div className="app-card p-6">
@@ -528,30 +553,53 @@ export function Dashboard() {
                 />
               </div>
 
-              <div className="app-card p-6">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold">Metas activas</h2>
-                  <Target className="h-5 w-5 text-sky-500" />
+              <div className="grid gap-6 lg:grid-cols-2">
+                <div className="app-card p-6">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-lg font-semibold">Metas activas</h2>
+                    <Target className="h-5 w-5 text-sky-500" />
+                  </div>
+                  <p className="mt-1 text-sm text-muted">
+                    Da seguimiento a tus objetivos financieros y mantén la motivación.
+                  </p>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+                    {data.goals.length > 0 ? (
+                      data.goals.map((goal) => (
+                        <GoalProgressCard
+                          key={goal.id}
+                          goal={goal}
+                        />
+                      ))
+                    ) : (
+                      <EmptyState message="No has definido metas todavía." />
+                    )}
+                  </div>
                 </div>
-                <p className="mt-1 text-sm text-muted">
-                  Da seguimiento a tus objetivos financieros y mantén la motivación.
-                </p>
-                <div className="mt-4 space-y-3">
-                  {data.goals.length > 0 ? (
-                    data.goals.map((goal) => (
-                      <GoalProgressCard
-                        key={goal.id}
-                        goal={goal}
-                      />
-                    ))
-                  ) : (
-                    <EmptyState message="No has definido metas todavía." />
-                  )}
+
+                <div className="app-card p-6">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-lg font-semibold">Distribución de gastos</h2>
+                    <PieChart className="h-5 w-5 text-sky-500" />
+                  </div>
+                  <p className="mt-1 text-sm text-muted">
+                    Identifica en qué categorías se concentra tu gasto.
+                  </p>
+                  <div className="mt-6 h-72">
+                    {expenseDistributionChartData ? (
+                      <Bar data={expenseDistributionChartData} options={barOptions} />
+                    ) : (
+                      <EmptyState message="Aún no registras gastos para este periodo." />
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
+            </section>
 
-            <aside className="space-y-6">
+            <aside className="space-y-6 xl:col-span-4">
+              <BudgetRuleCard
+                rules={data.budget_rule_control}
+                incomeTotal={data.kpis.income.amount}
+              />
               <AccountsCard
                 accounts={accounts}
                 activeIndex={activeAccountIndex}
@@ -567,47 +615,23 @@ export function Dashboard() {
                 }
                 activeAccount={activeAccount}
               />
-              <BudgetRuleCard
-                rules={data.budget_rule_control}
-                incomeTotal={data.kpis.income.amount}
-              />
+              <div className="app-card p-6">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">Gastos por tipo</h2>
+                  <PieChart className="h-5 w-5 text-sky-500" />
+                </div>
+                <p className="mt-1 text-sm text-muted">
+                  Compara gastos fijos, variables y otros compromisos.
+                </p>
+                <div className="mt-6 h-72">
+                  {expenseTypeChartData ? (
+                    <Doughnut data={expenseTypeChartData} options={doughnutOptions} />
+                  ) : (
+                    <EmptyState message="No hay datos de gastos para comparar." />
+                  )}
+                </div>
+              </div>
             </aside>
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
-            <div className="lg:col-span-1 xl:col-span-2 app-card p-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold">Distribución de gastos</h2>
-                <PieChart className="h-5 w-5 text-sky-500" />
-              </div>
-              <p className="mt-1 text-sm text-muted">
-                Identifica en qué categorías se concentra tu gasto.
-              </p>
-              <div className="mt-6 h-80">
-                {expenseDistributionChartData ? (
-                  <Bar data={expenseDistributionChartData} options={barOptions} />
-                ) : (
-                  <EmptyState message="Aún no registras gastos para este periodo." />
-                )}
-              </div>
-            </div>
-
-            <div className="app-card p-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold">Gastos por tipo</h2>
-                <PieChart className="h-5 w-5 text-sky-500" />
-              </div>
-              <p className="mt-1 text-sm text-muted">
-                Compara gastos fijos, variables y otros compromisos.
-              </p>
-              <div className="mt-6 h-72">
-                {expenseTypeChartData ? (
-                  <Doughnut data={expenseTypeChartData} options={doughnutOptions} />
-                ) : (
-                  <EmptyState message="No hay datos de gastos para comparar." />
-                )}
-              </div>
-            </div>
           </div>
         </>
       )}
