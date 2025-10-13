@@ -848,13 +848,16 @@ class AppController:
         except Exception as e:
             return {"error": f"Error al actualizar: {e}"}
 
-    def delete_transaction(self, transaction_id):
+    def delete_transaction(self, transaction_id, adjust_balance: bool = False):
         try:
             transaction = Transaction.get_by_id(transaction_id)
-            account = transaction.account
-            if transaction.type == 'Ingreso': account.current_balance -= transaction.amount
-            else: account.current_balance += transaction.amount
-            account.save()
+            if adjust_balance:
+                account = transaction.account
+                if transaction.type == 'Ingreso':
+                    account.current_balance -= transaction.amount
+                else:
+                    account.current_balance += transaction.amount
+                account.save()
             transaction.delete_instance()
             return {"success": True}
         except Transaction.DoesNotExist:

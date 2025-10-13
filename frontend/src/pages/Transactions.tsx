@@ -164,10 +164,16 @@ export function Transactions() {
       return;
     }
 
+    const adjustBalance = window.confirm(
+      "¿Deseas ajustar los saldos de las cuentas asociadas a estas transacciones? Acepta para ajustar o cancela para mantener el saldo actual."
+    );
+
     try {
       await Promise.all(
         selectedTransactionIds.map((id) =>
-          axios.delete(`http://127.0.0.1:8000/api/transactions/${id}`)
+          axios.delete(`http://127.0.0.1:8000/api/transactions/${id}`, {
+            params: { adjust_balance: adjustBalance },
+          })
         )
       );
 

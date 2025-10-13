@@ -307,8 +307,8 @@ def update_transaction(transaction_id: int, transaction: TransactionModel):
     return result
 
 @app.delete("/api/transactions/{transaction_id}")
-def delete_transaction(transaction_id: int):
-    result = controller.delete_transaction(transaction_id)
+def delete_transaction(transaction_id: int, adjust_balance: bool = Query(False)):
+    result = controller.delete_transaction(transaction_id, adjust_balance)
     if "error" in result: raise HTTPException(status_code=404, detail=result["error"])
     return result
 

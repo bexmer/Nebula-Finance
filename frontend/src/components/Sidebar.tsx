@@ -39,38 +39,27 @@ export function Sidebar() {
 
   const collapseWidthClass = sidebarCollapsed ? "md:w-20" : "md:w-72";
   const navLabelClass = sidebarCollapsed ? "md:hidden" : "md:inline";
+  const logoSrc = sidebarCollapsed ? nebulaLogoMark : nebulaLogoFull;
 
   return (
     <aside
-      className={`w-full flex-shrink-0 border-b border-[var(--app-border)] bg-[var(--app-surface)]/95 backdrop-blur transition-all duration-300 supports-[backdrop-filter]:bg-[var(--app-surface)]/80 md:border-b-0 md:border-r ${collapseWidthClass}`}
+      className={`z-50 w-full flex-shrink-0 border-b border-[var(--app-border)] bg-[var(--app-surface)]/95 backdrop-blur transition-all duration-300 supports-[backdrop-filter]:bg-[var(--app-surface)]/80 md:fixed md:inset-y-0 md:left-0 md:z-40 md:border-b-0 md:border-r md:bg-[var(--app-surface)]/90 ${collapseWidthClass}`}
     >
-      <div className="flex flex-col md:h-screen">
-        <div className="flex items-center justify-between gap-3 px-4 py-4 md:py-6">
-          <div className="flex items-center gap-3">
-            <img
-              src={sidebarCollapsed ? nebulaLogoMark : nebulaLogoFull}
-              alt="Nebula Finance"
-              className="h-10 w-auto transition-all duration-300"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="inline-flex items-center justify-center rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] p-2 text-muted transition hover:text-sky-500 md:hidden"
-              onClick={() => setMobileMenuOpen((prev) => !prev)}
-              aria-label="Alternar navegación"
-            >
-              <Menu className="h-5 w-5" />
-            </button>
-            <button
-              type="button"
-              className="hidden items-center justify-center rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] p-2 text-muted transition hover:text-sky-500 md:inline-flex"
-              onClick={toggleSidebar}
-              aria-label={sidebarCollapsed ? "Expandir barra lateral" : "Contraer barra lateral"}
-            >
-              {sidebarCollapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
-            </button>
-          </div>
+      <div className="flex h-full flex-col md:h-screen">
+        <div className="flex items-center justify-between gap-3 px-4 py-4 md:justify-center md:py-6">
+          <img
+            src={logoSrc}
+            alt="Nebula Finance"
+            className={`transition-all duration-300 ${sidebarCollapsed ? "h-10 w-10" : "h-10 w-auto"}`}
+          />
+          <button
+            type="button"
+            className="inline-flex items-center justify-center rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] p-2 text-muted transition hover:text-sky-500 md:hidden"
+            onClick={() => setMobileMenuOpen((prev) => !prev)}
+            aria-label="Alternar navegación"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
         </div>
 
         <nav
@@ -101,7 +90,24 @@ export function Sidebar() {
           ))}
         </nav>
 
-        <div className="mt-auto border-t border-[var(--app-border)] px-4 py-4">
+        <div className="mt-auto space-y-3 border-t border-[var(--app-border)] px-4 py-4">
+          <button
+            type="button"
+            className={`hidden w-full items-center gap-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-4 py-3 text-sm font-semibold transition hover:border-sky-400/60 hover:text-sky-600 dark:hover:text-sky-300 md:flex ${
+              sidebarCollapsed ? "md:justify-center" : "justify-between"
+            }`}
+            onClick={toggleSidebar}
+            aria-label={sidebarCollapsed ? "Expandir barra lateral" : "Contraer barra lateral"}
+          >
+            {sidebarCollapsed ? (
+              <ChevronRight className="h-5 w-5" />
+            ) : (
+              <>
+                <span className="text-sm font-semibold">Contraer menú</span>
+                <ChevronLeft className="h-5 w-5" />
+              </>
+            )}
+          </button>
           <button
             type="button"
             onClick={toggleTheme}
