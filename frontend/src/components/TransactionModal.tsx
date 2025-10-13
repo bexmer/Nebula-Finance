@@ -12,7 +12,16 @@ interface ParameterOption {
   value: string;
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";
+const RAW_API_BASE_URL =
+  (import.meta.env.VITE_API_URL as string | undefined) ?? "http://127.0.0.1:8000";
+const API_BASE_URL = RAW_API_BASE_URL.replace(/\/$/, "");
+const USE_PREFIXED_API = API_BASE_URL.endsWith("/api");
+const apiPath = (segment: string) => {
+  const normalized = segment.startsWith("/") ? segment : `/${segment}`;
+  return USE_PREFIXED_API
+    ? `${API_BASE_URL}${normalized}`
+    : `${API_BASE_URL}/api${normalized}`;
+};
 
 const initialState = {
   description: "",
@@ -50,9 +59,12 @@ export const TransactionModal = () => {
   const fetchCategoriesByType = useCallback(async (typeId: number) => {
     try {
       const response = await axios.get<ParameterOption[]>(
-        `${API_BASE_URL}/api/parameters/categories/${typeId}`
+        apiPath(`/parameters/categories/${typeId}`)
       );
-      return response.data;
+      return response.data.map((item) => ({
+        id: item.id,
+        value: item.value,
+      }));
     } catch (categoryError) {
       console.error("No se pudieron cargar las categorías:", categoryError);
       setCatalogNotice(
@@ -70,12 +82,10 @@ export const TransactionModal = () => {
     try {
       const [accountsResult, typesResult, goalsResult, debtsResult] =
         await Promise.allSettled([
-          axios.get<SelectOption[]>(`${API_BASE_URL}/api/accounts`),
-          axios.get<ParameterOption[]>(
-            `${API_BASE_URL}/api/parameters/transaction-types`
-          ),
-          axios.get<SelectOption[]>(`${API_BASE_URL}/api/goals`),
-          axios.get<SelectOption[]>(`${API_BASE_URL}/api/debts`),
+          axios.get(apiPath("/accounts")),
+          axios.get(apiPath("/parameters/transaction-types")),
+          axios.get(apiPath("/goals")),
+          axios.get(apiPath("/debts")),
         ]);
 
       if (
@@ -85,13 +95,33 @@ export const TransactionModal = () => {
         throw new Error("catalog-unavailable");
       }
 
-      const accountList = accountsResult.value.data;
-      const typeList = typesResult.value.data;
+      const accountList = (accountsResult.value.data as any[]).map((account) => ({
+        id: account.id,
+        name: account.name,
+      }));
+      const typeList = (typesResult.value.data as any[]).map((type) => ({
+        id: type.id,
+        value: type.value,
+      }));
 
       setAccounts(accountList);
       setTransactionTypes(typeList);
-      setGoals(goalsResult.status === "fulfilled" ? goalsResult.value.data : []);
-      setDebts(debtsResult.status === "fulfilled" ? debtsResult.value.data : []);
+      setGoals(
+        goalsResult.status === "fulfilled"
+          ? (goalsResult.value.data as any[]).map((goal) => ({
+              id: goal.id,
+              name: goal.name,
+            }))
+          : []
+      );
+      setDebts(
+        debtsResult.status === "fulfilled"
+          ? (debtsResult.value.data as any[]).map((debt) => ({
+              id: debt.id,
+              name: debt.name,
+            }))
+          : []
+      );
 
       let nextCategories: ParameterOption[] = [];
       let nextFormState = {

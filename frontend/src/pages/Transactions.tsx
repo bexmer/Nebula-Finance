@@ -220,38 +220,11 @@ export function Transactions() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Transacciones</h1>
-          <p className="text-gray-400 mt-1 max-w-2xl">
-            Visualiza tus movimientos, aplica filtros avanzados y administra tu historial
-            financiero sin perder el contexto del flujo de efectivo.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={() => openTransactionModal(null)}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 font-semibold shadow-lg shadow-blue-600/20 transition hover:bg-blue-500"
-          >
-            <Plus className="h-4 w-4" />
-            Nueva transacción
-          </button>
-          <button
-            type="button"
-            onClick={handleDeleteSelected}
-            disabled={selectedTransactionIds.length === 0}
-            className="inline-flex items-center gap-2 rounded-lg border border-red-500/50 px-4 py-2 font-semibold text-red-200 transition disabled:border-red-900 disabled:text-red-700 disabled:cursor-not-allowed hover:border-red-400 hover:text-red-100"
-          >
-            <Trash2 className="h-4 w-4" />
-            Eliminar seleccionadas
-            {selectedTransactionIds.length > 0 && (
-              <span className="ml-1 rounded-full bg-red-500/20 px-2 py-0.5 text-xs">
-                {selectedTransactionIds.length}
-              </span>
-            )}
-          </button>
-        </div>
+      <header className="space-y-2">
+        <h1 className="text-3xl font-bold">Transacciones</h1>
+        <p className="text-gray-400 mt-1 max-w-2xl">
+          Visualiza tus movimientos, aplica filtros avanzados y administra tu historial financiero sin perder el contexto del flujo de efectivo.
+        </p>
       </header>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -423,16 +396,42 @@ export function Transactions() {
       </section>
 
       <section className="rounded-2xl border border-gray-700/60 bg-gray-900/70 shadow-xl shadow-black/20">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-700/60 px-6 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-700/60 px-6 py-4">
           <div>
             <h2 className="text-lg font-semibold">Movimientos registrados</h2>
             <p className="text-sm text-gray-400">
               Selecciona filas para editarlas o eliminarlas rápidamente.
             </p>
           </div>
-          <span className="text-sm text-gray-400">
-            {transactions.length} transacciones encontradas
-          </span>
+          <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => openTransactionModal(null)}
+                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold shadow-lg shadow-blue-600/20 transition hover:bg-blue-500"
+              >
+                <Plus className="h-4 w-4" />
+                Nueva transacción
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteSelected}
+                disabled={selectedTransactionIds.length === 0}
+                className="inline-flex items-center gap-2 rounded-lg border border-red-500/50 px-4 py-2 text-sm font-semibold text-red-200 transition hover:border-red-400 hover:text-red-100 disabled:cursor-not-allowed disabled:border-red-900 disabled:text-red-700"
+              >
+                <Trash2 className="h-4 w-4" />
+                Eliminar
+                {selectedTransactionIds.length > 0 && (
+                  <span className="ml-1 rounded-full bg-red-500/20 px-2 py-0.5 text-xs">
+                    {selectedTransactionIds.length}
+                  </span>
+                )}
+              </button>
+            </div>
+            <span className="text-sm text-gray-400">
+              {transactions.length} transacciones encontradas
+            </span>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-800">

@@ -65,6 +65,41 @@ class TransactionModel(BaseModel):
     goal_id: Optional[int] = None
     debt_id: Optional[int] = None
 
+
+class BudgetEntryModel(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: int
+    description: Optional[str] = None
+    category: str
+    type: str
+    budgeted_amount: float
+    due_date: Optional[datetime.date] = None
+    month: Optional[int] = None
+    year: Optional[int] = None
+    amount: Optional[float] = None
+
+
+class BudgetEntryCreateModel(BaseModel):
+    category: str
+    budgeted_amount: Optional[float] = None
+    amount: Optional[float] = None
+    type: Optional[str] = "Gasto"
+    description: Optional[str] = None
+    due_date: Optional[datetime.date] = None
+    month: Optional[int] = None
+    year: Optional[int] = None
+
+
+class BudgetEntryUpdateModel(BaseModel):
+    category: Optional[str] = None
+    budgeted_amount: Optional[float] = None
+    amount: Optional[float] = None
+    type: Optional[str] = None
+    description: Optional[str] = None
+    due_date: Optional[datetime.date] = None
+    month: Optional[int] = None
+    year: Optional[int] = None
+
 class GoalModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -364,6 +399,35 @@ def update_debt(debt_id: int, debt: DebtUpdateModel):
 @app.delete("/api/debts/{debt_id}")
 def delete_debt(debt_id: int):
     result = controller.delete_debt(debt_id)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@app.get("/api/budget", response_model=List[BudgetEntryModel])
+def list_budget_entries():
+    return controller.get_budget_entries()
+
+
+@app.post("/api/budget", response_model=BudgetEntryModel, status_code=201)
+def create_budget_entry(entry: BudgetEntryCreateModel):
+    result = controller.add_budget_entry(entry.model_dump(exclude_none=True))
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.put("/api/budget/{entry_id}", response_model=BudgetEntryModel)
+def update_budget_entry(entry_id: int, entry: BudgetEntryUpdateModel):
+    result = controller.update_budget_entry(entry_id, entry.model_dump(exclude_none=True))
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@app.delete("/api/budget/{entry_id}")
+def delete_budget_entry(entry_id: int):
+    result = controller.delete_budget_entry(entry_id)
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
     return result

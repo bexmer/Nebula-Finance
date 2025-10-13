@@ -40,13 +40,25 @@ export function GoalsAndDebts() {
     setError(null);
     try {
       const [goalsRes, debtsRes] = await Promise.all([
-        axios.get("http://127.0.0.1:8000/api/dashboard-goals"),
+        axios.get("http://127.0.0.1:8000/api/goals"),
         axios.get("http://127.0.0.1:8000/api/debts"),
       ]);
-      setGoals(goalsRes.data);
+      setGoals(
+        goalsRes.data.map((goal: any) => ({
+          id: goal.id,
+          name: goal.name,
+          current_amount: goal.current_amount ?? 0,
+          target_amount: goal.target_amount ?? 0,
+          percentage: goal.percentage ?? goal.completion_percentage ?? goal.progress ?? 0,
+        }))
+      );
       setDebts(
         debtsRes.data.map((debt: any) => ({
           ...debt,
+          minimum_payment: debt.minimum_payment ?? 0,
+          interest_rate: debt.interest_rate ?? 0,
+          current_balance: debt.current_balance ?? 0,
+          total_amount: debt.total_amount ?? 0,
           percentage:
             debt.percentage ?? debt.completion_percentage ?? debt.progress ?? 0,
         }))

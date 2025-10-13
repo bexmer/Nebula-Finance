@@ -1436,10 +1436,12 @@ class AppController:
         goals = []
         for goal in Goal.select():
             goal_dict = goal._data.copy()
-            goal_dict["completion_percentage"] = self._calculate_completion_percentage(
+            percentage = self._calculate_completion_percentage(
                 goal_dict.get("current_amount", 0),
                 goal_dict.get("target_amount", 0),
             )
+            goal_dict["completion_percentage"] = percentage
+            goal_dict["percentage"] = percentage
             goals.append(goal_dict)
         return goals
 
@@ -1449,10 +1451,12 @@ class AppController:
         for debt in Debt.select():
             debt_dict = debt._data.copy()
             paid_amount = debt_dict.get("total_amount", 0) - debt_dict.get("current_balance", 0)
-            debt_dict["completion_percentage"] = self._calculate_completion_percentage(
+            percentage = self._calculate_completion_percentage(
                 paid_amount,
                 debt_dict.get("total_amount", 0),
             )
+            debt_dict["completion_percentage"] = percentage
+            debt_dict["percentage"] = percentage
             debts.append(debt_dict)
         return debts
 
@@ -1501,9 +1505,16 @@ class AppController:
     def add_debt(self, data):
         try:
             total = float(data['total_amount'])
-            min_payment = float(data.get('minimum_payment', 0))
-            interest = float(data.get('interest_rate', 0))
-            
+            min_payment = float(data.get('minimum_payment', 0) or 0)
+            interest = float(data.get('interest_rate', 0) or 0)
+
+            if total <= 0:
+                return {"error": "El monto total debe ser mayor que cero."}
+            if min_payment < 0:
+                return {"error": "El pago mínimo no puede ser negativo."}
+            if min_payment > total:
+                return {"error": "El pago mínimo no puede ser mayor que el monto total."}
+
             debt = Debt.create(
                 name=data['name'],
                 total_amount=total,
@@ -1511,13 +1522,26 @@ class AppController:
                 minimum_payment=min_payment,
                 interest_rate=interest
             )
-            return debt._data
+            result = debt._data.copy()
+            result["percentage"] = 0.0
+            result["completion_percentage"] = 0.0
+            return result
         except (ValueError, KeyError) as e:
             return {"error": f"Datos de deuda inválidos: {e}"}
 
     def update_debt(self, debt_id, data):
         try:
             debt = Debt.get_by_id(debt_id)
+            new_total = float(data.get('total_amount', debt.total_amount))
+            new_minimum = float(data.get('minimum_payment', debt.minimum_payment or 0))
+
+            if new_total <= 0:
+                return {"error": "El monto total debe ser mayor que cero."}
+            if new_minimum < 0:
+                return {"error": "El pago mínimo no puede ser negativo."}
+            if new_minimum > new_total:
+                return {"error": "El pago mínimo no puede ser mayor que el monto total."}
+
             if 'name' in data:
                 debt.name = data['name']
             if 'total_amount' in data:

@@ -41,9 +41,11 @@ export function GoalDebtModal({
   const [amount, setAmount] = useState("");
   const [minPayment, setMinPayment] = useState("");
   const [interest, setInterest] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
+      setError(null);
       if (item) {
         // Modo Editar
         setName(item.name);
@@ -51,8 +53,16 @@ export function GoalDebtModal({
           String(mode === "goal" ? item.target_amount : item.total_amount)
         );
         if (mode === "debt") {
-          setMinPayment(String(item.minimum_payment));
-          setInterest(String(item.interest_rate));
+          setMinPayment(
+            item.minimum_payment !== undefined && item.minimum_payment !== null
+              ? String(item.minimum_payment)
+              : ""
+          );
+          setInterest(
+            item.interest_rate !== undefined && item.interest_rate !== null
+              ? String(item.interest_rate)
+              : ""
+          );
         }
       } else {
         // Modo Crear
@@ -66,18 +76,52 @@ export function GoalDebtModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setError("El nombre es obligatorio.");
+      return;
+    }
+
+    const parsedAmount = parseFloat(amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setError("Ingresa un monto válido mayor que cero.");
+      return;
+    }
+
     const isGoal = mode === "goal";
     const resource = isGoal ? "goals" : "debts";
     const url = `http://127.0.0.1:8000/api/${resource}${item ? `/${item.id}` : ""}`;
 
-    const data = isGoal
-      ? { name, target_amount: parseFloat(amount) }
-      : {
-          name,
-          total_amount: parseFloat(amount),
-          minimum_payment: parseFloat(minPayment || "0"),
-          interest_rate: parseFloat(interest || "0"),
-        };
+    let data: Record<string, unknown>;
+
+    if (isGoal) {
+      data = { name: trimmedName, target_amount: parsedAmount };
+    } else {
+      const parsedMinPayment = parseFloat(minPayment || "0");
+      const parsedInterest = parseFloat(interest || "0");
+
+      if (!Number.isFinite(parsedMinPayment) || parsedMinPayment < 0) {
+        setError("Ingresa un pago mínimo válido.");
+        return;
+      }
+
+      if (parsedMinPayment > parsedAmount) {
+        setError("El pago mínimo no puede ser mayor que el monto total.");
+        return;
+      }
+
+      if (!Number.isFinite(parsedInterest) || parsedInterest < 0) {
+        setError("Ingresa una tasa de interés válida.");
+        return;
+      }
+
+      data = {
+        name: trimmedName,
+        total_amount: parsedAmount,
+        minimum_payment: parsedMinPayment,
+        interest_rate: parsedInterest,
+      };
+    }
 
     try {
       if (item) {
@@ -89,6 +133,11 @@ export function GoalDebtModal({
       onClose();
     } catch (error) {
       console.error(`Error al guardar ${mode}:`, error);
+      const message =
+        axios.isAxiosError(error) && error.response?.data?.detail
+          ? String(error.response.data.detail)
+          : "No se pudo guardar la información. Inténtalo de nuevo.";
+      setError(message);
     }
   };
 
@@ -97,6 +146,11 @@ export function GoalDebtModal({
       <h2 className="text-2xl font-bold mb-4">
         {item ? "Editar" : "Añadir"} {mode === "goal" ? "Meta" : "Deuda"}
       </h2>
+      {error && (
+        <p className="mb-4 rounded-md border border-rose-400/60 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+          {error}
+        </p>
+      )}
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-300">
