@@ -16,18 +16,46 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useStore } from "../store/useStore";
-import nebulaLogoFull from "../assets/nebula-logo-full.svg";
-import nebulaLogoMark from "../assets/nebula-logo-mark.svg";
+import nebulaLogoFull from "../assets/logo-nb.png";
+import nebulaLogoMark from "../assets/logo-mini-nb.png";
 
 const navItems = [
-  { name: "Dashboard", icon: <LayoutDashboard className="h-5 w-5" />, path: "/" },
+  {
+    name: "Dashboard",
+    icon: <LayoutDashboard className="h-5 w-5" />,
+    path: "/",
+  },
   { name: "Cuentas", icon: <Wallet className="h-5 w-5" />, path: "/accounts" },
-  { name: "Transacciones", icon: <ArrowRightLeft className="h-5 w-5" />, path: "/transactions" },
-  { name: "Presupuesto", icon: <Target className="h-5 w-5" />, path: "/budget" },
-  { name: "Metas y Deudas", icon: <Goal className="h-5 w-5" />, path: "/dashboard-goals" },
-  { name: "Portafolio", icon: <Briefcase className="h-5 w-5" />, path: "/portfolio" },
-  { name: "Análisis", icon: <AreaChart className="h-5 w-5" />, path: "/analysis" },
-  { name: "Configuración", icon: <Settings className="h-5 w-5" />, path: "/settings" },
+  {
+    name: "Transacciones",
+    icon: <ArrowRightLeft className="h-5 w-5" />,
+    path: "/transactions",
+  },
+  {
+    name: "Presupuesto",
+    icon: <Target className="h-5 w-5" />,
+    path: "/budget",
+  },
+  {
+    name: "Metas y Deudas",
+    icon: <Goal className="h-5 w-5" />,
+    path: "/dashboard-goals",
+  },
+  {
+    name: "Portafolio",
+    icon: <Briefcase className="h-5 w-5" />,
+    path: "/portfolio",
+  },
+  {
+    name: "Análisis",
+    icon: <AreaChart className="h-5 w-5" />,
+    path: "/analysis",
+  },
+  {
+    name: "Configuración",
+    icon: <Settings className="h-5 w-5" />,
+    path: "/settings",
+  },
 ];
 
 export function Sidebar() {
@@ -50,7 +78,9 @@ export function Sidebar() {
           <img
             src={logoSrc}
             alt="Nebula Finance"
-            className={`transition-all duration-300 ${sidebarCollapsed ? "h-10 w-10" : "h-10 w-auto"}`}
+            className={`transition-all duration-300 ${
+              sidebarCollapsed ? "h-10 w-10" : "h-10 w-auto"
+            }`}
           />
           <button
             type="button"
@@ -63,7 +93,9 @@ export function Sidebar() {
         </div>
 
         <nav
-          className={`flex flex-col gap-1 px-2 pb-4 md:flex md:flex-1 md:overflow-y-auto md:px-3 ${mobileMenuOpen ? "flex" : "hidden"} md:block`}
+          className={`flex flex-col gap-1 px-2 pb-4 md:flex md:flex-1 md:overflow-y-auto md:px-3 ${
+            mobileMenuOpen ? "flex" : "hidden"
+          } md:block`}
         >
           {navItems.map((item) => (
             <NavLink
@@ -97,7 +129,11 @@ export function Sidebar() {
               sidebarCollapsed ? "md:justify-center" : "justify-between"
             }`}
             onClick={toggleSidebar}
-            aria-label={sidebarCollapsed ? "Expandir barra lateral" : "Contraer barra lateral"}
+            aria-label={
+              sidebarCollapsed
+                ? "Expandir barra lateral"
+                : "Contraer barra lateral"
+            }
           >
             {sidebarCollapsed ? (
               <ChevronRight className="h-5 w-5" />
@@ -111,7 +147,11 @@ export function Sidebar() {
           <button
             type="button"
             onClick={toggleTheme}
-            aria-label={theme === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+            aria-label={
+              theme === "dark"
+                ? "Cambiar a modo claro"
+                : "Cambiar a modo oscuro"
+            }
             className={`flex w-full items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-4 py-3 text-sm font-semibold transition hover:border-sky-400/60 hover:text-sky-600 dark:hover:text-sky-300 ${
               sidebarCollapsed ? "md:justify-center md:px-2" : "justify-between"
             }`}
