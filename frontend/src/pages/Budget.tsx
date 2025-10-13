@@ -182,14 +182,25 @@ export function Budget() {
     return Array.from(months).sort((a, b) => a - b);
   }, [budgetEntries, parseEntryDate]);
 
-  const handleOpenModal = (entry: BudgetEntry | null) => {
+  const handleOpenModal = useCallback((entry: BudgetEntry | null) => {
     setSelectedEntry(entry);
     setIsModalOpen(true);
-  };
+  }, []);
 
   const handleSave = () => {
     fetchBudgetEntries();
   };
+
+  useEffect(() => {
+    const handleNewBudgetEntry = () => handleOpenModal(null);
+    window.addEventListener("nebula:budget-request-add", handleNewBudgetEntry);
+    return () => {
+      window.removeEventListener(
+        "nebula:budget-request-add",
+        handleNewBudgetEntry
+      );
+    };
+  }, [handleOpenModal]);
 
   const handleToggleEntry = (entryId: number, checked: boolean) => {
     setSelectedEntryIds((prev) => {

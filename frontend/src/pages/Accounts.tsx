@@ -109,6 +109,24 @@ export function Accounts() {
     };
   }, []);
 
+  useEffect(() => {
+    const handleNewAccountRequest = () => {
+      resetForm();
+      setFeedback(null);
+    };
+
+    window.addEventListener(
+      "nebula:accounts-request-new",
+      handleNewAccountRequest
+    );
+    return () => {
+      window.removeEventListener(
+        "nebula:accounts-request-new",
+        handleNewAccountRequest
+      );
+    };
+  }, [resetForm]);
+
   const handleInputChange = (field: keyof AccountFormState, value: string) => {
     setFormState((prev) => ({ ...prev, [field]: value }));
   };
@@ -146,6 +164,21 @@ export function Accounts() {
     if (selectedAccountId === null && Number.isNaN(initialBalanceValue)) {
       setFeedback("Ingresa un saldo inicial válido.");
       return;
+    }
+
+    if (selectedAccountId !== null) {
+      const existing = accounts.find(
+        (account) => account.id === selectedAccountId
+      );
+      if (existing) {
+        const unchanged =
+          existing.name === basePayload.name &&
+          existing.account_type === basePayload.account_type;
+        if (unchanged) {
+          setFeedback("No has realizado cambios en esta cuenta.");
+          return;
+        }
+      }
     }
 
     try {

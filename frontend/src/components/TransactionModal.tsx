@@ -47,6 +47,9 @@ export const TransactionModal = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [catalogNotice, setCatalogNotice] = useState<string | null>(null);
+  const [initialSnapshot, setInitialSnapshot] = useState<typeof initialState | null>(
+    null
+  );
 
   const activeType = useMemo(() => {
     if (!formData.typeId) {
@@ -214,6 +217,11 @@ export const TransactionModal = () => {
 
       setCategories(nextCategories);
       setFormData(nextFormState);
+      if (editingTransaction) {
+        setInitialSnapshot(nextFormState);
+      } else {
+        setInitialSnapshot(null);
+      }
 
       if (accountList.length === 0 || typeList.length === 0) {
         setCatalogNotice(
@@ -237,6 +245,7 @@ export const TransactionModal = () => {
       setFormData(initialState);
       setCatalogNotice(null);
       setError("");
+      setInitialSnapshot(null);
     }
   }, [isTransactionModalOpen, loadModalData]);
 
@@ -318,8 +327,10 @@ export const TransactionModal = () => {
       return;
     }
 
+    const trimmedDescription = formData.description.trim();
+
     const submissionData = {
-      description: formData.description,
+      description: trimmedDescription,
       amount: parseFloat(formData.amount),
       date: formData.date,
       account_id: parseInt(formData.account_id, 10),
@@ -345,6 +356,35 @@ export const TransactionModal = () => {
     if (requiresDebt && !submissionData.debt_id) {
       setError("Selecciona la deuda que deseas pagar con esta transacción.");
       return;
+    }
+
+    if (editingTransaction && initialSnapshot) {
+      const initialAmount = parseFloat(initialSnapshot.amount);
+      const initialAccount = parseInt(initialSnapshot.account_id || "", 10);
+      const initialGoal = initialSnapshot.goal_id || "";
+      const initialDebt = initialSnapshot.debt_id || "";
+      const currentGoal = formData.goal_id || "";
+      const currentDebt = formData.debt_id || "";
+      const initialDay = String(initialSnapshot.day_of_month);
+
+      const unchanged =
+        initialSnapshot.description.trim() === trimmedDescription &&
+        Number.isFinite(initialAmount) &&
+        initialAmount === submissionData.amount &&
+        initialSnapshot.date === formData.date &&
+        initialSnapshot.typeId === formData.typeId &&
+        initialSnapshot.categoryValue === formData.categoryValue &&
+        initialAccount === submissionData.account_id &&
+        initialGoal === currentGoal &&
+        initialDebt === currentDebt &&
+        initialSnapshot.is_recurring === formData.is_recurring &&
+        initialSnapshot.frequency === formData.frequency &&
+        initialDay === String(submissionData.day_of_month);
+
+      if (unchanged) {
+        setError("No has realizado cambios en esta transacción.");
+        return;
+      }
     }
 
     try {

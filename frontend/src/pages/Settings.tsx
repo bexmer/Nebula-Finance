@@ -13,6 +13,8 @@ interface TransactionTypeItem {
   budget_rule_id: number | null;
   budget_rule_name: string | null;
   is_deletable: boolean;
+  inherit_category_ids: number[];
+  inherit_category_names: string[];
 }
 
 interface BudgetRuleItem {
@@ -45,6 +47,7 @@ type TransactionTypeFormState = {
   id: number | null;
   name: string;
   budgetRuleId: string;
+  inheritCategoryIds: number[];
 };
 
 type BudgetRuleFormState = {
@@ -115,6 +118,7 @@ export function Settings() {
   const [accountTypes, setAccountTypes] = useState<AccountTypeItem[]>([]);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [displayPreferences, setDisplayPreferences] = useState<DisplayPreferences | null>(null);
+  const [displayInitial, setDisplayInitial] = useState<DisplayPreferences | null>(null);
   const { refresh: refreshDisplayContext, preferences: displayContextPreferences } =
     useDisplayPreferences();
 
@@ -122,6 +126,7 @@ export function Settings() {
     id: null,
     name: "",
     budgetRuleId: "",
+    inheritCategoryIds: [],
   });
   const [budgetRuleForm, setBudgetRuleForm] = useState<BudgetRuleFormState>({
     id: null,
@@ -145,6 +150,15 @@ export function Settings() {
   const [visualFeedback, setVisualFeedback] = useState<Feedback>(null);
 
   const timeoutRefs = useRef<number[]>([]);
+
+  const haveSameElements = useCallback((a: number[], b: number[]) => {
+    if (a.length !== b.length) {
+      return false;
+    }
+    const sortedA = [...a].sort((x, y) => x - y);
+    const sortedB = [...b].sort((x, y) => x - y);
+    return sortedA.every((value, index) => value === sortedB[index]);
+  }, []);
 
   const pushTimeout = useCallback((id: number) => {
     timeoutRefs.current.push(id);
@@ -226,10 +240,12 @@ export function Settings() {
     if (!displayContextPreferences) {
       return;
     }
-    setDisplayPreferences({
+    const nextDisplay = {
       abbreviate_numbers: displayContextPreferences.abbreviateNumbers,
       threshold: displayContextPreferences.threshold,
-    });
+    };
+    setDisplayPreferences(nextDisplay);
+    setDisplayInitial(nextDisplay);
   }, [displayContextPreferences]);
 
   const selectedTransactionType = useMemo(
@@ -252,8 +268,35 @@ export function Settings() {
     [categoryForm.id, categories]
   );
 
+  const inheritanceOptions = useMemo(
+    () =>
+      transactionTypes.filter((type) =>
+        transactionForm.id === null ? true : type.id !== transactionForm.id
+      ),
+    [transactionForm.id, transactionTypes]
+  );
+
+  useEffect(() => {
+    setTransactionForm((prev) => {
+      if (prev.inheritCategoryIds.length === 0) {
+        return prev;
+      }
+      const allowed = new Set(inheritanceOptions.map((option) => option.id));
+      const nextIds = prev.inheritCategoryIds.filter((id) => allowed.has(id));
+      if (nextIds.length === prev.inheritCategoryIds.length) {
+        return prev;
+      }
+      return { ...prev, inheritCategoryIds: nextIds };
+    });
+  }, [inheritanceOptions]);
+
   const resetTransactionForm = useCallback(() => {
-    setTransactionForm({ id: null, name: "", budgetRuleId: "" });
+    setTransactionForm({
+      id: null,
+      name: "",
+      budgetRuleId: "",
+      inheritCategoryIds: [],
+    });
   }, []);
 
   const resetBudgetRuleForm = useCallback(() => {
@@ -270,14 +313,39 @@ export function Settings() {
 
   const handleTransactionTypeSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!transactionForm.name.trim()) {
+    const trimmedName = transactionForm.name.trim();
+    if (!trimmedName) {
       showFeedback(setTransactionFeedback, "error", "Ingresa un nombre para el tipo de transacción.");
       return;
     }
 
+    const budgetRuleIdValue = transactionForm.budgetRuleId
+      ? Number(transactionForm.budgetRuleId)
+      : null;
+
+    if (transactionForm.id !== null && selectedTransactionType) {
+      const existingRuleId = selectedTransactionType.budget_rule_id ?? null;
+      const unchanged =
+        selectedTransactionType.name === trimmedName &&
+        existingRuleId === budgetRuleIdValue &&
+        haveSameElements(
+          selectedTransactionType.inherit_category_ids ?? [],
+          transactionForm.inheritCategoryIds
+        );
+      if (unchanged) {
+        showFeedback(
+          setTransactionFeedback,
+          "error",
+          "No has realizado cambios en este tipo."
+        );
+        return;
+      }
+    }
+
     const payload = {
-      name: transactionForm.name.trim(),
-      budget_rule_id: transactionForm.budgetRuleId ? Number(transactionForm.budgetRuleId) : null,
+      name: trimmedName,
+      budget_rule_id: budgetRuleIdValue,
+      inherit_category_ids: transactionForm.inheritCategoryIds,
     };
 
     try {
@@ -313,7 +381,8 @@ export function Settings() {
 
   const handleBudgetRuleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!budgetRuleForm.name.trim()) {
+    const trimmedName = budgetRuleForm.name.trim();
+    if (!trimmedName) {
       showFeedback(setBudgetRuleFeedback, "error", "El nombre de la regla es obligatorio.");
       return;
     }
@@ -324,7 +393,21 @@ export function Settings() {
       return;
     }
 
-    const payload = { name: budgetRuleForm.name.trim(), percentage: percentageValue };
+    if (budgetRuleForm.id !== null && selectedBudgetRule) {
+      const unchanged =
+        selectedBudgetRule.name === trimmedName &&
+        Number(selectedBudgetRule.percentage) === Number(percentageValue);
+      if (unchanged) {
+        showFeedback(
+          setBudgetRuleFeedback,
+          "error",
+          "No has realizado cambios en esta regla."
+        );
+        return;
+      }
+    }
+
+    const payload = { name: trimmedName, percentage: percentageValue };
 
     try {
       if (budgetRuleForm.id === null) {
@@ -357,18 +440,30 @@ export function Settings() {
 
   const handleAccountTypeSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!accountTypeForm.name.trim()) {
+    const trimmedName = accountTypeForm.name.trim();
+    if (!trimmedName) {
       showFeedback(setAccountFeedback, "error", "El nombre del tipo de cuenta es obligatorio.");
       return;
     }
 
+    if (accountTypeForm.id !== null && selectedAccountType) {
+      if (selectedAccountType.name === trimmedName) {
+        showFeedback(
+          setAccountFeedback,
+          "error",
+          "No has realizado cambios en este tipo de cuenta."
+        );
+        return;
+      }
+    }
+
     try {
       if (accountTypeForm.id === null) {
-        await axios.post(`${API_BASE_URL}/config/account-types`, { name: accountTypeForm.name.trim() });
+        await axios.post(`${API_BASE_URL}/config/account-types`, { name: trimmedName });
         showFeedback(setAccountFeedback, "success", "Tipo de cuenta añadido.");
       } else {
         await axios.put(`${API_BASE_URL}/config/account-types/${accountTypeForm.id}`, {
-          name: accountTypeForm.name.trim(),
+          name: trimmedName,
         });
         showFeedback(setAccountFeedback, "success", "Tipo de cuenta actualizado.");
       }
@@ -395,7 +490,8 @@ export function Settings() {
 
   const handleCategorySubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!categoryForm.name.trim()) {
+    const trimmedName = categoryForm.name.trim();
+    if (!trimmedName) {
       showFeedback(setCategoryFeedback, "error", "Ingresa un nombre para la categoría.");
       return;
     }
@@ -404,9 +500,25 @@ export function Settings() {
       return;
     }
 
+    const parentIdNumber = Number(categoryForm.parentId);
+
+    if (categoryForm.id !== null && selectedCategory) {
+      const unchanged =
+        selectedCategory.name === trimmedName &&
+        selectedCategory.parent_id === parentIdNumber;
+      if (unchanged) {
+        showFeedback(
+          setCategoryFeedback,
+          "error",
+          "No has realizado cambios en esta categoría."
+        );
+        return;
+      }
+    }
+
     const payload = {
-      name: categoryForm.name.trim(),
-      parent_id: Number(categoryForm.parentId),
+      name: trimmedName,
+      parent_id: parentIdNumber,
     };
 
     try {
@@ -443,10 +555,24 @@ export function Settings() {
     if (!displayPreferences) {
       return;
     }
+    if (displayInitial) {
+      const unchanged =
+        displayInitial.abbreviate_numbers === displayPreferences.abbreviate_numbers &&
+        displayInitial.threshold === displayPreferences.threshold;
+      if (unchanged) {
+        showFeedback(
+          setVisualFeedback,
+          "error",
+          "No has realizado cambios en la visualización."
+        );
+        return;
+      }
+    }
     try {
       const response = await axios.put<DisplayPreferences>(`${API_BASE_URL}/config/display`, displayPreferences);
       setDisplayPreferences(response.data);
       await refreshDisplayContext();
+      setDisplayInitial(response.data);
       showFeedback(setVisualFeedback, "success", "Preferencias guardadas correctamente.");
     } catch (error) {
       showFeedback(setVisualFeedback, "error", resolveErrorMessage(error));
@@ -547,6 +673,55 @@ export function Settings() {
                       ))}
                     </select>
                   </div>
+                  <div className="space-y-2">
+                    <span className="text-sm font-medium text-slate-300">
+                      Heredar categorías de otros tipos
+                    </span>
+                    <p className="text-xs text-slate-500">
+                      Selecciona los tipos cuyas categorías también estarán disponibles para este tipo en transacciones y presupuestos.
+                    </p>
+                    <div className="max-h-36 space-y-2 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+                      {inheritanceOptions.length === 0 ? (
+                        <p className="text-xs text-slate-500">
+                          {transactionTypes.length <= 1
+                            ? "Registra más tipos para poder heredar sus categorías."
+                            : "No hay otros tipos disponibles para heredar."}
+                        </p>
+                      ) : (
+                        inheritanceOptions.map((option) => {
+                          const isChecked = transactionForm.inheritCategoryIds.includes(option.id);
+                          return (
+                            <label
+                              key={option.id}
+                              className="flex items-center gap-2 text-sm text-slate-200"
+                            >
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500 focus:ring-sky-500"
+                                checked={isChecked}
+                                onChange={(event) => {
+                                  const checked = event.target.checked;
+                                  setTransactionForm((prev) => {
+                                    const next = new Set(prev.inheritCategoryIds);
+                                    if (checked) {
+                                      next.add(option.id);
+                                    } else {
+                                      next.delete(option.id);
+                                    }
+                                    return {
+                                      ...prev,
+                                      inheritCategoryIds: Array.from(next).sort((a, b) => a - b),
+                                    };
+                                  });
+                                }}
+                              />
+                              <span>{option.name}</span>
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
                   <div className="flex flex-wrap items-center gap-3">
                     <button
                       type="submit"
@@ -590,6 +765,7 @@ export function Settings() {
                               id: item.id,
                               name: item.name,
                               budgetRuleId: item.budget_rule_id ? String(item.budget_rule_id) : "",
+                              inheritCategoryIds: [...(item.inherit_category_ids ?? [])],
                             })
                           }
                           className={`w-full rounded-lg border px-3 py-3 text-left text-sm transition ${
@@ -604,6 +780,11 @@ export function Settings() {
                               {item.budget_rule_name ?? "Sin regla"}
                             </span>
                           </div>
+                          {item.inherit_category_names.length > 0 && (
+                            <p className="mt-1 text-xs text-slate-400">
+                              Hereda: {item.inherit_category_names.join(", ")}
+                            </p>
+                          )}
                           {!item.is_deletable && (
                             <p className="mt-1 text-xs text-slate-500">Tipo protegido, no se puede eliminar.</p>
                           )}

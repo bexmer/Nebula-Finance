@@ -2,7 +2,8 @@ from collections import defaultdict
 import calendar
 import calendar
 import datetime
-from typing import Optional, List, Dict, Any
+import json
+from typing import Optional, List, Dict, Any, Tuple
 from dateutil.relativedelta import relativedelta
 from peewee import fn, JOIN
 
@@ -1107,20 +1108,123 @@ class AppController:
     def get_child_parameters(self, parent_id):
         """
         Obtiene los parámetros (categorías) que son hijos de otro parámetro (tipo).
+        También incluye las categorías heredadas de otros tipos cuando aplique.
         """
-        return list(Parameter.select().where(Parameter.parent == parent_id).dicts())
+        base_query = Parameter.select().where(Parameter.parent == parent_id)
+        categories = []
+        seen_ids = set()
+
+        for row in base_query.dicts():
+            categories.append(row)
+            seen_ids.add(row["id"])
+
+        try:
+            parent_parameter = Parameter.get_by_id(parent_id)
+        except Parameter.DoesNotExist:
+            return categories
+
+        inherited_type_ids = self._parse_inherited_category_ids(parent_parameter.extra_data)
+        if not inherited_type_ids:
+            return categories
+
+        inherited_categories = (
+            Parameter.select()
+            .where(Parameter.parent.in_(inherited_type_ids))
+            .order_by(Parameter.parent, Parameter.value)
+        )
+
+        for row in inherited_categories.dicts():
+            if row["id"] in seen_ids:
+                continue
+            categories.append(row)
+            seen_ids.add(row["id"])
+
+        return categories
 
     # -----------------------------------------------------------------
     # --- Tipos de transacción y reglas de presupuesto ---
     # -----------------------------------------------------------------
 
+    def _parse_inherited_category_ids(self, raw_extra: Optional[str]) -> List[int]:
+        if not raw_extra:
+            return []
+
+        candidates: List[int] = []
+        try:
+            parsed = json.loads(raw_extra)
+            if isinstance(parsed, dict):
+                raw_list = parsed.get("inherits") or parsed.get("inherit_category_ids") or parsed.get("inherits_from")
+            elif isinstance(parsed, list):
+                raw_list = parsed
+            elif isinstance(parsed, str):
+                raw_list = [value.strip() for value in parsed.split(",") if value.strip()]
+            else:
+                raw_list = []
+        except (TypeError, json.JSONDecodeError):
+            raw_list = [value.strip() for value in str(raw_extra).split(",") if value.strip()]
+
+        for value in raw_list:
+            try:
+                normalized = int(value)
+            except (TypeError, ValueError):
+                continue
+            if normalized not in candidates:
+                candidates.append(normalized)
+        return candidates
+
+    def _encode_inherited_category_ids(self, type_ids: List[int]) -> Optional[str]:
+        if not type_ids:
+            return None
+        return json.dumps({"inherits": type_ids})
+
+    def _normalize_inherited_type_ids(
+        self, raw_ids: Optional[Any], *, exclude_id: Optional[int] = None
+    ) -> Tuple[List[int], Optional[str]]:
+        if raw_ids is None:
+            return [], None
+
+        if not isinstance(raw_ids, (list, tuple, set)):
+            return [], "Los tipos seleccionados para heredar no son válidos."
+
+        normalized: List[int] = []
+        for value in raw_ids:
+            try:
+                candidate = int(value)
+            except (TypeError, ValueError):
+                return [], "Los tipos seleccionados para heredar no son válidos."
+
+            if exclude_id is not None and candidate == exclude_id:
+                continue
+
+            parameter = Parameter.get_or_none(Parameter.id == candidate)
+            if not parameter or parameter.group != "Tipo de Transacción":
+                return [], "Uno de los tipos seleccionados para heredar no existe."
+
+            if candidate not in normalized:
+                normalized.append(candidate)
+
+        return normalized, None
+
     def _serialize_transaction_type(self, parameter: Parameter) -> Dict[str, Any]:
+        inherit_ids = self._parse_inherited_category_ids(parameter.extra_data)
+        inherit_names: List[str] = []
+
+        if inherit_ids:
+            name_map = {
+                item.id: item.value
+                for item in Parameter.select()
+                .where((Parameter.group == "Tipo de Transacción") & (Parameter.id.in_(inherit_ids)))
+            }
+            inherit_names = [name_map[type_id] for type_id in inherit_ids if type_id in name_map]
+
         return {
             "id": parameter.id,
             "name": parameter.value,
             "budget_rule_id": parameter.budget_rule_id,
             "budget_rule_name": parameter.budget_rule.name if parameter.budget_rule else None,
             "is_deletable": bool(parameter.is_deletable),
+            "inherit_category_ids": inherit_ids,
+            "inherit_category_names": inherit_names,
         }
 
     def _serialize_budget_rule(self, rule: BudgetRule) -> Dict[str, Any]:
@@ -1152,7 +1256,12 @@ class AppController:
     def get_budget_rules(self) -> List[Dict[str, Any]]:
         return [self._serialize_budget_rule(rule) for rule in BudgetRule.select().order_by(BudgetRule.id)]
 
-    def add_transaction_type(self, name: str, budget_rule_id: Optional[int]) -> Dict[str, Any]:
+    def add_transaction_type(
+        self,
+        name: str,
+        budget_rule_id: Optional[int],
+        inherit_category_ids: Optional[List[int]],
+    ) -> Dict[str, Any]:
         name = (name or "").strip()
         if not name:
             return {"error": "El nombre del tipo de transacción es obligatorio."}
@@ -1169,10 +1278,17 @@ class AppController:
             if not budget_rule:
                 return {"error": "La regla de presupuesto seleccionada no existe."}
 
+        normalized_inherit_ids, inherit_error = self._normalize_inherited_type_ids(
+            inherit_category_ids
+        )
+        if inherit_error:
+            return {"error": inherit_error}
+
         parameter = Parameter.create(
             group="Tipo de Transacción",
             value=name,
             budget_rule=budget_rule,
+            extra_data=self._encode_inherited_category_ids(normalized_inherit_ids),
         )
         return self._serialize_transaction_type(parameter)
 
@@ -1215,6 +1331,16 @@ class AppController:
                 if not budget_rule:
                     return {"error": "La regla de presupuesto seleccionada no existe."}
                 updates["budget_rule"] = budget_rule
+
+        if "inherit_category_ids" in data:
+            normalized_inherit_ids, inherit_error = self._normalize_inherited_type_ids(
+                data.get("inherit_category_ids"), exclude_id=parameter.id
+            )
+            if inherit_error:
+                return {"error": inherit_error}
+            updates["extra_data"] = self._encode_inherited_category_ids(
+                normalized_inherit_ids
+            )
 
         if updates:
             Parameter.update(updates).where(Parameter.id == parameter.id).execute()

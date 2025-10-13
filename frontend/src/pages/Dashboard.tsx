@@ -388,22 +388,22 @@ export function Dashboard() {
 
   return (
     <div className="space-y-6 text-slate-900 dark:text-slate-100">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="app-card flex flex-col gap-6 p-6 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-3xl font-semibold">Dashboard</h1>
           <p className="mt-1 text-sm text-muted">
             Controla tus finanzas personales con una vista integral de tu patrimonio.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex flex-col text-sm text-muted">
-            <span className="mb-1 inline-flex items-center gap-2 text-xs uppercase tracking-wide text-muted">
+        <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-end sm:justify-end">
+          <div className="flex min-w-[180px] flex-col gap-2">
+            <label className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted">
               <Calendar className="h-4 w-4" /> Año
-            </span>
+            </label>
             <select
               value={year}
               onChange={(event) => setYear(Number(event.target.value))}
-              className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-4 py-2 text-sm font-medium text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+              className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-4 py-2 text-sm font-medium text-slate-900 shadow-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
             >
               {Array.from({ length: 7 }).map((_, index) => {
                 const optionYear = currentYear - 3 + index;
@@ -415,10 +415,10 @@ export function Dashboard() {
               })}
             </select>
           </div>
-          <div className="flex flex-col">
-            <span className="mb-1 inline-flex items-center gap-2 text-xs uppercase tracking-wide text-muted">
+          <div className="flex min-w-[220px] flex-col gap-2">
+            <label className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted">
               <PieChart className="h-4 w-4" /> Meses
-            </span>
+            </label>
             <MonthMultiSelect
               value={selectedMonths}
               onChange={setSelectedMonths}
@@ -441,30 +441,30 @@ export function Dashboard() {
 
       {!isLoading && !error && data && (
         <>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <KpiCard
-              title="Ganancias"
-              value={formatCurrency(data.kpis.income.amount)}
-              comparison={data.kpis.income.comparison}
-              icon={<TrendingUp className="h-5 w-5" />}
-            />
-            <KpiCard
-              title="Gastos"
-              value={formatCurrency(data.kpis.expense.amount)}
-              comparison={data.kpis.expense.comparison}
-              inverse
-              icon={<TrendingDown className="h-5 w-5" />}
-            />
-            <KpiCard
-              title="Ahorro Neto"
-              value={formatCurrency(data.kpis.net.amount)}
-              comparison={data.kpis.net.comparison}
-              icon={<Wallet className="h-5 w-5" />}
-            />
-          </div>
+          <div className="grid gap-6 xl:grid-cols-[2fr_1fr]">
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <KpiCard
+                  title="Ganancias"
+                  value={formatCurrency(data.kpis.income.amount)}
+                  comparison={data.kpis.income.comparison}
+                  icon={<TrendingUp className="h-5 w-5" />}
+                />
+                <KpiCard
+                  title="Gastos"
+                  value={formatCurrency(data.kpis.expense.amount)}
+                  comparison={data.kpis.expense.comparison}
+                  inverse
+                  icon={<TrendingDown className="h-5 w-5" />}
+                />
+                <KpiCard
+                  title="Ahorro Neto"
+                  value={formatCurrency(data.kpis.net.amount)}
+                  comparison={data.kpis.net.comparison}
+                  icon={<Wallet className="h-5 w-5" />}
+                />
+              </div>
 
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-            <div className="space-y-6 xl:col-span-2">
               <div className="app-card p-6">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div>
@@ -551,8 +551,7 @@ export function Dashboard() {
               </div>
             </div>
 
-            <div className="space-y-6">
-              <BudgetRuleCard rules={data.budget_rule_control} incomeTotal={data.kpis.income.amount} />
+            <aside className="space-y-6">
               <AccountsCard
                 accounts={accounts}
                 activeIndex={activeAccountIndex}
@@ -568,7 +567,11 @@ export function Dashboard() {
                 }
                 activeAccount={activeAccount}
               />
-            </div>
+              <BudgetRuleCard
+                rules={data.budget_rule_control}
+                incomeTotal={data.kpis.income.amount}
+              />
+            </aside>
           </div>
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">

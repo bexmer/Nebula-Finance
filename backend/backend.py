@@ -202,16 +202,20 @@ class TransactionTypeItem(BaseModel):
     budget_rule_id: Optional[int] = None
     budget_rule_name: Optional[str] = None
     is_deletable: bool
+    inherit_category_ids: List[int] = []
+    inherit_category_names: List[str] = []
 
 
 class TransactionTypeCreateModel(BaseModel):
     name: str
     budget_rule_id: Optional[int] = None
+    inherit_category_ids: Optional[List[int]] = None
 
 
 class TransactionTypeUpdateModel(BaseModel):
     name: Optional[str] = None
     budget_rule_id: Optional[int] = None
+    inherit_category_ids: Optional[List[int]] = None
 
 
 class AccountTypeItem(BaseModel):
@@ -602,6 +606,7 @@ def create_transaction_type(transaction_type: TransactionTypeCreateModel):
     result = controller.add_transaction_type(
         transaction_type.name,
         transaction_type.budget_rule_id,
+        transaction_type.inherit_category_ids,
     )
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -610,7 +615,10 @@ def create_transaction_type(transaction_type: TransactionTypeCreateModel):
 
 @app.put("/api/config/transaction-types/{type_id}", response_model=TransactionTypeItem)
 def update_transaction_type(type_id: int, transaction_type: TransactionTypeUpdateModel):
-    result = controller.update_transaction_type(type_id, transaction_type.model_dump(exclude_unset=True))
+    result = controller.update_transaction_type(
+        type_id,
+        transaction_type.model_dump(exclude_unset=True),
+    )
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result

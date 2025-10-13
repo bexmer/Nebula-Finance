@@ -87,6 +87,9 @@ const createEmptyForm = (): BudgetFormState => ({
 
 export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
   const [formData, setFormData] = useState<BudgetFormState>(createEmptyForm());
+  const [initialSnapshot, setInitialSnapshot] = useState<BudgetFormState | null>(
+    null
+  );
   const [transactionTypes, setTransactionTypes] = useState<ParameterOption[]>([]);
   const [categories, setCategories] = useState<ParameterOption[]>([]);
   const [goals, setGoals] = useState<SelectOption[]>([]);
@@ -216,6 +219,16 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
         goalId: entry?.goal_id ? String(entry.goal_id) : "",
         debtId: entry?.debt_id ? String(entry.debt_id) : "",
       });
+      setInitialSnapshot({
+        description: entry?.description ?? "",
+        amount: amountValue,
+        due_date: resolveDueDate(entry),
+        typeId: String(fallbackType.id),
+        typeValue: fallbackType.value,
+        categoryValue: entry?.category ?? (nextCategories[0]?.value ?? ""),
+        goalId: entry?.goal_id ? String(entry.goal_id) : "",
+        debtId: entry?.debt_id ? String(entry.debt_id) : "",
+      });
 
       const normalizedDefault = fallbackType.value
         .normalize("NFD")
@@ -257,6 +270,7 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
       loadModalData();
     } else {
       setFormData(createEmptyForm());
+      setInitialSnapshot(null);
       setTransactionTypes([]);
       setCategories([]);
       setError(null);
@@ -375,6 +389,30 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
     if (requiresDebt && !formData.debtId) {
       setError("Selecciona la deuda a la que aplicarás este presupuesto.");
       return;
+    }
+
+    if (entry?.id && initialSnapshot) {
+      const initialDescription = initialSnapshot.description.trim();
+      const initialAmount = parseFloat(initialSnapshot.amount || "0");
+      const initialGoal = initialSnapshot.goalId || "";
+      const initialDebt = initialSnapshot.debtId || "";
+      const currentGoal = formData.goalId || "";
+      const currentDebt = formData.debtId || "";
+
+      const unchanged =
+        initialDescription === trimmedDescription &&
+        Number.isFinite(initialAmount) &&
+        initialAmount === parsedAmount &&
+        initialSnapshot.due_date === formData.due_date &&
+        initialSnapshot.typeId === formData.typeId &&
+        initialSnapshot.categoryValue === formData.categoryValue &&
+        initialGoal === currentGoal &&
+        initialDebt === currentDebt;
+
+      if (unchanged) {
+        setError("No has realizado cambios en este presupuesto.");
+        return;
+      }
     }
 
     const payload = {

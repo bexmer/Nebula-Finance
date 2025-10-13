@@ -43,6 +43,12 @@ export function GoalDebtModal({
   const [minPayment, setMinPayment] = useState("");
   const [interest, setInterest] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [initialValues, setInitialValues] = useState({
+    name: "",
+    amount: "",
+    minPayment: "",
+    interest: "",
+  });
 
   const enforceNumericLimit = (value: string) => {
     const digits = value.replace(/[^0-9]/g, "");
@@ -73,12 +79,29 @@ export function GoalDebtModal({
               : ""
           );
         }
+        setInitialValues({
+          name: item.name,
+          amount: String(mode === "goal" ? item.target_amount : item.total_amount),
+          minPayment:
+            mode === "debt"
+              ? item.minimum_payment !== undefined && item.minimum_payment !== null
+                ? String(item.minimum_payment)
+                : ""
+              : "",
+          interest:
+            mode === "debt"
+              ? item.interest_rate !== undefined && item.interest_rate !== null
+                ? String(item.interest_rate)
+                : ""
+              : "",
+        });
       } else {
         // Modo Crear
         setName("");
         setAmount("");
         setMinPayment("");
         setInterest("");
+        setInitialValues({ name: "", amount: "", minPayment: "", interest: "" });
       }
     }
   }, [isOpen, item, mode]);
@@ -130,6 +153,34 @@ export function GoalDebtModal({
         minimum_payment: parsedMinPayment,
         interest_rate: parsedInterest,
       };
+    }
+
+    if (item) {
+      const initialName = initialValues.name.trim();
+      const initialAmount = parseFloat(initialValues.amount || "0");
+      const unchangedName = initialName === trimmedName;
+      const unchangedAmount =
+        Number.isFinite(initialAmount) && initialAmount === parsedAmount;
+
+      if (mode === "goal") {
+        if (unchangedName && unchangedAmount) {
+          setError("No has realizado cambios en esta meta.");
+          return;
+        }
+      } else {
+        const initialMinPayment = parseFloat(initialValues.minPayment || "0");
+        const initialInterest = parseFloat(initialValues.interest || "0");
+        const unchangedDebtFields =
+          Number.isFinite(initialMinPayment) &&
+          Number.isFinite(initialInterest) &&
+          initialMinPayment === parsedMinPayment &&
+          initialInterest === parsedInterest;
+
+        if (unchangedName && unchangedAmount && unchangedDebtFields) {
+          setError("No has realizado cambios en esta deuda.");
+          return;
+        }
+      }
     }
 
     try {

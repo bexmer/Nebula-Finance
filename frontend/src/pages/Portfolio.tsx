@@ -54,6 +54,9 @@ export function Portfolio() {
   const [formState, setFormState] = useState<TradeFormState>(() =>
     createDefaultFormState()
   );
+  const [initialSnapshot, setInitialSnapshot] = useState<TradeFormState | null>(
+    null
+  );
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -94,9 +97,28 @@ export function Portfolio() {
     fetchPortfolio();
   }, [fetchPortfolio]);
 
+  useEffect(() => {
+    const handleNewTradeRequest = () => {
+      setFormState(createDefaultFormState());
+      setFormError(null);
+      setInitialSnapshot(null);
+    };
+    window.addEventListener(
+      "nebula:portfolio-request-add",
+      handleNewTradeRequest
+    );
+    return () => {
+      window.removeEventListener(
+        "nebula:portfolio-request-add",
+        handleNewTradeRequest
+      );
+    };
+  }, []);
+
   const resetForm = () => {
     setFormState(createDefaultFormState());
     setFormError(null);
+    setInitialSnapshot(null);
   };
 
   const handleFieldChange =
@@ -148,7 +170,7 @@ export function Portfolio() {
     };
 
   const handleEdit = (trade: TradeHistory) => {
-    setFormState({
+    const nextState = {
       id: trade.id,
       symbol: trade.symbol.toUpperCase(),
       asset_type: trade.asset_type ?? "",
@@ -156,7 +178,9 @@ export function Portfolio() {
       quantity: trade.quantity.toString(),
       price: trade.price.toString(),
       date: trade.date,
-    });
+    };
+    setFormState(nextState);
+    setInitialSnapshot(nextState);
     setFormError(null);
   };
 
@@ -274,6 +298,30 @@ export function Portfolio() {
       price,
       date: formState.date,
     };
+
+    if (formState.id && initialSnapshot && initialSnapshot.id === formState.id) {
+      const initialQuantity = parseFloat(initialSnapshot.quantity);
+      const initialPrice = parseFloat(initialSnapshot.price);
+      const initialSymbol = initialSnapshot.symbol.trim().toUpperCase();
+      const initialAssetType = initialSnapshot.asset_type.trim();
+      const initialType = initialSnapshot.type;
+      const initialDate = initialSnapshot.date;
+
+      const unchanged =
+        initialSymbol === normalizedSymbol &&
+        initialType === formState.type &&
+        initialDate === formState.date &&
+        initialAssetType === resolvedAssetType.trim() &&
+        Number.isFinite(initialQuantity) &&
+        Number.isFinite(initialPrice) &&
+        initialQuantity === quantity &&
+        initialPrice === price;
+
+      if (unchanged) {
+        setFormError("No has realizado cambios en esta operación.");
+        return;
+      }
+    }
 
     setIsSubmitting(true);
     try {
