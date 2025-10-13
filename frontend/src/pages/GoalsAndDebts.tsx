@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import axios from "axios";
 
 import { GoalProgressCard } from "../components/GoalProgressCard";
@@ -40,7 +40,7 @@ export function GoalsAndDebts() {
 
   const { formatCurrency } = useNumberFormatter();
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -74,11 +74,11 @@ export function GoalsAndDebts() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   const handleOpenModal = (mode: "goal" | "debt", item: any | null) => {
     setModalMode(mode);
@@ -345,3 +345,5 @@ export function GoalsAndDebts() {
     </div>
   );
 }
+
+export default GoalsAndDebts;
