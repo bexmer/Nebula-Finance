@@ -103,6 +103,12 @@ export function Portfolio() {
     (field: keyof TradeFormState) =>
     (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       const value = event.target.value;
+      if (field === "quantity" || field === "price") {
+        const digitsOnly = value.replace(/[^0-9]/g, "");
+        if (digitsOnly.length > 10) {
+          return;
+        }
+      }
       setFormState((prev) => {
         if (field === "symbol") {
           const normalized = value.toUpperCase();
@@ -380,15 +386,15 @@ export function Portfolio() {
     <div className="space-y-10">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white">Portafolio</h1>
-          <p className="text-sm text-slate-400">
+          <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-100">Portafolio</h1>
+          <p className="text-sm text-muted">
             Visualiza el rendimiento de tus inversiones y registra nuevas
             operaciones en segundos.
           </p>
         </div>
         <button
           onClick={() => fetchPortfolio()}
-          className="self-start inline-flex items-center gap-2 rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:text-white"
+          className="self-start inline-flex items-center gap-2 rounded-lg border border-[var(--app-border)] px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-sky-400 hover:text-slate-900 dark:text-slate-200 dark:hover:text-slate-50"
         >
           <RefreshCcw className="h-4 w-4" />
           Actualizar datos
@@ -396,64 +402,68 @@ export function Portfolio() {
       </div>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <article className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-          <p className="text-xs uppercase tracking-wide text-slate-400">Valor actual</p>
-          <p className="mt-2 text-3xl font-semibold text-white">
+        <article className="glow-card glow-card--sky sm:p-6">
+          <p className="text-xs uppercase tracking-wide text-sky-600 dark:text-sky-300">Valor actual</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-900 dark:text-white">
             {formatCurrency(totals.market)}
           </p>
-          <p className="mt-1 text-xs text-slate-400">
+          <p className="mt-1 text-xs text-muted">
             {summary.length} posiciones activas
           </p>
         </article>
-        <article className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-          <p className="text-xs uppercase tracking-wide text-slate-400">Capital invertido</p>
-          <p className="mt-2 text-3xl font-semibold text-white">
+        <article className="glow-card glow-card--emerald sm:p-6">
+          <p className="text-xs uppercase tracking-wide text-emerald-600 dark:text-emerald-300">Capital invertido</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-900 dark:text-white">
             {formatCurrency(totals.cost)}
           </p>
-          <p className="mt-1 text-xs text-slate-400">Costos acumulados de compra</p>
+          <p className="mt-1 text-xs text-muted">Costos acumulados de compra</p>
         </article>
-        <article className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-          <p className="text-xs uppercase tracking-wide text-slate-400">Ganancia latente</p>
+        <article className="glow-card glow-card--rose sm:p-6">
+          <p className="text-xs uppercase tracking-wide text-rose-600 dark:text-rose-300">Ganancia latente</p>
           <p
             className={`mt-2 text-3xl font-semibold ${
-              totals.pnl >= 0 ? "text-emerald-300" : "text-rose-300"
+              totals.pnl >= 0
+                ? "text-emerald-600 dark:text-emerald-200"
+                : "text-rose-600 dark:text-rose-200"
             }`}
           >
             {formatCurrency(totals.pnl)}
           </p>
-          <p className="mt-1 text-xs text-slate-400">Sin considerar comisiones</p>
+          <p className="mt-1 text-xs text-muted">Sin considerar comisiones</p>
         </article>
-        <article className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-          <p className="text-xs uppercase tracking-wide text-slate-400">Rendimiento</p>
+        <article className="glow-card glow-card--violet sm:p-6">
+          <p className="text-xs uppercase tracking-wide text-violet-600 dark:text-violet-300">Rendimiento</p>
           <p
             className={`mt-2 text-3xl font-semibold ${
-              pnlPercentage >= 0 ? "text-emerald-300" : "text-rose-300"
+              pnlPercentage >= 0
+                ? "text-emerald-600 dark:text-emerald-200"
+                : "text-rose-600 dark:text-rose-200"
             }`}
           >
             {formatPercent(pnlPercentage)}
           </p>
-          <p className="mt-1 text-xs text-slate-400">Sobre el capital invertido</p>
+          <p className="mt-1 text-xs text-muted">Sobre el capital invertido</p>
         </article>
       </section>
 
       {fetchError && (
-        <div className="rounded-2xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-100">
+        <div className="rounded-2xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-700 dark:text-rose-100">
           {fetchError}
         </div>
       )}
 
       <div className="flex flex-col gap-6 xl:flex-row">
         <section className="flex-1 space-y-6">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
+          <div className="app-card p-6">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-white">Composición actual</h2>
-              {loading && <span className="text-xs text-slate-400">Actualizando...</span>}
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Composición actual</h2>
+              {loading && <span className="text-xs text-muted">Actualizando...</span>}
             </div>
             <div className="mt-4 overflow-x-auto">
               {enrichedSummary.length ? (
-                <table className="min-w-full divide-y divide-slate-800 text-sm">
+                <table className="min-w-full divide-y divide-[var(--app-border)] text-sm">
                   <thead>
-                    <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
+                    <tr className="text-left text-xs uppercase tracking-wide text-muted">
                       <th className="py-2 pr-4">Activo</th>
                       <th className="py-2 pr-4">Cantidad</th>
                       <th className="py-2 pr-4 text-right">Costo prom.</th>
@@ -466,35 +476,37 @@ export function Portfolio() {
                     {enrichedSummary.map((asset) => (
                       <tr
                         key={asset.symbol}
-                        className="border-b border-slate-800/60 text-sm text-slate-200"
+                        className="border-b border-[var(--app-border)] text-sm text-slate-700 dark:text-slate-200"
                       >
                         <td className="py-3 pr-4">
-                          <div className="font-semibold text-white">
+                          <div className="font-semibold text-slate-900 dark:text-white">
                             {asset.symbol}
                           </div>
-                          <div className="text-xs text-slate-400">
+                          <div className="text-xs text-muted">
                             {asset.asset_type || asset.name}
                           </div>
                         </td>
                         <td className="py-3 pr-4">{asset.quantity.toFixed(4)}</td>
-                        <td className="py-3 pr-4 text-right font-mono text-slate-300">
+                        <td className="py-3 pr-4 text-right font-mono text-slate-600 dark:text-slate-200">
                           {formatCurrency(asset.avg_cost)}
                         </td>
-                        <td className="py-3 pr-4 text-right font-mono text-sky-300">
+                        <td className="py-3 pr-4 text-right font-mono text-sky-600 dark:text-sky-300">
                           {formatCurrency(asset.market_value)}
                         </td>
                         <td
                           className={`py-3 pr-4 text-right font-mono ${
                             asset.unrealized_pnl >= 0
-                              ? "text-emerald-300"
-                              : "text-rose-300"
+                              ? "text-emerald-600 dark:text-emerald-300"
+                              : "text-rose-600 dark:text-rose-300"
                           }`}
                         >
                           {formatCurrency(asset.unrealized_pnl)}
                         </td>
                         <td
                           className={`py-3 text-right font-semibold ${
-                            asset.roi >= 0 ? "text-emerald-300" : "text-rose-300"
+                            asset.roi >= 0
+                              ? "text-emerald-600 dark:text-emerald-300"
+                              : "text-rose-600 dark:text-rose-300"
                           }`}
                         >
                           {formatPercent(asset.roi)}
@@ -504,24 +516,24 @@ export function Portfolio() {
                   </tbody>
                 </table>
               ) : (
-                <p className="rounded-lg border border-dashed border-slate-800 bg-slate-900/40 p-4 text-sm text-slate-400">
+                <p className="rounded-lg border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)] p-4 text-sm text-muted">
                   Aún no tienes posiciones activas registradas.
                 </p>
               )}
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-            <h3 className="text-lg font-semibold text-white">Distribución por activo</h3>
+          <div className="app-card p-6">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Distribución por activo</h3>
             {diversification.length ? (
               <ul className="mt-4 space-y-3">
                 {diversification.map((item) => (
                   <li key={item.symbol} className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium text-white">{item.symbol}</span>
-                      <span className="text-slate-300">{item.weight.toFixed(1)}%</span>
+                      <span className="font-medium text-slate-900 dark:text-white">{item.symbol}</span>
+                      <span className="text-slate-600 dark:text-slate-300">{item.weight.toFixed(1)}%</span>
                     </div>
-                    <div className="h-2 w-full rounded-full bg-slate-800">
+                    <div className="h-2 w-full rounded-full bg-[var(--app-border)]/60">
                       <div
                         className={`h-full rounded-full ${
                           item.pnl >= 0 ? "bg-emerald-500" : "bg-rose-500"
@@ -529,25 +541,25 @@ export function Portfolio() {
                         style={{ width: `${Math.min(item.weight, 100)}%` }}
                       ></div>
                     </div>
-                    <p className="text-xs text-slate-400">{item.asset_type}</p>
+                    <p className="text-xs text-muted">{item.asset_type}</p>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="mt-3 text-sm text-slate-400">
+              <p className="mt-3 text-sm text-muted">
                 Registra operaciones para visualizar la distribución de tu
                 portafolio.
               </p>
             )}
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-            <h2 className="text-lg font-semibold text-white">Historial de operaciones</h2>
+          <div className="app-card p-6">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Historial de operaciones</h2>
             <div className="mt-4 overflow-x-auto">
               {history.length ? (
-                <table className="min-w-full divide-y divide-slate-800 text-sm">
+                <table className="min-w-full divide-y divide-[var(--app-border)] text-sm">
                   <thead>
-                    <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
+                    <tr className="text-left text-xs uppercase tracking-wide text-muted">
                       <th className="py-2 pr-4">Fecha</th>
                       <th className="py-2 pr-4">Activo</th>
                       <th className="py-2 pr-4">Tipo</th>
@@ -560,16 +572,16 @@ export function Portfolio() {
                     {history.map((trade) => (
                       <tr
                         key={trade.id}
-                        className="border-b border-slate-800/60 text-sm text-slate-200"
+                        className="border-b border-[var(--app-border)] text-sm text-slate-700 dark:text-slate-200"
                       >
-                        <td className="py-3 pr-4 text-slate-300">
+                        <td className="py-3 pr-4 text-slate-600 dark:text-slate-300">
                           {formatDate(trade.date)}
                         </td>
                         <td className="py-3 pr-4">
-                          <div className="font-semibold text-white">
+                          <div className="font-semibold text-slate-900 dark:text-white">
                             {trade.symbol}
                           </div>
-                          <div className="text-xs text-slate-400">
+                          <div className="text-xs text-muted">
                             {trade.asset_type}
                           </div>
                         </td>
@@ -577,31 +589,31 @@ export function Portfolio() {
                           <span
                             className={`rounded-full px-3 py-1 text-xs font-semibold ${
                               trade.type === "buy"
-                                ? "bg-emerald-500/10 text-emerald-300"
-                                : "bg-rose-500/10 text-rose-300"
+                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"
+                                : "bg-rose-500/10 text-rose-600 dark:text-rose-300"
                             }`}
                           >
                             {trade.type === "buy" ? "Compra" : "Venta"}
                           </span>
                         </td>
-                        <td className="py-3 pr-4 text-right text-slate-300">
+                        <td className="py-3 pr-4 text-right text-slate-600 dark:text-slate-200">
                           {trade.quantity}
                         </td>
-                        <td className="py-3 pr-4 text-right font-mono text-slate-300">
+                        <td className="py-3 pr-4 text-right font-mono text-slate-600 dark:text-slate-200">
                           {formatCurrency(trade.price)}
                         </td>
                         <td className="py-3 text-right">
                           <div className="flex justify-end gap-2">
                             <button
                               onClick={() => handleEdit(trade)}
-                              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-sky-400/40 bg-slate-800 text-sky-200 transition hover:border-sky-300 hover:text-sky-100"
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-sky-200 bg-[var(--app-surface-muted)] text-sky-600 transition hover:border-sky-400 hover:text-sky-700 dark:border-sky-400/40 dark:bg-slate-900/70 dark:text-sky-200"
                               aria-label="Editar operación"
                             >
                               <Pencil className="h-4 w-4" />
                             </button>
                             <button
                               onClick={() => handleDelete(trade.id)}
-                              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-rose-400/40 bg-slate-800 text-rose-200 transition hover:border-rose-300 hover:text-rose-100"
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-rose-200 bg-[var(--app-surface-muted)] text-rose-600 transition hover:border-rose-400 hover:text-rose-700 dark:border-rose-400/40 dark:bg-slate-900/70 dark:text-rose-200"
                               aria-label="Eliminar operación"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -613,7 +625,7 @@ export function Portfolio() {
                   </tbody>
                 </table>
               ) : (
-                <p className="rounded-lg border border-dashed border-slate-800 bg-slate-900/40 p-4 text-sm text-slate-400">
+              <p className="rounded-lg border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)] p-4 text-sm text-muted">
                   No hay operaciones registradas todavía.
                 </p>
               )}
@@ -621,18 +633,18 @@ export function Portfolio() {
           </div>
         </section>
 
-        <aside className="w-full xl:w-96 space-y-6">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-            <h3 className="text-lg font-semibold text-white">
+        <aside className="w-full space-y-6 xl:w-96">
+          <div className="app-card p-6">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
               {isEditing ? "Actualizar operación" : "Registrar operación"}
             </h3>
-            <p className="mt-1 text-xs text-slate-400">
+            <p className="mt-1 text-xs text-muted">
               Completa los campos para guardar una compra o venta en tu
               portafolio.
             </p>
             <form onSubmit={handleSubmit} className="mt-4 space-y-4">
               <div className="space-y-2">
-                <label className="text-xs font-medium text-slate-300">
+                <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
                   Símbolo
                 </label>
                 <input
@@ -640,7 +652,7 @@ export function Portfolio() {
                   value={formState.symbol}
                   onChange={handleFieldChange("symbol")}
                   list={isSale && holdingSymbols.length ? "portfolio-holdings" : undefined}
-                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none"
+                  className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
                   placeholder="Ej. AAPL"
                 />
                 {isSale && holdingSymbols.length > 0 && (
@@ -651,13 +663,13 @@ export function Portfolio() {
                   </datalist>
                 )}
                 {isSale && holdingSymbols.length === 0 && (
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-muted">
                     Registra compras antes de capturar ventas.
                   </p>
                 )}
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-medium text-slate-300">
+                <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
                   Tipo de activo
                 </label>
                 <input
@@ -665,44 +677,44 @@ export function Portfolio() {
                   value={formState.asset_type}
                   onChange={handleFieldChange("asset_type")}
                   disabled={symbolMatchesHolding}
-                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                  className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100"
                   placeholder="Acción, ETF, Cripto..."
                 />
                 {symbolMatchesHolding && (
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-muted">
                     Tipo asignado automáticamente según tu posición actual.
                   </p>
                 )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-xs font-medium text-slate-300">
+                  <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
                     Tipo de operación
                   </label>
                   <select
                     value={formState.type}
                     onChange={handleFieldChange("type")}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none"
+                    className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
                   >
                     <option value="buy">Compra</option>
                     <option value="sell">Venta</option>
                   </select>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-medium text-slate-300">
+                  <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
                     Fecha
                   </label>
                   <input
                     type="date"
                     value={formState.date}
                     onChange={handleFieldChange("date")}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none"
+                    className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
                   />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-xs font-medium text-slate-300">
+                  <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
                     Cantidad
                   </label>
                   <input
@@ -711,11 +723,11 @@ export function Portfolio() {
                     min="0"
                     value={formState.quantity}
                     onChange={handleFieldChange("quantity")}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none"
+                    className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-medium text-slate-300">
+                  <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
                     Precio unitario
                   </label>
                   <input
@@ -724,13 +736,13 @@ export function Portfolio() {
                     min="0"
                     value={formState.price}
                     onChange={handleFieldChange("price")}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none"
+                    className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
                   />
                 </div>
               </div>
 
               {formError && (
-                <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-100">
+                <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-700 dark:text-rose-100">
                   {formError}
                 </div>
               )}
@@ -740,7 +752,7 @@ export function Portfolio() {
                   <button
                     type="button"
                     onClick={resetForm}
-                    className="rounded-lg border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-300 transition hover:border-slate-500 hover:text-white"
+                    className="rounded-lg border border-[var(--app-border)] px-4 py-2 text-xs font-semibold text-slate-700 transition hover:border-sky-400 hover:text-slate-900 dark:text-slate-200 dark:hover:text-slate-50"
                   >
                     Cancelar
                   </button>
@@ -760,19 +772,19 @@ export function Portfolio() {
             </form>
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-            <h3 className="text-lg font-semibold text-white">Insights rápidos</h3>
+          <div className="app-card p-6">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Insights rápidos</h3>
             {enrichedSummary.length ? (
-              <div className="mt-4 space-y-4 text-sm text-slate-300">
+              <div className="mt-4 space-y-4 text-sm text-slate-700 dark:text-slate-300">
                 {bestPerformer && (
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-slate-400">
+                    <p className="text-xs uppercase tracking-wide text-muted">
                       Mejor desempeño
                     </p>
-                    <p className="text-base font-semibold text-white">
+                    <p className="text-base font-semibold text-slate-900 dark:text-white">
                       {bestPerformer.symbol} · {formatPercent(bestPerformer.roi)}
                     </p>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-muted">
                       {formatCurrency(bestPerformer.unrealized_pnl)} sin
                       realizar
                     </p>
@@ -780,22 +792,22 @@ export function Portfolio() {
                 )}
                 {worstPerformer && (
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-slate-400">
+                    <p className="text-xs uppercase tracking-wide text-muted">
                       Mayor oportunidad
                     </p>
-                    <p className="text-base font-semibold text-white">
+                    <p className="text-base font-semibold text-slate-900 dark:text-white">
                       {worstPerformer.symbol} · {formatPercent(worstPerformer.roi)}
                     </p>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-muted">
                       {formatCurrency(worstPerformer.unrealized_pnl)} latente
                     </p>
                   </div>
                 )}
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-slate-400">
+                  <p className="text-xs uppercase tracking-wide text-muted">
                     Concentración
                   </p>
-                  <p className="text-base font-semibold text-white">
+                  <p className="text-base font-semibold text-slate-900 dark:text-white">
                     {diversification[0]
                       ? `${diversification[0].symbol} concentra ${diversification[0].weight.toFixed(1)}%`
                       : "Diversificación equilibrada"}
@@ -803,7 +815,7 @@ export function Portfolio() {
                 </div>
               </div>
             ) : (
-              <p className="mt-3 text-sm text-slate-400">
+              <p className="mt-3 text-sm text-muted">
                 Registra tus primeras operaciones para activar los insights de
                 rendimiento.
               </p>

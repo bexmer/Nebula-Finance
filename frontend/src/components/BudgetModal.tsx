@@ -310,10 +310,26 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
     }));
   };
 
+  const LIMITED_NUMERIC_FIELDS = new Set(["amount"]);
+
   const handleInputChange = (
     event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => {
     const { name, value } = event.target;
+
+    if (name === "description" && value.length > 100) {
+      event.preventDefault();
+      setFormData((prev) => ({ ...prev, description: value.slice(0, 100) }));
+      return;
+    }
+
+    if (LIMITED_NUMERIC_FIELDS.has(name)) {
+      const digitsOnly = value.replace(/[^0-9]/g, "");
+      if (digitsOnly.length > 10) {
+        return;
+      }
+    }
+
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
@@ -395,36 +411,36 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
 
   return (
     <Modal isOpen={isOpen} onRequestClose={onClose} style={customStyles}>
-      <div className="w-full max-w-xl rounded-2xl border border-slate-200/10 bg-slate-900/95 p-6 shadow-2xl backdrop-blur dark:bg-slate-900/95">
+      <div className="w-full max-w-xl app-card p-6 shadow-2xl backdrop-blur">
         <div className="mb-5 flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-2xl font-semibold text-white">
+            <h2 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
               {entry ? "Editar" : "Añadir"} entrada de presupuesto
             </h2>
-            <p className="mt-1 text-sm text-slate-400">
+            <p className="mt-1 text-sm text-muted">
               Define el compromiso, clasifícalo y fija cuándo debería ejecutarse.
             </p>
           </div>
-          <CalendarDays className="h-6 w-6 text-slate-400" />
+          <CalendarDays className="h-6 w-6 text-sky-500" />
         </div>
 
         {error && (
-          <div className="mb-4 flex items-start gap-2 rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+          <div className="mb-4 flex items-start gap-2 rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-100">
             <AlertCircle className="mt-0.5 h-4 w-4" />
             <p>{error}</p>
           </div>
         )}
 
         {catalogNotice && !error && (
-          <div className="mb-4 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          <div className="mb-4 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-100">
             {catalogNotice}
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="flex flex-col gap-2 text-sm text-slate-200">
-              <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
+              <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
                 <TypeIcon className="h-3.5 w-3.5" /> Tipo
               </span>
               <select
@@ -432,7 +448,7 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
                 value={formData.typeId}
                 onChange={handleTypeChange}
                 disabled={isLoading || transactionTypes.length === 0}
-                className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed"
+                className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed dark:text-slate-100"
               >
                 {transactionTypes.map((type) => (
                   <option key={type.id} value={String(type.id)}>
@@ -442,8 +458,8 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
               </select>
             </label>
 
-            <label className="flex flex-col gap-2 text-sm text-slate-200">
-              <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
+              <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
                 <Tag className="h-3.5 w-3.5" /> Categoría
               </span>
               <select
@@ -451,7 +467,7 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
                 value={formData.categoryValue}
                 onChange={handleCategoryChange}
                 disabled={isLoading || sortedCategories.length === 0}
-                className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed"
+                className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed dark:text-slate-100"
               >
                 {sortedCategories.map((category) => (
                   <option key={`${category.id}-${category.value}`} value={category.value}>
@@ -466,8 +482,8 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
             <div className="grid gap-4 sm:grid-cols-2">
               {shouldShowGoalSelect && (
                 goals.length > 0 ? (
-                  <label className="flex flex-col gap-2 text-sm text-slate-200">
-                    <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
+                    <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
                       Meta
                     </span>
                     <select
@@ -475,7 +491,7 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
                       value={formData.goalId}
                       onChange={handleGoalChange}
                       required={requiresGoal}
-                      className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none"
+                      className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
                     >
                       <option value="">
                         {requiresGoal
@@ -490,7 +506,7 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
                     </select>
                   </label>
                 ) : (
-                  <div className="rounded-lg border border-dashed border-slate-700/70 px-3 py-2 text-sm text-slate-400">
+                  <div className="rounded-lg border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)]/80 px-3 py-2 text-sm text-muted">
                     Crea una meta para vincular este presupuesto de ahorro.
                   </div>
                 )
@@ -498,8 +514,8 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
 
               {shouldShowDebtSelect && (
                 debts.length > 0 ? (
-                  <label className="flex flex-col gap-2 text-sm text-slate-200">
-                    <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
+                    <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
                       Deuda
                     </span>
                     <select
@@ -507,7 +523,7 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
                       value={formData.debtId}
                       onChange={handleDebtChange}
                       required={requiresDebt}
-                      className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none"
+                      className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
                     >
                       <option value="">
                         {requiresDebt
@@ -522,7 +538,7 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
                     </select>
                   </label>
                 ) : (
-                  <div className="rounded-lg border border-dashed border-slate-700/70 px-3 py-2 text-sm text-slate-400">
+                  <div className="rounded-lg border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)]/80 px-3 py-2 text-sm text-muted">
                     Registra una deuda para asignar este presupuesto de pago.
                   </div>
                 )
@@ -530,8 +546,8 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
             </div>
           )}
 
-          <label className="flex flex-col gap-2 text-sm text-slate-200">
-            <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
+            <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
               <FileText className="h-3.5 w-3.5" /> Descripción
             </span>
             <textarea
@@ -539,14 +555,15 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
               value={formData.description}
               onChange={handleInputChange}
               rows={2}
+              maxLength={100}
               placeholder="Ej. Pago de renta, seguro del auto, colegiatura..."
-              className="min-h-[70px] w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none"
+              className="min-h-[70px] w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
             />
           </label>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="flex flex-col gap-2 text-sm text-slate-200">
-              <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
+              <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
                 <CalendarDays className="h-3.5 w-3.5" /> Fecha comprometida
               </span>
               <input
@@ -555,12 +572,12 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
                 value={formData.due_date}
                 onChange={handleInputChange}
                 required
-                className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none"
+                className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
               />
             </label>
 
-            <label className="flex flex-col gap-2 text-sm text-slate-200">
-              <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
+              <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
                 $ Monto estimado
               </span>
               <input
@@ -571,7 +588,8 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
                 value={formData.amount}
                 onChange={handleInputChange}
                 required
-                className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none"
+                inputMode="decimal"
+                className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
               />
             </label>
           </div>
@@ -580,7 +598,7 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex items-center justify-center rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-slate-400 hover:text-white"
+              className="inline-flex items-center justify-center rounded-lg border border-[var(--app-border)] px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-sky-400 hover:text-slate-900 dark:text-slate-200 dark:hover:text-slate-50"
             >
               Cancelar
             </button>

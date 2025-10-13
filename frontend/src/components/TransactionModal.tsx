@@ -276,11 +276,29 @@ export const TransactionModal = () => {
     }
   };
 
+  const LIMITED_NUMERIC_FIELDS = new Set(["amount", "day_of_month"]);
+
   const handleChange = (
     event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     const { name, value, type } = event.target;
     const checked = (event.target as HTMLInputElement).checked;
+
+    if (type !== "checkbox") {
+      if (name === "description" && value.length > 100) {
+        event.preventDefault();
+        setFormData((prev) => ({ ...prev, description: value.slice(0, 100) }));
+        return;
+      }
+
+      if (LIMITED_NUMERIC_FIELDS.has(name)) {
+        const digitsOnly = value.replace(/[^0-9]/g, "");
+        if (digitsOnly.length > 10) {
+          return;
+        }
+      }
+    }
+
     setFormData((prev) => ({
       ...prev,
       [name]: type === "checkbox" ? checked : value,
@@ -383,6 +401,7 @@ export const TransactionModal = () => {
                 onChange={handleChange}
                 placeholder="Descripción"
                 required
+                maxLength={100}
                 className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100 sm:col-span-2"
               />
               <input
@@ -393,6 +412,7 @@ export const TransactionModal = () => {
                 onChange={handleChange}
                 placeholder="Monto"
                 required
+                inputMode="decimal"
                 className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
               />
               <input

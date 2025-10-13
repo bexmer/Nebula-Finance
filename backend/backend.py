@@ -4,9 +4,25 @@ import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator, constr
 import datetime
 from typing import Optional, List, Dict, Any, Literal
+
+MAX_DIGITS = 10
+
+
+def enforce_digit_limit(value: Optional[float], field_name: str) -> Optional[float]:
+    if value is None:
+        return value
+    try:
+        integer_digits = len(str(int(abs(value))))
+    except (ValueError, TypeError):
+        raise ValueError(f"El valor proporcionado para {field_name} no es numérico.")
+    if integer_digits > MAX_DIGITS:
+        raise ValueError(
+            f"El campo '{field_name}' no puede tener más de {MAX_DIGITS} dígitos en la parte entera."
+        )
+    return value
 
 # --- CONFIGURACIÓN DE PATH ---
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -56,7 +72,7 @@ class AccountUpdateModel(BaseModel):
     current_balance: Optional[float] = None
 
 class TransactionModel(BaseModel):
-    description: str
+    description: constr(max_length=100)
     amount: float
     date: datetime.date
     type: str
@@ -64,6 +80,11 @@ class TransactionModel(BaseModel):
     account_id: int
     goal_id: Optional[int] = None
     debt_id: Optional[int] = None
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount_digits(cls, value: float):
+        return enforce_digit_limit(value, "amount")
 
 
 class BudgetEntryModel(BaseModel):
@@ -88,12 +109,17 @@ class BudgetEntryCreateModel(BaseModel):
     budgeted_amount: Optional[float] = None
     amount: Optional[float] = None
     type: Optional[str] = "Gasto"
-    description: Optional[str] = None
+    description: Optional[constr(max_length=100)] = None
     due_date: Optional[datetime.date] = None
     month: Optional[int] = None
     year: Optional[int] = None
     goal_id: Optional[int] = None
     debt_id: Optional[int] = None
+
+    @field_validator("budgeted_amount", "amount")
+    @classmethod
+    def validate_budget_amounts(cls, value: Optional[float], info):
+        return enforce_digit_limit(value, info.field_name)
 
 
 class BudgetEntryUpdateModel(BaseModel):
@@ -101,12 +127,17 @@ class BudgetEntryUpdateModel(BaseModel):
     budgeted_amount: Optional[float] = None
     amount: Optional[float] = None
     type: Optional[str] = None
-    description: Optional[str] = None
+    description: Optional[constr(max_length=100)] = None
     due_date: Optional[datetime.date] = None
     month: Optional[int] = None
     year: Optional[int] = None
     goal_id: Optional[int] = None
     debt_id: Optional[int] = None
+
+    @field_validator("budgeted_amount", "amount")
+    @classmethod
+    def validate_budget_update_amounts(cls, value: Optional[float], info):
+        return enforce_digit_limit(value, info.field_name)
 
 class GoalModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -119,10 +150,20 @@ class GoalCreateModel(BaseModel):
     name: str
     target_amount: float
 
+    @field_validator("target_amount")
+    @classmethod
+    def validate_goal_amount(cls, value: float):
+        return enforce_digit_limit(value, "target_amount")
+
 class GoalUpdateModel(BaseModel):
     name: Optional[str] = None
     target_amount: Optional[float] = None
     current_amount: Optional[float] = None
+
+    @field_validator("target_amount", "current_amount")
+    @classmethod
+    def validate_goal_update_amounts(cls, value: Optional[float], info):
+        return enforce_digit_limit(value, info.field_name)
 
 class DebtModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -252,6 +293,11 @@ class TradeCreateModel(BaseModel):
     price: float
     date: datetime.date
 
+    @field_validator("quantity", "price")
+    @classmethod
+    def validate_trade_numbers(cls, value: float, info):
+        return enforce_digit_limit(value, info.field_name)
+
 
 class TradeUpdateModel(TradeCreateModel):
     pass
@@ -262,6 +308,11 @@ class DebtCreateModel(BaseModel):
     minimum_payment: Optional[float] = 0.0
     interest_rate: Optional[float] = 0.0
 
+    @field_validator("total_amount", "minimum_payment")
+    @classmethod
+    def validate_debt_amounts(cls, value: Optional[float], info):
+        return enforce_digit_limit(value, info.field_name)
+
 
 class DebtUpdateModel(BaseModel):
     name: Optional[str] = None
@@ -269,6 +320,11 @@ class DebtUpdateModel(BaseModel):
     current_balance: Optional[float] = None
     minimum_payment: Optional[float] = None
     interest_rate: Optional[float] = None
+
+    @field_validator("total_amount", "current_balance", "minimum_payment")
+    @classmethod
+    def validate_debt_update_amounts(cls, value: Optional[float], info):
+        return enforce_digit_limit(value, info.field_name)
 
 # ===============================================
 # --- ENDPOINTS DE LA API ---

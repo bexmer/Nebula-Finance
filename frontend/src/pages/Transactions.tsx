@@ -392,7 +392,7 @@ export function Transactions() {
       </header>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <div className="app-card border border-emerald-500/40 p-5 shadow-xl shadow-emerald-500/10">
+        <div className="glow-card glow-card--emerald sm:p-6">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-300">
@@ -410,7 +410,7 @@ export function Transactions() {
             {totals.incomeCount} movimientos catalogados como ingresos.
           </p>
         </div>
-        <div className="app-card border border-rose-500/40 p-5 shadow-xl shadow-rose-500/10">
+        <div className="glow-card glow-card--rose sm:p-6">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-300">
@@ -428,7 +428,7 @@ export function Transactions() {
             {totals.expenseCount} salidas registradas para el período filtrado.
           </p>
         </div>
-        <div className="app-card border border-slate-500/40 p-5 shadow-xl shadow-slate-500/10">
+        <div className="glow-card glow-card--slate sm:p-6">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">

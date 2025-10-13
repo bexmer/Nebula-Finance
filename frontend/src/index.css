@@ -78,6 +78,73 @@ button {
   transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, color 0.3s ease;
 }
 
+.glow-card {
+  position: relative;
+  border-radius: 1.15rem;
+  background: var(--app-surface);
+  padding: 1.25rem;
+  border: 1px solid transparent;
+  box-shadow: var(--app-card-shadow);
+  overflow: hidden;
+}
+
+.glow-card::before {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  background: var(--glow-gradient, radial-gradient(circle at top left, rgba(14, 165, 233, 0.45), transparent 55%));
+  filter: blur(26px);
+  opacity: 0.9;
+  transform: rotate(3deg);
+}
+
+.glow-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid var(--glow-border, rgba(14, 165, 233, 0.25));
+  background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.35), transparent 55%);
+  mix-blend-mode: screen;
+  opacity: 0.25;
+  pointer-events: none;
+}
+
+.glow-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.glow-card--emerald {
+  --glow-gradient: radial-gradient(circle at top left, rgba(16, 185, 129, 0.55), transparent 60%);
+  --glow-border: rgba(16, 185, 129, 0.35);
+}
+
+.glow-card--rose {
+  --glow-gradient: radial-gradient(circle at top left, rgba(244, 63, 94, 0.55), transparent 60%);
+  --glow-border: rgba(244, 63, 94, 0.35);
+}
+
+.glow-card--slate {
+  --glow-gradient: radial-gradient(circle at top left, rgba(100, 116, 139, 0.55), transparent 60%);
+  --glow-border: rgba(100, 116, 139, 0.35);
+}
+
+.glow-card--sky {
+  --glow-gradient: radial-gradient(circle at top left, rgba(14, 165, 233, 0.55), transparent 60%);
+  --glow-border: rgba(14, 165, 233, 0.35);
+}
+
+.glow-card--amber {
+  --glow-gradient: radial-gradient(circle at top left, rgba(245, 158, 11, 0.55), transparent 60%);
+  --glow-border: rgba(245, 158, 11, 0.35);
+}
+
+.glow-card--violet {
+  --glow-gradient: radial-gradient(circle at top left, rgba(139, 92, 246, 0.55), transparent 60%);
+  --glow-border: rgba(139, 92, 246, 0.35);
+}
+
 .app-card-muted {
   background: var(--app-surface-muted);
   border: 1px solid var(--app-border);
@@ -98,11 +165,18 @@ button {
   background-color: transparent;
 }
 
+:root:not(.dark) .bg-slate-900\/95,
+:root:not(.dark) .bg-slate-900\/80,
+:root:not(.dark) .bg-slate-900\/70,
 :root:not(.dark) .bg-slate-900\/60,
+:root:not(.dark) .bg-slate-900\/40,
 :root:not(.dark) .bg-slate-950\/50,
 :root:not(.dark) .bg-slate-950\/60,
 :root:not(.dark) .bg-slate-950\/70,
-:root:not(.dark) .bg-slate-950\/80 {
+:root:not(.dark) .bg-slate-950\/80,
+:root:not(.dark) .bg-slate-800\/80,
+:root:not(.dark) .bg-slate-800\/70,
+:root:not(.dark) .bg-slate-800\/60 {
   background-color: var(--app-surface);
   border-color: var(--app-border);
   color: var(--app-text);
@@ -110,33 +184,58 @@ button {
 
 :root:not(.dark) .border-slate-800,
 :root:not(.dark) .border-slate-700,
-:root:not(.dark) .border-slate-600 {
+:root:not(.dark) .border-slate-600,
+:root:not(.dark) .border-slate-500 {
   border-color: var(--app-border) !important;
 }
 
+:root:not(.dark) .bg-slate-900\/95 .text-white,
+:root:not(.dark) .bg-slate-900\/80 .text-white,
+:root:not(.dark) .bg-slate-900\/70 .text-white,
 :root:not(.dark) .bg-slate-900\/60 .text-white,
 :root:not(.dark) .bg-slate-950\/50 .text-white,
 :root:not(.dark) .bg-slate-950\/60 .text-white,
 :root:not(.dark) .bg-slate-950\/70 .text-white,
-:root:not(.dark) .bg-slate-950\/80 .text-white {
+:root:not(.dark) .bg-slate-950\/80 .text-white,
+:root:not(.dark) .bg-slate-800\/80 .text-white,
+:root:not(.dark) .bg-slate-800\/70 .text-white,
+:root:not(.dark) .bg-slate-800\/60 .text-white {
   color: var(--app-text) !important;
 }
 
+:root:not(.dark) .bg-slate-900\/95 .text-slate-400,
+:root:not(.dark) .bg-slate-900\/80 .text-slate-400,
+:root:not(.dark) .bg-slate-900\/70 .text-slate-400,
 :root:not(.dark) .bg-slate-900\/60 .text-slate-400,
 :root:not(.dark) .bg-slate-950\/50 .text-slate-400,
 :root:not(.dark) .bg-slate-950\/60 .text-slate-400,
 :root:not(.dark) .bg-slate-950\/70 .text-slate-400,
 :root:not(.dark) .bg-slate-950\/80 .text-slate-400,
+:root:not(.dark) .bg-slate-800\/80 .text-slate-400,
+:root:not(.dark) .bg-slate-800\/70 .text-slate-400,
+:root:not(.dark) .bg-slate-800\/60 .text-slate-400,
+:root:not(.dark) .bg-slate-900\/95 .text-slate-500,
+:root:not(.dark) .bg-slate-900\/80 .text-slate-500,
+:root:not(.dark) .bg-slate-900\/70 .text-slate-500,
 :root:not(.dark) .bg-slate-900\/60 .text-slate-500,
 :root:not(.dark) .bg-slate-950\/50 .text-slate-500,
 :root:not(.dark) .bg-slate-950\/60 .text-slate-500,
 :root:not(.dark) .bg-slate-950\/70 .text-slate-500,
 :root:not(.dark) .bg-slate-950\/80 .text-slate-500,
+:root:not(.dark) .bg-slate-800\/80 .text-slate-500,
+:root:not(.dark) .bg-slate-800\/70 .text-slate-500,
+:root:not(.dark) .bg-slate-800\/60 .text-slate-500,
+:root:not(.dark) .bg-slate-900\/95 .text-slate-300,
+:root:not(.dark) .bg-slate-900\/80 .text-slate-300,
+:root:not(.dark) .bg-slate-900\/70 .text-slate-300,
 :root:not(.dark) .bg-slate-900\/60 .text-slate-300,
 :root:not(.dark) .bg-slate-950\/50 .text-slate-300,
 :root:not(.dark) .bg-slate-950\/60 .text-slate-300,
 :root:not(.dark) .bg-slate-950\/70 .text-slate-300,
-:root:not(.dark) .bg-slate-950\/80 .text-slate-300 {
+:root:not(.dark) .bg-slate-950\/80 .text-slate-300,
+:root:not(.dark) .bg-slate-800\/80 .text-slate-300,
+:root:not(.dark) .bg-slate-800\/70 .text-slate-300,
+:root:not(.dark) .bg-slate-800\/60 .text-slate-300 {
   color: var(--app-muted) !important;
 }
 

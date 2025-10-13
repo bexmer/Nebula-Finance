@@ -315,7 +315,7 @@ export function Budget() {
       <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="text-3xl font-bold">Presupuesto</h1>
-          <p className="mt-1 text-gray-400 max-w-2xl">
+          <p className="mt-1 max-w-2xl text-muted">
             Organiza tus compromisos financieros futuros y registra rápidamente los pagos
             cuando ocurran.
           </p>
@@ -337,67 +337,75 @@ export function Budget() {
       </header>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-2xl border border-emerald-500/40 bg-gray-900/60 p-5 shadow-xl shadow-emerald-500/10">
+        <div className="glow-card glow-card--emerald sm:p-6">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-sm uppercase tracking-wide text-emerald-300/80">Planificado</p>
-              <p className="mt-2 text-3xl font-bold text-emerald-300">
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-300">
+                Planificado
+              </p>
+              <p className="mt-2 text-3xl font-bold text-emerald-600 dark:text-emerald-200">
                 {formatCurrency(totals.planned)}
               </p>
             </div>
-            <span className="rounded-full bg-emerald-500/15 p-3">
-              <PiggyBank className="h-5 w-5 text-emerald-300" />
+            <span className="rounded-full bg-emerald-500/15 p-3 text-emerald-600 dark:text-emerald-300">
+              <PiggyBank className="h-5 w-5" />
             </span>
           </div>
-          <p className="mt-3 text-sm text-gray-400">
+          <p className="mt-3 text-sm text-muted">
             Suma total de compromisos registrados.
           </p>
         </div>
-        <div className="rounded-2xl border border-blue-500/40 bg-gray-900/60 p-5 shadow-xl shadow-blue-500/10">
+        <div className="glow-card glow-card--sky sm:p-6">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-sm uppercase tracking-wide text-blue-300/80">Próximos 30 días</p>
-              <p className="mt-2 text-3xl font-bold text-blue-300">
+              <p className="text-xs font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-300">
+                Próximos 30 días
+              </p>
+              <p className="mt-2 text-3xl font-bold text-sky-600 dark:text-sky-200">
                 {formatCurrency(totals.upcoming)}
               </p>
             </div>
-            <span className="rounded-full bg-blue-500/15 p-3">
-              <Calendar className="h-5 w-5 text-blue-300" />
+            <span className="rounded-full bg-sky-500/15 p-3 text-sky-600 dark:text-sky-300">
+              <Calendar className="h-5 w-5" />
             </span>
           </div>
-          <p className="mt-3 text-sm text-gray-400">
+          <p className="mt-3 text-sm text-muted">
             Pagos que vencen durante el siguiente mes.
           </p>
         </div>
-        <div className="rounded-2xl border border-amber-500/40 bg-gray-900/60 p-5 shadow-xl shadow-amber-500/10">
+        <div className="glow-card glow-card--amber sm:p-6">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-sm uppercase tracking-wide text-amber-300/80">Vencidos</p>
-              <p className="mt-2 text-3xl font-bold text-amber-300">{totals.overdue}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-300">
+                Vencidos
+              </p>
+              <p className="mt-2 text-3xl font-bold text-amber-600 dark:text-amber-200">{totals.overdue}</p>
             </div>
-            <span className="rounded-full bg-amber-500/15 p-3">
-              <Clock className="h-5 w-5 text-amber-300" />
+            <span className="rounded-full bg-amber-500/15 p-3 text-amber-600 dark:text-amber-300">
+              <Clock className="h-5 w-5" />
             </span>
           </div>
-          <p className="mt-3 text-sm text-gray-400">
+          <p className="mt-3 text-sm text-muted">
             Entradas cuya fecha comprometida ya pasó.
           </p>
         </div>
-        <div className="rounded-2xl border border-rose-500/40 bg-gray-900/60 p-5 shadow-xl shadow-rose-500/10">
+        <div className="glow-card glow-card--rose sm:p-6">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-sm uppercase tracking-wide text-rose-300/80">Próxima salida</p>
-              <p className="mt-2 text-xl font-semibold text-rose-200">
+              <p className="text-xs font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-300">
+                Próxima salida
+              </p>
+              <p className="mt-2 text-xl font-semibold text-rose-600 dark:text-rose-200">
                 {totals.nextEntry
                   ? formatCurrency(totals.nextEntry.amount)
                   : "Sin registros"}
               </p>
             </div>
-            <span className="rounded-full bg-rose-500/15 p-3">
-              <Target className="h-5 w-5 text-rose-300" />
+            <span className="rounded-full bg-rose-500/15 p-3 text-rose-600 dark:text-rose-300">
+              <Target className="h-5 w-5" />
             </span>
           </div>
-          <p className="mt-3 text-sm text-gray-400">
+          <p className="mt-3 text-sm text-muted">
             {totals.nextEntry
               ? `${totals.nextEntry.description} · ${totals.nextEntry.date.toLocaleDateString()}`
               : "Registra tu primer presupuesto"}
@@ -405,10 +413,10 @@ export function Budget() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-gray-700/60 bg-gray-900/70 p-6 shadow-xl shadow-black/30">
+      <section className="app-card p-6">
         <div className="mb-4">
           <h2 className="text-lg font-semibold">Filtrar presupuesto</h2>
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-muted">
             Refina la lista por categoría, tipo, periodo o búsqueda libre.
           </p>
         </div>
@@ -479,7 +487,7 @@ export function Budget() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-gray-700/60 bg-gray-900/70 shadow-xl shadow-black/20">
+      <section className="app-card shadow-xl shadow-black/10">
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-700/60 px-6 py-4">
           <div>
             <h2 className="text-lg font-semibold">Entradas planificadas</h2>
@@ -519,7 +527,7 @@ export function Budget() {
                     type="checkbox"
                     checked={isAllSelected}
                     onChange={(event) => handleToggleAll(event.target.checked)}
-                    className="h-4 w-4 cursor-pointer rounded border border-gray-600 bg-gray-900"
+                    className="h-4 w-4 cursor-pointer rounded border border-[var(--app-border)] bg-[var(--app-surface)]"
                   />
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
@@ -573,7 +581,7 @@ export function Budget() {
                             handleToggleEntry(entry.id, event.target.checked)
                           }
                           onDoubleClick={(event) => event.stopPropagation()}
-                          className="h-4 w-4 cursor-pointer rounded border border-gray-600 bg-gray-900"
+                          className="h-4 w-4 cursor-pointer rounded border border-[var(--app-border)] bg-[var(--app-surface)]"
                         />
                       </td>
                       <td className="px-4 py-4 text-sm text-gray-200">

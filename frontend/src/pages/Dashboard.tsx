@@ -17,6 +17,8 @@ import {
   Calendar,
   ChevronLeft,
   ChevronRight,
+  Eye,
+  EyeOff,
   PieChart,
   Target,
   TrendingDown,
@@ -826,8 +828,12 @@ function AccountsCard({
   onNext: () => void;
 }) {
   const { formatCurrency } = useNumberFormatter();
+  const [showBalances, setShowBalances] = useState(true);
 
   const formatSigned = (value: number) => {
+    if (!showBalances) {
+      return "••••";
+    }
     if (!Number.isFinite(value) || value === 0) {
       return formatCurrency(0);
     }
@@ -835,11 +841,23 @@ function AccountsCard({
     return `${value > 0 ? "+" : "-"}${formatted}`;
   };
 
+  const displayBalance = showBalances
+    ? formatCurrency(activeAccount?.current_balance ?? 0)
+    : "••••";
+
   return (
     <div className="app-card p-6">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold">Cuentas</h2>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowBalances((prev) => !prev)}
+            aria-label={showBalances ? "Ocultar saldos" : "Mostrar saldos"}
+            aria-pressed={!showBalances}
+            className="rounded-full border border-[var(--app-border)] p-2 text-muted transition hover:border-sky-400 hover:text-sky-500"
+          >
+            {showBalances ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
           <button
             onClick={onPrev}
             disabled={accounts.length <= 1}
@@ -861,9 +879,7 @@ function AccountsCard({
           <div className="text-sm uppercase tracking-wide text-white/70">
             {activeAccount.account_type}
           </div>
-          <div className="mt-3 text-3xl font-semibold">
-            {formatCurrency(activeAccount.current_balance)}
-          </div>
+          <div className="mt-3 text-3xl font-semibold">{displayBalance}</div>
           <div className="mt-8 text-sm">
             <p className="font-medium">{activeAccount.name}</p>
             <p className="text-xs text-white/70">
