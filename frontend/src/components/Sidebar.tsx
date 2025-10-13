@@ -31,14 +31,10 @@ const navItems = [
 ];
 
 export function Sidebar() {
-  const { theme, toggleTheme, sidebarCollapsed, toggleSidebar } = useStore(
-    (state) => ({
-      theme: state.theme,
-      toggleTheme: state.toggleTheme,
-      sidebarCollapsed: state.sidebarCollapsed,
-      toggleSidebar: state.toggleSidebar,
-    })
-  );
+  const theme = useStore((state) => state.theme);
+  const toggleTheme = useStore((state) => state.toggleTheme);
+  const sidebarCollapsed = useStore((state) => state.sidebarCollapsed);
+  const toggleSidebar = useStore((state) => state.toggleSidebar);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const collapseWidthClass = sidebarCollapsed ? "md:w-20" : "md:w-72";

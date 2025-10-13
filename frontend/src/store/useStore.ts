@@ -55,7 +55,6 @@ interface AppState {
   setTheme: (theme: "light" | "dark") => void;
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
-  initializePreferences: () => void;
 }
 
 const defaultFilters: TransactionFilters = {
@@ -159,19 +158,5 @@ export const useStore = create<AppState>((set, get) => ({
       localStorage.setItem("nebula-sidebar-collapsed", String(collapsed));
     }
     set({ sidebarCollapsed: collapsed });
-  },
-  initializePreferences: () => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const storedTheme = localStorage.getItem("nebula-theme") as
-      | "light"
-      | "dark"
-      | null;
-    const storedSidebar = localStorage.getItem("nebula-sidebar-collapsed");
-    set((state) => ({
-      theme: storedTheme ?? state.theme,
-      sidebarCollapsed: storedSidebar === null ? state.sidebarCollapsed : storedSidebar === "true",
-    }));
   },
 }));

@@ -6,20 +6,13 @@ import { useStore } from "../store/useStore";
 import { TransactionModal } from "./TransactionModal";
 
 export function Layout() {
-  const { openTransactionModal, theme, initializePreferences } = useStore(
-    (state) => ({
-      openTransactionModal: state.openTransactionModal,
-      theme: state.theme,
-      initializePreferences: state.initializePreferences,
-    })
+  const openTransactionModal = useStore(
+    (state) => state.openTransactionModal
   );
+  const theme = useStore((state) => state.theme);
 
   const addTransactionButtonClasses =
     "fixed bottom-6 right-6 z-40 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-r from-sky-500 via-indigo-500 to-fuchsia-500 text-white shadow-xl shadow-sky-500/30 ring-4 ring-sky-200/30 transition-transform duration-200 hover:scale-110 focus:outline-none focus:ring-4 focus:ring-indigo-300 dark:ring-offset-0 dark:focus:ring-indigo-500";
-
-  useEffect(() => {
-    initializePreferences();
-  }, [initializePreferences]);
 
   useEffect(() => {
     const root = document.documentElement;
