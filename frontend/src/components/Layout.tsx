@@ -14,6 +14,9 @@ export function Layout() {
     })
   );
 
+  const addTransactionButtonClasses =
+    "fixed bottom-6 right-6 z-40 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-r from-sky-500 via-indigo-500 to-fuchsia-500 text-white shadow-xl shadow-sky-500/30 ring-4 ring-sky-200/30 transition-transform duration-200 hover:scale-110 focus:outline-none focus:ring-4 focus:ring-indigo-300 dark:ring-offset-0 dark:focus:ring-indigo-500";
+
   useEffect(() => {
     initializePreferences();
   }, [initializePreferences]);
@@ -29,7 +32,7 @@ export function Layout() {
   }, [theme]);
 
   return (
-    <div className="bg-app text-slate-900 transition-colors duration-300 dark:text-slate-100">
+    <div className="min-h-screen bg-app text-slate-900 transition-colors duration-300 dark:text-slate-100">
       <div className="flex min-h-screen w-full flex-col md:flex-row">
         <Sidebar />
         <div className="flex min-h-screen flex-1 flex-col">
@@ -49,7 +52,7 @@ export function Layout() {
 
       <button
         onClick={() => openTransactionModal(null)}
-        className="fixed bottom-6 right-6 z-40 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-r from-sky-500 via-indigo-500 to-fuchsia-500 text-white shadow-xl shadow-sky-500/30 ring-4 ring-sky-200/30 transition-transform duration-200 hover:scale-110 focus:outline-none focus:ring-4 focus:ring-indigo-300 dark:ring-offset-0 dark:focus:ring-indigo-500"
+        className={addTransactionButtonClasses}
         aria-label="Añadir transacción"
       >
         <Plus className="h-7 w-7" />

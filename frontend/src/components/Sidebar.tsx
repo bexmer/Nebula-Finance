@@ -46,7 +46,7 @@ export function Sidebar() {
 
   return (
     <aside
-      className={`border-b border-[var(--app-border)] bg-[var(--app-surface)]/95 backdrop-blur transition-all duration-300 supports-[backdrop-filter]:bg-[var(--app-surface)]/80 md:border-b-0 md:border-r ${collapseWidthClass}`}
+      className={`w-full flex-shrink-0 border-b border-[var(--app-border)] bg-[var(--app-surface)]/95 backdrop-blur transition-all duration-300 supports-[backdrop-filter]:bg-[var(--app-surface)]/80 md:border-b-0 md:border-r ${collapseWidthClass}`}
     >
       <div className="flex flex-col md:h-screen">
         <div className="flex items-center justify-between gap-3 px-4 py-4 md:py-6">

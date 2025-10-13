@@ -178,7 +178,7 @@ export const TransactionModal = () => {
     } catch (loadError) {
       console.error("Error al preparar el formulario de transacciones:", loadError);
       setError(
-        "No pudimos obtener todos los catálogos necesarios. Verifica tu conexión y la configuración de cuentas, tipos y categorías."
+        "No pudimos cargar los catálogos del formulario. Verifica que el backend esté en ejecución y que exista al menos una cuenta, un tipo y una categoría configurados en Configuración."
       );
     } finally {
       setIsLoading(false);
