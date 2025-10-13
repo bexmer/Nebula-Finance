@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import axios from "axios";
 
+import { apiPath } from "../utils/api";
+
 // Define la "forma" de una transacción para usarla en toda la app
 export interface Transaction {
   id: number;
@@ -11,6 +13,19 @@ export interface Transaction {
   category: string;
   account_id: number;
   account?: { name: string }; // La cuenta puede ser opcional al crear
+  goal_id?: number | null;
+  debt_id?: number | null;
+  goal_name?: string | null;
+  debt_name?: string | null;
+}
+
+export interface TransactionPrefill {
+  description?: string;
+  amount?: number;
+  date?: string;
+  type?: string;
+  category?: string;
+  account_id?: number;
   goal_id?: number | null;
   debt_id?: number | null;
 }
@@ -30,10 +45,22 @@ interface AppState {
   filters: TransactionFilters;
   isTransactionModalOpen: boolean;
   editingTransaction: Transaction | null;
+  transactionPrefill: TransactionPrefill | null;
+  transactionSuccessHandler: (() => Promise<void> | void) | null;
+  theme: "light" | "dark";
+  sidebarCollapsed: boolean;
   fetchTransactions: (filters?: TransactionFilters) => Promise<void>;
   setFilters: (filters: Partial<TransactionFilters>) => void;
-  openTransactionModal: (transaction: Transaction | null) => void;
+  openTransactionModal: (
+    transaction: Transaction | null,
+    prefill?: TransactionPrefill | null,
+    onSuccess?: (() => Promise<void> | void) | null
+  ) => void;
   closeTransactionModal: () => void;
+  toggleTheme: () => void;
+  setTheme: (theme: "light" | "dark") => void;
+  toggleSidebar: () => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;
 }
 
 const defaultFilters: TransactionFilters = {
@@ -51,6 +78,16 @@ export const useStore = create<AppState>((set, get) => ({
   filters: { ...defaultFilters },
   isTransactionModalOpen: false,
   editingTransaction: null,
+  transactionPrefill: null,
+  transactionSuccessHandler: null,
+  theme:
+    (typeof window !== "undefined" &&
+      (localStorage.getItem("nebula-theme") as "light" | "dark" | null)) ||
+    "dark",
+  sidebarCollapsed:
+    (typeof window !== "undefined" &&
+      localStorage.getItem("nebula-sidebar-collapsed") === "true") ||
+    false,
 
   // --- ACCIONES (funciones que modifican el estado) ---
   fetchTransactions: async (filters) => {
@@ -62,10 +99,9 @@ export const useStore = create<AppState>((set, get) => ({
         Object.entries(filtersForRequest).filter(([, value]) => value !== "")
       );
 
-      const response = await axios.get<Transaction[]>(
-        "http://127.0.0.1:8000/api/transactions",
-        { params }
-      );
+      const response = await axios.get<Transaction[]>(apiPath("/transactions"), {
+        params,
+      });
 
       const updates: Partial<AppState> = {
         transactions: response.data,
@@ -76,6 +112,10 @@ export const useStore = create<AppState>((set, get) => ({
       }
 
       set(updates);
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("nebula:transactions-updated"));
+      }
     } catch (error) {
       console.error("Error al obtener las transacciones:", error);
     }
@@ -86,11 +126,49 @@ export const useStore = create<AppState>((set, get) => ({
     set({ filters: newFilters });
   },
 
-  openTransactionModal: (transaction) => {
-    set({ isTransactionModalOpen: true, editingTransaction: transaction });
+  openTransactionModal: (transaction, prefill = null, onSuccess = null) => {
+    set({
+      isTransactionModalOpen: true,
+      editingTransaction: transaction,
+      transactionPrefill: prefill,
+      transactionSuccessHandler: onSuccess,
+    });
   },
 
   closeTransactionModal: () => {
-    set({ isTransactionModalOpen: false, editingTransaction: null });
+    set({
+      isTransactionModalOpen: false,
+      editingTransaction: null,
+      transactionPrefill: null,
+      transactionSuccessHandler: null,
+    });
+  },
+  toggleTheme: () => {
+    const nextTheme = get().theme === "dark" ? "light" : "dark";
+    if (typeof window !== "undefined") {
+      localStorage.setItem("nebula-theme", nextTheme);
+    }
+    set({ theme: nextTheme });
+  },
+  setTheme: (theme) => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("nebula-theme", theme);
+    }
+    set({ theme });
+  },
+  toggleSidebar: () => {
+    set((state) => {
+      const next = !state.sidebarCollapsed;
+      if (typeof window !== "undefined") {
+        localStorage.setItem("nebula-sidebar-collapsed", String(next));
+      }
+      return { sidebarCollapsed: next };
+    });
+  },
+  setSidebarCollapsed: (collapsed) => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("nebula-sidebar-collapsed", String(collapsed));
+    }
+    set({ sidebarCollapsed: collapsed });
   },
 }));

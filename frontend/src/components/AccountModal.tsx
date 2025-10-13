@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import Modal from "react-modal";
-import axios from 'axios';
+import axios from "axios";
+
+import { apiPath } from "../utils/api";
 
 
 const customStyles = {
@@ -58,13 +60,10 @@ export function AccountModal({ isOpen, onClose, onSave, account }: ModalProps) {
     try {
       if (account) {
         // Editar
-        await axios.put(
-          `http://127.0.0.1:8000/api/accounts/${account.id}`,
-          accountData
-        );
+        await axios.put(apiPath(`/accounts/${account.id}`), accountData);
       } else {
         // Crear
-        await axios.post("http://127.0.0.1:8000/api/accounts", accountData);
+        await axios.post(apiPath("/accounts"), accountData);
       }
       onSave();
       onClose();

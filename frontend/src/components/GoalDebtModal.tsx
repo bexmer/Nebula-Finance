@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import Modal from "react-modal";
 import axios from "axios";
 
+import { apiPath } from "../utils/api";
+
 const customStyles = {
   content: {
     top: "50%",
@@ -10,10 +12,9 @@ const customStyles = {
     bottom: "auto",
     marginRight: "-50%",
     transform: "translate(-50%, -50%)",
-    backgroundColor: "#1f2937",
-    border: "1px solid #374151",
-    borderRadius: "0.5rem",
-    padding: "2rem",
+    backgroundColor: "transparent",
+    border: "none",
+    padding: 0,
     width: "90%",
     maxWidth: "500px",
   },
@@ -41,9 +42,19 @@ export function GoalDebtModal({
   const [amount, setAmount] = useState("");
   const [minPayment, setMinPayment] = useState("");
   const [interest, setInterest] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const enforceNumericLimit = (value: string) => {
+    const digits = value.replace(/[^0-9]/g, "");
+    if (digits.length > 10) {
+      return false;
+    }
+    return true;
+  };
 
   useEffect(() => {
     if (isOpen) {
+      setError(null);
       if (item) {
         // Modo Editar
         setName(item.name);
@@ -51,8 +62,16 @@ export function GoalDebtModal({
           String(mode === "goal" ? item.target_amount : item.total_amount)
         );
         if (mode === "debt") {
-          setMinPayment(String(item.minimum_payment));
-          setInterest(String(item.interest_rate));
+          setMinPayment(
+            item.minimum_payment !== undefined && item.minimum_payment !== null
+              ? String(item.minimum_payment)
+              : ""
+          );
+          setInterest(
+            item.interest_rate !== undefined && item.interest_rate !== null
+              ? String(item.interest_rate)
+              : ""
+          );
         }
       } else {
         // Modo Crear
@@ -66,18 +85,52 @@ export function GoalDebtModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setError("El nombre es obligatorio.");
+      return;
+    }
+
+    const parsedAmount = parseFloat(amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setError("Ingresa un monto válido mayor que cero.");
+      return;
+    }
+
     const isGoal = mode === "goal";
     const resource = isGoal ? "goals" : "debts";
-    const url = `http://127.0.0.1:8000/api/${resource}${item ? `/${item.id}` : ""}`;
+    const url = apiPath(`/${resource}${item ? `/${item.id}` : ""}`);
 
-    const data = isGoal
-      ? { name, target_amount: parseFloat(amount) }
-      : {
-          name,
-          total_amount: parseFloat(amount),
-          minimum_payment: parseFloat(minPayment || "0"),
-          interest_rate: parseFloat(interest || "0"),
-        };
+    let data: Record<string, unknown>;
+
+    if (isGoal) {
+      data = { name: trimmedName, target_amount: parsedAmount };
+    } else {
+      const parsedMinPayment = parseFloat(minPayment || "0");
+      const parsedInterest = parseFloat(interest || "0");
+
+      if (!Number.isFinite(parsedMinPayment) || parsedMinPayment < 0) {
+        setError("Ingresa un pago mínimo válido.");
+        return;
+      }
+
+      if (parsedMinPayment > parsedAmount) {
+        setError("El pago mínimo no puede ser mayor que el monto total.");
+        return;
+      }
+
+      if (!Number.isFinite(parsedInterest) || parsedInterest < 0) {
+        setError("Ingresa una tasa de interés válida.");
+        return;
+      }
+
+      data = {
+        name: trimmedName,
+        total_amount: parsedAmount,
+        minimum_payment: parsedMinPayment,
+        interest_rate: parsedInterest,
+      };
+    }
 
     try {
       if (item) {
@@ -89,86 +142,114 @@ export function GoalDebtModal({
       onClose();
     } catch (error) {
       console.error(`Error al guardar ${mode}:`, error);
+      const message =
+        axios.isAxiosError(error) && error.response?.data?.detail
+          ? String(error.response.data.detail)
+          : "No se pudo guardar la información. Inténtalo de nuevo.";
+      setError(message);
     }
   };
 
   return (
     <Modal isOpen={isOpen} onRequestClose={onClose} style={customStyles}>
-      <h2 className="text-2xl font-bold mb-4">
-        {item ? "Editar" : "Añadir"} {mode === "goal" ? "Meta" : "Deuda"}
-      </h2>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-300">
-            Nombre
-          </label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            className="mt-1 block w-full bg-gray-700 rounded-md p-2"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-300">
-            {mode === "goal" ? "Monto Objetivo" : "Monto Total"}
-          </label>
-          <input
-            type="number"
-            step="0.01"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            required
-            className="mt-1 block w-full bg-gray-700 rounded-md p-2"
-          />
-        </div>
-        {mode === "debt" && (
-          <>
-            <div>
-              <label className="block text-sm font-medium text-gray-300">
-                Pago Mínimo
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={minPayment}
-                onChange={(e) => setMinPayment(e.target.value)}
-                required
-                className="mt-1 block w-full bg-gray-700 rounded-md p-2"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300">
-                Tasa de Interés (%)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={interest}
-                onChange={(e) => setInterest(e.target.value)}
-                required
-                className="mt-1 block w-full bg-gray-700 rounded-md p-2"
-              />
-            </div>
-          </>
+      <div className="w-full max-w-lg app-card p-6">
+        <h2 className="text-2xl font-semibold text-slate-900 dark:text-slate-100 mb-4">
+          {item ? "Editar" : "Añadir"} {mode === "goal" ? "Meta" : "Deuda"}
+        </h2>
+        {error && (
+          <p className="mb-4 rounded-md border border-rose-400/60 bg-rose-500/10 px-3 py-2 text-sm text-rose-600 dark:text-rose-200">
+            {error}
+          </p>
         )}
-        <div className="flex justify-end space-x-4 pt-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded-md"
-          >
-            Cancelar
-          </button>
-          <button
-            type="submit"
-            className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-md"
-          >
-            Guardar
-          </button>
-        </div>
-      </form>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+              Nombre
+            </label>
+            <input
+              type="text"
+              value={name}
+              maxLength={100}
+              onChange={(e) => setName(e.target.value)}
+              required
+              className="mt-1 block w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+              {mode === "goal" ? "Monto Objetivo" : "Monto Total"}
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => {
+                if (enforceNumericLimit(e.target.value)) {
+                  setAmount(e.target.value);
+                }
+              }}
+              required
+              className="mt-1 block w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+            />
+          </div>
+          {mode === "debt" && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+                  Pago Mínimo
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={minPayment}
+                  onChange={(e) => {
+                    if (enforceNumericLimit(e.target.value)) {
+                      setMinPayment(e.target.value);
+                    }
+                  }}
+                  required
+                  className="mt-1 block w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+                  Tasa de Interés (%)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={interest}
+                  onChange={(e) => {
+                    if (enforceNumericLimit(e.target.value)) {
+                      setInterest(e.target.value);
+                    }
+                  }}
+                  required
+                  className="mt-1 block w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200 dark:text-slate-100"
+                />
+              </div>
+            </>
+          )}
+          <div className="flex justify-end gap-3 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-[var(--app-border)] px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-sky-400 hover:text-slate-900 dark:text-slate-200 dark:hover:text-slate-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-sky-500"
+            >
+              Guardar
+            </button>
+          </div>
+        </form>
+      </div>
     </Modal>
   );
 }

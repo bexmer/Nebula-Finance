@@ -1,11 +1,49 @@
 import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
+import {
+  Filter,
+  Plus,
+  RefreshCw,
+  Scale,
+  Target,
+  Trash2,
+  TrendingDown,
+  TrendingUp,
+  Wallet,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+
+import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 import { useStore, TransactionFilters } from "../store/useStore";
+import { apiPath } from "../utils/api";
 
 // Interfaces para los selects de los filtros
 interface ParameterOption {
   id: number;
   value: string;
+}
+
+interface RecurringRule {
+  id: number;
+  description: string;
+  amount: number;
+  type: string;
+  category: string;
+  frequency: string;
+  day_of_month?: number | null;
+  day_of_month_2?: number | null;
+  start_date?: string | null;
+  last_processed_date?: string | null;
+  next_run?: string | null;
+}
+
+type TransactionsTab = "all" | "goals" | "debts" | "recurring";
+
+interface TabOption {
+  key: TransactionsTab;
+  label: string;
+  count: number;
+  icon: LucideIcon;
 }
 
 export function Transactions() {
@@ -25,12 +63,131 @@ export function Transactions() {
   );
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [activeTab, setActiveTab] = useState<TransactionsTab>("all");
+  const [recurringTransactions, setRecurringTransactions] = useState<RecurringRule[]>([]);
+  const [recurringLoading, setRecurringLoading] = useState(false);
+  const [recurringError, setRecurringError] = useState<string | null>(null);
+
+  const { formatCurrency } = useNumberFormatter();
+
+  const totals = useMemo(() => {
+    const dataset =
+      activeTab === "recurring"
+        ? transactions
+        : transactions.filter((transaction) => {
+            if (activeTab === "goals") {
+              return Boolean(transaction.goal_id);
+            }
+            if (activeTab === "debts") {
+              return Boolean(transaction.debt_id);
+            }
+            return true;
+          });
+    let incomeTotal = 0;
+    let expenseTotal = 0;
+    dataset.forEach((transaction) => {
+      if (transaction.type === "Ingreso") {
+        incomeTotal += transaction.amount;
+      } else {
+        expenseTotal += transaction.amount;
+      }
+    });
+    return {
+      income: incomeTotal,
+      expense: expenseTotal,
+      balance: incomeTotal - expenseTotal,
+      incomeCount: dataset.filter((t) => t.type === "Ingreso").length,
+      expenseCount: dataset.filter((t) => t.type !== "Ingreso").length,
+    };
+  }, [transactions, activeTab]);
+
+  const transactionCounts = useMemo(
+    () => ({
+      total: transactions.length,
+      goals: transactions.filter((transaction) => Boolean(transaction.goal_id)).length,
+      debts: transactions.filter((transaction) => Boolean(transaction.debt_id)).length,
+    }),
+    [transactions]
+  );
+
+  const tabOptions = useMemo<TabOption[]>(
+    () => [
+      {
+        key: "all",
+        label: "Movimientos",
+        count: transactionCounts.total,
+        icon: Wallet,
+      },
+      {
+        key: "goals",
+        label: "Metas",
+        count: transactionCounts.goals,
+        icon: Target,
+      },
+      {
+        key: "debts",
+        label: "Deudas",
+        count: transactionCounts.debts,
+        icon: Scale,
+      },
+      {
+        key: "recurring",
+        label: "Recurrentes",
+        count: recurringTransactions.length,
+        icon: RefreshCw,
+      },
+    ],
+    [transactionCounts, recurringTransactions.length]
+  );
+
+  const filteredTransactions = useMemo(() => {
+    if (activeTab === "goals") {
+      return transactions.filter((transaction) => Boolean(transaction.goal_id));
+    }
+    if (activeTab === "debts") {
+      return transactions.filter((transaction) => Boolean(transaction.debt_id));
+    }
+    return transactions;
+  }, [transactions, activeTab]);
+
+  const showTable = activeTab !== "recurring";
 
   // Carga inicial de datos para los filtros
   useEffect(() => {
     axios
-      .get<ParameterOption[]>("http://127.0.0.1:8000/api/parameters/transaction-types")
+      .get<ParameterOption[]>(apiPath("/parameters/transaction-types"))
       .then((res) => setTransactionTypes(res.data));
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadRecurring = async () => {
+      setRecurringLoading(true);
+      setRecurringError(null);
+      try {
+        const response = await axios.get<RecurringRule[]>(
+          apiPath("/recurring-transactions"),
+        );
+        if (!isMounted) return;
+        setRecurringTransactions(response.data);
+      } catch (error) {
+        if (!isMounted) return;
+        console.error("Error al obtener transacciones recurrentes:", error);
+        setRecurringError(
+          "No pudimos obtener tus transacciones recurrentes. Intenta nuevamente.",
+        );
+      } finally {
+        if (isMounted) {
+          setRecurringLoading(false);
+        }
+      }
+    };
+
+    loadRecurring();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Carga inicial de transacciones
@@ -55,7 +212,7 @@ export function Transactions() {
       const typeObj = transactionTypes.find((t) => t.value === filters.type);
       if (typeObj) {
         axios
-          .get<ParameterOption[]>(`http://127.0.0.1:8000/api/parameters/categories/${typeObj.id}`)
+          .get<ParameterOption[]>(apiPath(`/parameters/categories/${typeObj.id}`))
           .then((res) => setCategories(res.data));
       }
     } else {
@@ -70,21 +227,24 @@ export function Transactions() {
   useEffect(() => {
     setSelectedTransactionIds([]);
     setCurrentPage(1);
-  }, [filters]);
+  }, [filters, activeTab]);
 
   // Mantiene la selección sólo con transacciones existentes tras recargar
   useEffect(() => {
     setSelectedTransactionIds((prev) =>
-      prev.filter((id) => transactions.some((t) => t.id === id))
+      prev.filter((id) => filteredTransactions.some((t) => t.id === id))
     );
-  }, [transactions]);
+  }, [filteredTransactions]);
 
   useEffect(() => {
-    const totalPages = Math.max(1, Math.ceil(transactions.length / pageSize));
+    const totalPages = Math.max(
+      1,
+      Math.ceil(filteredTransactions.length / pageSize),
+    );
     if (currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [transactions, currentPage, pageSize]);
+  }, [filteredTransactions, currentPage, pageSize]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -100,6 +260,15 @@ export function Transactions() {
     }
 
     setFilters({ [typedName]: value } as Partial<TransactionFilters>);
+  };
+
+  const handleTabChange = (tab: TransactionsTab) => {
+    if (tab === activeTab) {
+      return;
+    }
+    setActiveTab(tab);
+    setCurrentPage(1);
+    setSelectedTransactionIds([]);
   };
 
   const handleToggleTransaction = (id: number, checked: boolean) => {
@@ -135,10 +304,16 @@ export function Transactions() {
       return;
     }
 
+    const adjustBalance = window.confirm(
+      "¿Deseas ajustar los saldos de las cuentas asociadas a estas transacciones? Acepta para ajustar o cancela para mantener el saldo actual."
+    );
+
     try {
       await Promise.all(
         selectedTransactionIds.map((id) =>
-          axios.delete(`http://127.0.0.1:8000/api/transactions/${id}`)
+          axios.delete(apiPath(`/transactions/${id}`), {
+            params: { adjust_balance: adjustBalance },
+          })
         )
       );
 
@@ -150,14 +325,22 @@ export function Transactions() {
   };
 
   const paginatedTransactions = useMemo(() => {
+    if (!showTable) {
+      return [];
+    }
     const startIndex = (currentPage - 1) * pageSize;
-    return transactions.slice(startIndex, startIndex + pageSize);
-  }, [transactions, currentPage, pageSize]);
+    return filteredTransactions.slice(startIndex, startIndex + pageSize);
+  }, [filteredTransactions, currentPage, pageSize, showTable]);
 
-  const totalPages = Math.max(1, Math.ceil(transactions.length / pageSize));
+  const totalPages = showTable
+    ? Math.max(1, Math.ceil(filteredTransactions.length / pageSize))
+    : 1;
   const pageNumbers = useMemo(
-    () => Array.from({ length: totalPages }, (_, index) => index + 1),
-    [totalPages]
+    () =>
+      showTable
+        ? Array.from({ length: totalPages }, (_, index) => index + 1)
+        : [1],
+    [showTable, totalPages]
   );
 
   const handlePageSizeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -165,6 +348,7 @@ export function Transactions() {
   };
 
   const isAllSelected =
+    showTable &&
     paginatedTransactions.length > 0 &&
     paginatedTransactions.every((t) => selectedTransactionIds.includes(t.id));
 
@@ -172,212 +356,514 @@ export function Transactions() {
     setCurrentPage(page);
   };
 
+  const formatRecurringDate = (value?: string | null) => {
+    if (!value) {
+      return "Sin fecha";
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+    return date.toLocaleDateString("es-MX", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  };
+
+  const handleResetFilters = () => {
+    setFilters({
+      search: "",
+      start_date: "",
+      end_date: "",
+      type: "",
+      category: "",
+      sort_by: "date_desc",
+    });
+  };
+
   return (
-    <div>
-      <h1 className="text-3xl font-bold mb-6">Transacciones</h1>
+    <div className="space-y-6">
+      <header className="space-y-2">
+        <h1 className="text-3xl font-bold">Transacciones</h1>
+        <p className="mt-1 max-w-2xl text-muted">
+          Visualiza tus movimientos, aplica filtros avanzados y administra tu historial financiero sin perder el contexto del flujo de efectivo.
+        </p>
+      </header>
 
-      {/* --- CONTROLES DE FILTRO Y BÚSQUEDA --- */}
-      <div className="bg-gray-800 p-4 rounded-lg mb-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 items-end">
-        <input
-          type="text"
-          name="search"
-          placeholder="Buscar por descripción..."
-          value={filters.search}
-          onChange={handleFilterChange}
-          className="p-2 bg-gray-700 rounded col-span-2 lg:col-span-1"
-        />
-        <input
-          type="date"
-          name="start_date"
-          value={filters.start_date}
-          onChange={handleFilterChange}
-          className="p-2 bg-gray-700 rounded"
-        />
-        <input
-          type="date"
-          name="end_date"
-          value={filters.end_date}
-          onChange={handleFilterChange}
-          className="p-2 bg-gray-700 rounded"
-        />
-        <select
-          name="type"
-          value={filters.type}
-          onChange={handleFilterChange}
-          className="p-2 bg-gray-700 rounded"
-        >
-          <option value="">Todo Tipo</option>
-          {transactionTypes.map((t) => (
-            <option key={t.id} value={t.value}>
-              {t.value}
-            </option>
-          ))}
-        </select>
-        <select
-          name="category"
-          value={filters.category}
-          onChange={handleFilterChange}
-          disabled={!filters.type}
-          className="p-2 bg-gray-700 rounded disabled:opacity-50"
-        >
-          <option value="">Toda Categoría</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.value}>
-              {c.value}
-            </option>
-          ))}
-        </select>
-        <select
-          name="sort_by"
-          value={filters.sort_by}
-          onChange={handleFilterChange}
-          className="p-2 bg-gray-700 rounded col-span-2 md:col-span-1"
-        >
-          <option value="date_desc">Más Recientes</option>
-          <option value="date_asc">Más Antiguos</option>
-          <option value="amount_desc">Monto (Mayor a Menor)</option>
-          <option value="amount_asc">Monto (Menor a Mayor)</option>
-        </select>
-      </div>
-
-      <div className="flex justify-end mb-4">
-        <button
-          type="button"
-          onClick={handleDeleteSelected}
-          disabled={selectedTransactionIds.length === 0}
-          className="bg-red-600 hover:bg-red-500 disabled:bg-red-900 disabled:cursor-not-allowed font-semibold py-2 px-4 rounded"
-        >
-          Eliminar Seleccionadas
-        </button>
-      </div>
-
-      {/* --- TABLA DE TRANSACCIONES --- */}
-      <div className="bg-gray-800 rounded-lg">
-        <div className="overflow-x-auto overflow-y-auto max-h-[60vh]">
-          <table className="w-full text-left">
-            <thead className="bg-gray-700/50">
-              <tr>
-                <th className="p-3 w-12">
-                  <input
-                    type="checkbox"
-                    checked={isAllSelected}
-                    onChange={(e) => handleToggleAll(e.target.checked)}
-                    className="h-4 w-4 cursor-pointer"
-                  />
-                </th>
-                <th className="p-3 font-semibold">Fecha</th>
-                <th className="p-3 font-semibold">Descripción</th>
-                <th className="p-3 font-semibold">Cuenta</th>
-                <th className="p-3 font-semibold">Tipo</th>
-                <th className="p-3 font-semibold">Categoría</th>
-                <th className="p-3 font-semibold text-right">Monto</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedTransactions.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="p-4 text-center text-gray-400">
-                    No se encontraron transacciones con los filtros seleccionados.
-                  </td>
-                </tr>
-              ) : (
-                paginatedTransactions.map((t) => {
-                  const isSelected = selectedTransactionIds.includes(t.id);
-                  return (
-                    <tr
-                      key={t.id}
-                      onDoubleClick={() => openTransactionModal(t)}
-                      className={`border-b border-gray-700 hover:bg-gray-700/50 cursor-pointer transition-colors ${
-                        isSelected ? "bg-gray-700/80" : ""
-                      }`}
-                    >
-                      <td className="p-3">
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={(e) => handleToggleTransaction(t.id, e.target.checked)}
-                          onDoubleClick={(e) => e.stopPropagation()}
-                          className="h-4 w-4 cursor-pointer"
-                        />
-                      </td>
-                      <td className="p-3">{new Date(t.date).toLocaleDateString()}</td>
-                      <td className="p-3">{t.description}</td>
-                      <td className="p-3">{t.account?.name}</td>
-                      <td className="p-3">{t.type}</td>
-                      <td className="p-3">{t.category}</td>
-                      <td
-                        className={`p-3 text-right font-medium ${
-                          t.type === "Ingreso" ? "text-green-400" : "text-red-400"
-                        }`}
-                      >
-                        {new Intl.NumberFormat("es-MX", {
-                          style: "currency",
-                          currency: "MXN",
-                        }).format(t.amount)}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="glow-card glow-card--emerald sm:p-6">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-300">
+                Ingresos
+              </p>
+              <p className="mt-2 text-3xl font-bold text-emerald-600 dark:text-emerald-200">
+                {formatCurrency(totals.income)}
+              </p>
+            </div>
+            <span className="rounded-full bg-emerald-500/15 p-3 text-emerald-600 dark:text-emerald-300">
+              <TrendingUp className="h-5 w-5" />
+            </span>
+          </div>
+          <p className="mt-3 text-sm text-muted">
+            {totals.incomeCount} movimientos catalogados como ingresos.
+          </p>
         </div>
-      </div>
-
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mt-4">
-        <div className="flex items-center gap-2 text-sm text-gray-300">
-          <span>Mostrar</span>
-          <select
-            value={pageSize}
-            onChange={handlePageSizeChange}
-            className="bg-gray-800 border border-gray-600 rounded px-2 py-1"
-          >
-            {[5, 10, 20, 50].map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
-          <span>por página</span>
+        <div className="glow-card glow-card--rose sm:p-6">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-300">
+                Gastos
+              </p>
+              <p className="mt-2 text-3xl font-bold text-rose-600 dark:text-rose-200">
+                {formatCurrency(totals.expense)}
+              </p>
+            </div>
+            <span className="rounded-full bg-rose-500/15 p-3 text-rose-600 dark:text-rose-300">
+              <TrendingDown className="h-5 w-5" />
+            </span>
+          </div>
+          <p className="mt-3 text-sm text-muted">
+            {totals.expenseCount} salidas registradas para el período filtrado.
+          </p>
         </div>
-        <div className="flex flex-col md:flex-row md:items-center md:gap-4 gap-2">
-          <span className="text-sm text-gray-400 text-center md:text-left">
-            Página {currentPage} de {totalPages}
-          </span>
-          <div className="flex items-center gap-2 justify-center">
-            <button
-              type="button"
-              onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
-              disabled={currentPage === 1}
-              className="px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 disabled:bg-gray-900 disabled:text-gray-500 disabled:cursor-not-allowed"
-            >
-              Anterior
-            </button>
-            {pageNumbers.map((page) => (
-              <button
-                key={page}
-                type="button"
-                onClick={() => handlePageChange(page)}
-                className={`px-3 py-1 rounded border ${
-                  currentPage === page
-                    ? "bg-blue-600 border-blue-400"
-                    : "bg-gray-700 border-gray-600 hover:bg-gray-600"
+        <div className="glow-card glow-card--slate sm:p-6">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+                Balance neto
+              </p>
+              <p
+                className={`mt-2 text-3xl font-bold ${
+                  totals.balance >= 0
+                    ? "text-emerald-600 dark:text-emerald-200"
+                    : "text-rose-600 dark:text-rose-200"
                 }`}
               >
-                {page}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
-              disabled={currentPage === totalPages}
-              className="px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 disabled:bg-gray-900 disabled:text-gray-500 disabled:cursor-not-allowed"
+                {formatCurrency(totals.balance)}
+              </p>
+            </div>
+            <span className="rounded-full bg-slate-500/15 p-3 text-slate-700 dark:text-slate-200">
+              <Wallet className="h-5 w-5" />
+            </span>
+          </div>
+          <p className="mt-3 text-sm text-muted">
+            Diferencia entre ingresos y gastos con los filtros aplicados.
+          </p>
+        </div>
+      </section>
+
+      <section className="app-card p-6">
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold">Filtros inteligentes</h2>
+            <p className="text-sm text-muted">
+              Ajusta la búsqueda por descripción, fechas, tipo y ordenamiento.
+            </p>
+          </div>
+          <Filter className="h-5 w-5 text-muted" />
+        </div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+          <div className="xl:col-span-2">
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
+              Buscar
+            </label>
+            <input
+              type="text"
+              name="search"
+              placeholder="Descripción o cuenta"
+              value={filters.search}
+              onChange={handleFilterChange}
+              className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200/60 dark:focus:ring-sky-500/40"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
+              Desde
+            </label>
+            <input
+              type="date"
+              name="start_date"
+              value={filters.start_date}
+              onChange={handleFilterChange}
+              className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200/60 dark:focus:ring-sky-500/40"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
+              Hasta
+            </label>
+            <input
+              type="date"
+              name="end_date"
+              value={filters.end_date}
+              onChange={handleFilterChange}
+              className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200/60 dark:focus:ring-sky-500/40"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
+              Tipo
+            </label>
+            <select
+              name="type"
+              value={filters.type}
+              onChange={handleFilterChange}
+              className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200/60 dark:focus:ring-sky-500/40"
             >
-              Siguiente
-            </button>
+              <option value="">Todos</option>
+              {transactionTypes.map((t) => (
+                <option key={t.id} value={t.value}>
+                  {t.value}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
+              Categoría
+            </label>
+            <select
+              name="category"
+              value={filters.category}
+              onChange={handleFilterChange}
+              disabled={!filters.type}
+              className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-40 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200/60 dark:focus:ring-sky-500/40"
+            >
+              <option value="">Todas</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.value}>
+                  {c.value}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
+              Ordenar por
+            </label>
+            <select
+              name="sort_by"
+              value={filters.sort_by}
+              onChange={handleFilterChange}
+              className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200/60 dark:focus:ring-sky-500/40"
+            >
+              <option value="date_desc">Más recientes</option>
+              <option value="date_asc">Más antiguos</option>
+              <option value="amount_desc">Monto (desc)</option>
+              <option value="amount_asc">Monto (asc)</option>
+            </select>
           </div>
         </div>
-      </div>
+        <div className="mt-4 flex justify-end">
+          <button
+            type="button"
+            onClick={handleResetFilters}
+            className="text-sm font-semibold text-sky-600 transition hover:text-sky-500 dark:text-sky-300 dark:hover:text-sky-200"
+          >
+            Limpiar filtros
+          </button>
+        </div>
+      </section>
+
+      <section className="app-card overflow-hidden p-0">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--app-border)] bg-[var(--app-surface-muted)] px-6 py-4">
+          <div>
+            <h2 className="text-lg font-semibold">Movimientos registrados</h2>
+            <p className="text-sm text-muted">
+              Selecciona filas para editarlas o eliminarlas rápidamente.
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => openTransactionModal(null)}
+                className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-sky-500/30 transition hover:bg-sky-500"
+              >
+                <Plus className="h-4 w-4" />
+                Nueva transacción
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteSelected}
+                disabled={selectedTransactionIds.length === 0}
+                className="inline-flex items-center gap-2 rounded-lg border border-rose-500/60 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:border-rose-400 hover:text-rose-500 disabled:cursor-not-allowed disabled:border-rose-200 disabled:text-rose-300 dark:text-rose-200 dark:hover:text-rose-100"
+              >
+                <Trash2 className="h-4 w-4" />
+                Eliminar
+                {selectedTransactionIds.length > 0 && (
+                  <span className="ml-1 rounded-full bg-rose-500/20 px-2 py-0.5 text-xs">
+                    {selectedTransactionIds.length}
+                  </span>
+                )}
+              </button>
+            </div>
+            <span className="text-sm text-muted">
+              {transactions.length} transacciones encontradas
+            </span>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 border-b border-[var(--app-border)] bg-[var(--app-surface)] px-6 py-3">
+          {tabOptions.map((option) => {
+            const isActive = activeTab === option.key;
+            const Icon = option.icon;
+            return (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() => handleTabChange(option.key)}
+                className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 ${
+                  isActive
+                    ? "bg-sky-600 text-white shadow shadow-sky-500/30"
+                    : "border border-[var(--app-border)] bg-[var(--app-surface-muted)] text-muted hover:border-sky-400 hover:text-sky-600 dark:hover:text-sky-300"
+                }`}
+              >
+                <Icon className={`h-4 w-4 ${isActive ? "text-white" : "text-sky-500 dark:text-sky-300"}`} />
+                <span>{option.label}</span>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                    isActive
+                      ? "bg-white/20 text-white"
+                      : "bg-[var(--app-surface)] text-muted"
+                  }`}
+                >
+                  {option.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {showTable ? (
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-[var(--app-border)]">
+                <thead className="bg-[var(--app-surface-muted)]">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                      <input
+                        type="checkbox"
+                        checked={isAllSelected}
+                        onChange={(e) => handleToggleAll(e.target.checked)}
+                        className="h-4 w-4 cursor-pointer rounded border border-[var(--app-border)]"
+                      />
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                      Fecha
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                      Descripción
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                      Cuenta
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                      Tipo
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                      Categoría
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">
+                      Monto
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--app-border)]">
+                  {paginatedTransactions.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-10 text-center text-muted">
+                        No se encontraron transacciones con los filtros seleccionados.
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedTransactions.map((t) => {
+                      const isSelected = selectedTransactionIds.includes(t.id);
+                      const isIncome = t.type === "Ingreso";
+                      return (
+                        <tr
+                          key={t.id}
+                          onDoubleClick={() => openTransactionModal(t)}
+                          className={`group cursor-pointer transition hover:bg-[var(--app-surface-muted)] ${
+                            isSelected ? "bg-[var(--app-surface-muted)]" : ""
+                          }`}
+                        >
+                          <td className="px-4 py-3">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => handleToggleTransaction(t.id, e.target.checked)}
+                              onDoubleClick={(e) => e.stopPropagation()}
+                              className="h-4 w-4 cursor-pointer rounded border border-[var(--app-border)]"
+                            />
+                          </td>
+                          <td className="px-4 py-3 text-sm text-muted">
+                            {new Date(t.date).toLocaleDateString()}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-medium text-[var(--app-text)]">
+                            <div className="flex flex-col gap-1">
+                              <span className="block max-w-xs truncate" title={t.description}>
+                                {t.description}
+                              </span>
+                              {(t.goal_name || t.debt_name) && (
+                                <div className="flex flex-wrap gap-2 text-xs text-muted">
+                                  {t.goal_name && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-300">
+                                      Meta: {t.goal_name}
+                                    </span>
+                                  )}
+                                  {t.debt_name && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-rose-600 dark:text-rose-300">
+                                      Deuda: {t.debt_name}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-muted">
+                            {t.account?.name ?? "-"}
+                          </td>
+                          <td className="px-4 py-3 text-sm">
+                            <span
+                              className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                                isIncome
+                                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
+                                  : "bg-rose-500/15 text-rose-600 dark:text-rose-300"
+                              }`}
+                            >
+                              {t.type}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-muted">
+                            <span className="inline-flex rounded-full bg-[var(--app-surface-muted)] px-3 py-1 text-xs">
+                              {t.category}
+                            </span>
+                          </td>
+                          <td
+                            className={`px-4 py-3 text-right text-sm font-semibold ${
+                              isIncome
+                                ? "text-emerald-600 dark:text-emerald-300"
+                                : "text-rose-600 dark:text-rose-300"
+                            }`}
+                          >
+                            {formatCurrency(t.amount)}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex flex-col gap-4 border-t border-[var(--app-border)] bg-[var(--app-surface)] px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-center gap-2 text-sm text-muted">
+                <span>Mostrar</span>
+                <select
+                  value={pageSize}
+                  onChange={handlePageSizeChange}
+                  className="rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-2 py-1 text-sm focus:border-sky-400 focus:outline-none"
+                >
+                  {[5, 10, 20, 50].map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+                <span>por página</span>
+              </div>
+              <div className="flex flex-col items-center gap-3 text-sm text-muted md:flex-row md:gap-4">
+                <span>
+                  Página {currentPage} de {totalPages}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+                    disabled={currentPage === 1}
+                    className="rounded-lg border border-[var(--app-border)] px-3 py-1 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Anterior
+                  </button>
+                  {pageNumbers.map((page) => (
+                    <button
+                      key={page}
+                      type="button"
+                      onClick={() => handlePageChange(page)}
+                      className={`rounded-lg px-3 py-1 text-sm font-semibold transition ${
+                        currentPage === page
+                          ? "bg-sky-600 text-white"
+                          : "border border-[var(--app-border)] hover:border-sky-400"
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+                    disabled={currentPage === totalPages}
+                    className="rounded-lg border border-[var(--app-border)] px-3 py-1 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="px-6 py-6">
+            {recurringLoading ? (
+              <p className="text-sm text-muted">Cargando transacciones recurrentes...</p>
+            ) : recurringError ? (
+              <p className="rounded-xl border border-rose-300/60 bg-rose-50 px-4 py-3 text-sm text-rose-600 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-200">
+                {recurringError}
+              </p>
+            ) : recurringTransactions.length === 0 ? (
+              <p className="text-sm text-muted">
+                Aún no registras transacciones recurrentes. Marca una transacción como recurrente desde el formulario para que aparezca aquí.
+              </p>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
+                {recurringTransactions.map((rule) => {
+                  const isIncome = rule.type === "Ingreso";
+                  return (
+                    <div
+                      key={rule.id}
+                      className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] p-4"
+                    >
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-base font-semibold">{rule.description}</h3>
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${
+                            isIncome
+                              ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
+                              : "bg-rose-500/15 text-rose-600 dark:text-rose-300"
+                          }`}
+                        >
+                          {rule.type}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm text-muted">
+                        Monto: <span className="font-semibold">{formatCurrency(rule.amount)}</span>
+                      </p>
+                      <p className="text-sm text-muted">Categoría: {rule.category}</p>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted">
+                        <span className="inline-flex items-center gap-2 rounded-full bg-[var(--app-surface)] px-3 py-1">
+                          Frecuencia: {rule.frequency}
+                        </span>
+                        <span className="inline-flex items-center gap-2 rounded-full bg-[var(--app-surface)] px-3 py-1">
+                          Próxima ejecución: {formatRecurringDate(rule.next_run)}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

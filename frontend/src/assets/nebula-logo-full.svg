@@ -1,0 +1,14 @@
+<svg width="164" height="44" viewBox="0 0 164 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="nebulaGradient" x1="0" y1="44" x2="164" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38bdf8" />
+      <stop offset="0.45" stop-color="#6366f1" />
+      <stop offset="1" stop-color="#ec4899" />
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="40" height="40" rx="12" fill="url(#nebulaGradient)" />
+  <path d="M16 30C16 24.477 20.477 20 26 20C29.074 20 31.85 21.392 33.707 23.682C34.098 24.16 34.033 24.86 33.555 25.251C33.078 25.642 32.378 25.578 31.987 25.1C30.553 23.368 28.376 22.25 26 22.25C21.724 22.25 18.25 25.724 18.25 30C18.25 34.276 21.724 37.75 26 37.75C29.009 37.75 31.698 36.051 32.996 33.364C33.266 32.802 33.938 32.564 34.5 32.834C35.062 33.103 35.3 33.776 35.031 34.338C33.357 37.802 29.873 40 26 40C20.477 40 16 35.523 16 30Z" fill="white" />
+  <text x="52" y="28" fill="currentColor" font-family="'Inter', 'Segoe UI', sans-serif" font-size="22" font-weight="600" letter-spacing="0.02em">
+    Nebula Finance
+  </text>
+</svg>

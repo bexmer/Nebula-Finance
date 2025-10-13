@@ -1,0 +1,11 @@
+<svg width="44" height="44" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="nebulaMarkGradient" x1="4" y1="40" x2="40" y2="4" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38bdf8" />
+      <stop offset="0.55" stop-color="#6366f1" />
+      <stop offset="1" stop-color="#ec4899" />
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="40" height="40" rx="12" fill="url(#nebulaMarkGradient)" />
+  <path d="M14 30C14 23.9249 18.9249 19 25 19C28.4061 19 31.4595 20.6111 33.3501 23.0974C33.7244 23.5881 33.6301 24.2863 33.1394 24.6607C32.6487 25.0351 31.9505 24.9407 31.5761 24.45C30.0936 22.5424 27.6894 21.25 25 21.25C20.1123 21.25 16.25 25.1123 16.25 30C16.25 34.8877 20.1123 38.75 25 38.75C28.1359 38.75 31.0279 37.0178 32.4053 34.3328C32.6814 33.7861 33.3605 33.5624 33.9072 33.8385C34.4539 34.1146 34.6776 34.7937 34.4015 35.3404C32.6836 38.7267 29.0998 41 25 41C18.9249 41 14 36.0751 14 30Z" fill="white" />
+</svg>
