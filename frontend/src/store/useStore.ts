@@ -42,6 +42,8 @@ interface AppState {
   isTransactionModalOpen: boolean;
   editingTransaction: Transaction | null;
   transactionPrefill: TransactionPrefill | null;
+  theme: "light" | "dark";
+  sidebarCollapsed: boolean;
   fetchTransactions: (filters?: TransactionFilters) => Promise<void>;
   setFilters: (filters: Partial<TransactionFilters>) => void;
   openTransactionModal: (
@@ -49,6 +51,11 @@ interface AppState {
     prefill?: TransactionPrefill | null
   ) => void;
   closeTransactionModal: () => void;
+  toggleTheme: () => void;
+  setTheme: (theme: "light" | "dark") => void;
+  toggleSidebar: () => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;
+  initializePreferences: () => void;
 }
 
 const defaultFilters: TransactionFilters = {
@@ -67,6 +74,14 @@ export const useStore = create<AppState>((set, get) => ({
   isTransactionModalOpen: false,
   editingTransaction: null,
   transactionPrefill: null,
+  theme:
+    (typeof window !== "undefined" &&
+      (localStorage.getItem("nebula-theme") as "light" | "dark" | null)) ||
+    "dark",
+  sidebarCollapsed:
+    (typeof window !== "undefined" &&
+      localStorage.getItem("nebula-sidebar-collapsed") === "true") ||
+    false,
 
   // --- ACCIONES (funciones que modifican el estado) ---
   fetchTransactions: async (filters) => {
@@ -116,5 +131,47 @@ export const useStore = create<AppState>((set, get) => ({
       editingTransaction: null,
       transactionPrefill: null,
     });
+  },
+  toggleTheme: () => {
+    const nextTheme = get().theme === "dark" ? "light" : "dark";
+    if (typeof window !== "undefined") {
+      localStorage.setItem("nebula-theme", nextTheme);
+    }
+    set({ theme: nextTheme });
+  },
+  setTheme: (theme) => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("nebula-theme", theme);
+    }
+    set({ theme });
+  },
+  toggleSidebar: () => {
+    set((state) => {
+      const next = !state.sidebarCollapsed;
+      if (typeof window !== "undefined") {
+        localStorage.setItem("nebula-sidebar-collapsed", String(next));
+      }
+      return { sidebarCollapsed: next };
+    });
+  },
+  setSidebarCollapsed: (collapsed) => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("nebula-sidebar-collapsed", String(collapsed));
+    }
+    set({ sidebarCollapsed: collapsed });
+  },
+  initializePreferences: () => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const storedTheme = localStorage.getItem("nebula-theme") as
+      | "light"
+      | "dark"
+      | null;
+    const storedSidebar = localStorage.getItem("nebula-sidebar-collapsed");
+    set((state) => ({
+      theme: storedTheme ?? state.theme,
+      sidebarCollapsed: storedSidebar === null ? state.sidebarCollapsed : storedSidebar === "true",
+    }));
   },
 }));

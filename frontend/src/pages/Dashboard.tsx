@@ -402,23 +402,23 @@ export function Dashboard() {
   const activeAccount = accounts[activeAccountIndex] ?? null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 text-slate-900 dark:text-slate-100">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold text-white">Dashboard</h1>
-          <p className="mt-1 text-sm text-slate-400">
+          <h1 className="text-3xl font-semibold">Dashboard</h1>
+          <p className="mt-1 text-sm text-muted">
             Controla tus finanzas personales con una vista integral de tu patrimonio.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-4">
-          <div className="flex flex-col text-sm text-slate-400">
-            <span className="mb-1 inline-flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500">
+          <div className="flex flex-col text-sm text-muted">
+            <span className="mb-1 inline-flex items-center gap-2 text-xs uppercase tracking-wide text-muted">
               <Calendar className="h-4 w-4" /> Año
             </span>
             <select
               value={year}
               onChange={(event) => setYear(Number(event.target.value))}
-              className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-white focus:border-sky-500 focus:outline-none"
+              className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-4 py-2 text-sm font-medium text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
             >
               {Array.from({ length: 7 }).map((_, index) => {
                 const optionYear = currentYear - 3 + index;
@@ -431,7 +431,7 @@ export function Dashboard() {
             </select>
           </div>
           <div className="flex flex-col">
-            <span className="mb-1 inline-flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500">
+            <span className="mb-1 inline-flex items-center gap-2 text-xs uppercase tracking-wide text-muted">
               <PieChart className="h-4 w-4" /> Meses
             </span>
             <MonthMultiSelect
@@ -443,13 +443,13 @@ export function Dashboard() {
       </div>
 
       {isLoading && (
-        <div className="flex min-h-[200px] items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/60 text-slate-400">
+        <div className="app-card flex min-h-[200px] items-center justify-center text-muted">
           Cargando información...
         </div>
       )}
 
       {error && !isLoading && (
-        <div className="rounded-2xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-200">
+        <div className="rounded-2xl border border-rose-500/40 bg-rose-50 px-4 py-3 text-sm text-rose-600 dark:bg-rose-500/10 dark:text-rose-200">
           {error}
         </div>
       )}
@@ -480,15 +480,15 @@ export function Dashboard() {
 
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
             <div className="space-y-6 xl:col-span-2">
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
+              <div className="app-card p-6">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div>
-                    <h2 className="text-lg font-semibold text-white">
+                    <h2 className="text-lg font-semibold">
                       {activeChart === "netWorth"
                         ? "Evolución de Patrimonio Neto"
                         : "Flujo de Efectivo Mensual"}
                     </h2>
-                    <p className="text-sm text-slate-400">
+                    <p className="text-sm text-muted">
                       Visualiza tendencias y anticipa tus necesidades de efectivo.
                     </p>
                   </div>
@@ -497,8 +497,8 @@ export function Dashboard() {
                       onClick={() => setActiveChart("netWorth")}
                       className={`rounded-full px-4 py-2 text-sm font-medium transition ${
                         activeChart === "netWorth"
-                          ? "bg-sky-500 text-white"
-                          : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                          ? "bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow"
+                          : "border border-[var(--app-border)] bg-transparent text-muted hover:border-sky-400 hover:text-slate-700 dark:hover:text-slate-200"
                       }`}
                     >
                       Patrimonio
@@ -507,8 +507,8 @@ export function Dashboard() {
                       onClick={() => setActiveChart("cashFlow")}
                       className={`rounded-full px-4 py-2 text-sm font-medium transition ${
                         activeChart === "cashFlow"
-                          ? "bg-sky-500 text-white"
-                          : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                          ? "bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow"
+                          : "border border-[var(--app-border)] bg-transparent text-muted hover:border-sky-400 hover:text-slate-700 dark:hover:text-slate-200"
                       }`}
                     >
                       Flujo
@@ -543,12 +543,12 @@ export function Dashboard() {
                 />
               </div>
 
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
+              <div className="app-card p-6">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold text-white">Metas activas</h2>
-                  <Target className="h-5 w-5 text-sky-400" />
+                  <h2 className="text-lg font-semibold">Metas activas</h2>
+                  <Target className="h-5 w-5 text-sky-500" />
                 </div>
-                <p className="mt-1 text-sm text-slate-400">
+                <p className="mt-1 text-sm text-muted">
                   Da seguimiento a tus objetivos financieros y mantén la motivación.
                 </p>
                 <div className="mt-4 space-y-3">
@@ -587,12 +587,12 @@ export function Dashboard() {
           </div>
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
-            <div className="lg:col-span-1 xl:col-span-2 rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
+            <div className="lg:col-span-1 xl:col-span-2 app-card p-6">
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-white">Distribución de gastos</h2>
-                <PieChart className="h-5 w-5 text-sky-400" />
+                <h2 className="text-lg font-semibold">Distribución de gastos</h2>
+                <PieChart className="h-5 w-5 text-sky-500" />
               </div>
-              <p className="mt-1 text-sm text-slate-400">
+              <p className="mt-1 text-sm text-muted">
                 Identifica en qué categorías se concentra tu gasto.
               </p>
               <div className="mt-6 h-80">
@@ -604,12 +604,12 @@ export function Dashboard() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
+            <div className="app-card p-6">
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-white">Gastos por tipo</h2>
-                <PieChart className="h-5 w-5 text-sky-400" />
+                <h2 className="text-lg font-semibold">Gastos por tipo</h2>
+                <PieChart className="h-5 w-5 text-sky-500" />
               </div>
-              <p className="mt-1 text-sm text-slate-400">
+              <p className="mt-1 text-sm text-muted">
                 Compara gastos fijos, variables y otros compromisos.
               </p>
               <div className="mt-6 h-72">
@@ -675,16 +675,16 @@ function MonthMultiSelect({ value, onChange }: MonthMultiSelectProps) {
     <div className="relative" ref={containerRef}>
       <button
         onClick={() => setIsOpen((previous) => !previous)}
-        className="flex items-center justify-between gap-3 rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:border-slate-600 focus:border-sky-500 focus:outline-none"
+        className="flex items-center justify-between gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-4 py-2 text-sm font-medium text-slate-900 transition hover:border-sky-400 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
       >
         {label}
-        <span className="text-xs text-slate-400">▼</span>
+        <span className="text-xs text-muted">▼</span>
       </button>
       {isOpen && (
-        <div className="absolute right-0 z-20 mt-2 w-56 rounded-xl border border-slate-700 bg-slate-900/95 p-4 shadow-xl">
+        <div className="absolute right-0 z-20 mt-2 w-56 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-4 shadow-xl">
           <button
             onClick={toggleAll}
-            className="w-full rounded-lg bg-slate-800 px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-slate-300 hover:bg-slate-700"
+            className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-muted transition hover:border-sky-400 hover:text-sky-600 dark:hover:text-sky-300"
           >
             {value.length === MONTH_OPTIONS.length
               ? "Limpiar selección"
@@ -694,13 +694,13 @@ function MonthMultiSelect({ value, onChange }: MonthMultiSelectProps) {
             {MONTH_OPTIONS.map((month) => (
               <label
                 key={month.value}
-                className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-slate-200 hover:bg-slate-800"
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-slate-900 hover:bg-sky-50 dark:text-slate-100 dark:hover:bg-slate-800"
               >
                 <input
                   type="checkbox"
                   checked={value.includes(month.value)}
                   onChange={() => toggleMonth(month.value)}
-                  className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500 focus:ring-sky-500"
+                  className="h-4 w-4 rounded border-slate-300 text-sky-500 focus:ring-sky-400 dark:border-slate-600"
                 />
                 {month.label}
               </label>
@@ -725,30 +725,30 @@ function BudgetSummaryCard({
   const progress = Math.max(0, Math.min(100, execution));
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
+    <div className="app-card p-6">
       <div className="flex items-center justify-between">
-        <h3 className="text-base font-semibold text-white">{title}</h3>
-        <span className="text-xs font-medium text-slate-400">
+        <h3 className="text-base font-semibold">{title}</h3>
+        <span className="text-xs font-medium text-muted">
           {summary.execution ? formatPercentage(summary.execution) : "—"}
         </span>
       </div>
-      <p className="mt-1 text-sm text-slate-400">
-        Planificado: <span className="font-semibold text-slate-100">{formatCurrency(summary.budgeted)}</span>
+      <p className="mt-1 text-sm text-muted">
+        Planificado: <span className="font-semibold">{formatCurrency(summary.budgeted)}</span>
       </p>
-      <p className="mt-1 text-sm text-slate-400">
-        Real: <span className="font-semibold text-slate-100">{formatCurrency(summary.actual)}</span>
+      <p className="mt-1 text-sm text-muted">
+        Real: <span className="font-semibold">{formatCurrency(summary.actual)}</span>
       </p>
-      <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-800">
+      <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
         <div
           className={`h-full rounded-full bg-gradient-to-r ${accentClass}`}
           style={{ width: `${progress}%` }}
         ></div>
       </div>
-      <div className="mt-3 text-xs text-slate-400">
-        Variación: <span className="font-semibold text-slate-200">{formatSignedCurrency(summary.difference)}</span>
+      <div className="mt-3 text-xs text-muted">
+        Variación: <span className="font-semibold">{formatSignedCurrency(summary.difference)}</span>
       </div>
-      <div className="mt-1 text-xs text-slate-400">
-        Restante: <span className="font-semibold text-slate-200">{formatSignedCurrency(summary.remaining)}</span>
+      <div className="mt-1 text-xs text-muted">
+        Restante: <span className="font-semibold">{formatSignedCurrency(summary.remaining)}</span>
       </div>
     </div>
   );
@@ -763,8 +763,8 @@ function BudgetRuleCard({
 }) {
   if (!rules.length) {
     return (
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
-        <h2 className="text-lg font-semibold text-white">Control de gastos</h2>
+      <div className="app-card p-6">
+        <h2 className="text-lg font-semibold">Control de gastos</h2>
         <EmptyState message="Aún no has configurado reglas de presupuesto." />
       </div>
     );
@@ -785,10 +785,10 @@ function BudgetRuleCard({
   };
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
+    <div className="app-card p-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-white">Control de gastos</h2>
-        <span className="text-xs text-slate-400">Basado en {formatCurrency(incomeTotal)} de ingresos</span>
+        <h2 className="text-lg font-semibold">Control de gastos</h2>
+        <span className="text-xs text-muted">Basado en {formatCurrency(incomeTotal)} de ingresos</span>
       </div>
       <div className="mt-5 space-y-4">
         {rules.map((rule) => {
@@ -796,18 +796,18 @@ function BudgetRuleCard({
           return (
             <div key={rule.name} className="space-y-2">
               <div className="flex items-center justify-between text-sm">
-                <span className="font-semibold text-white">{rule.name}</span>
-                <span className="text-xs text-slate-400">Ideal {rule.ideal_percent.toFixed(0)}%</span>
+                <span className="font-semibold">{rule.name}</span>
+                <span className="text-xs text-muted">Ideal {rule.ideal_percent.toFixed(0)}%</span>
               </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
                 <div
                   className={`h-full ${stateClasses[rule.state]}`}
                   style={{ width: `${percent}%` }}
                 ></div>
               </div>
-              <div className="flex items-center justify-between text-xs text-slate-400">
+              <div className="flex items-center justify-between text-xs text-muted">
                 <span>{formatCurrency(rule.actual_amount)}</span>
-                <span className="font-semibold text-slate-200">
+                <span className="font-semibold">
                   {formatPercentage(rule.actual_percent)} • {stateLabels[rule.state]}
                 </span>
               </div>
@@ -833,21 +833,21 @@ function AccountsCard({
   onNext: () => void;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
+    <div className="app-card p-6">
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-white">Cuentas</h2>
+        <h2 className="text-lg font-semibold">Cuentas</h2>
         <div className="flex items-center gap-2">
           <button
             onClick={onPrev}
             disabled={accounts.length <= 1}
-            className="rounded-full border border-slate-700 p-2 text-slate-300 transition hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-full border border-[var(--app-border)] p-2 text-muted transition hover:border-sky-400 hover:text-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
           <button
             onClick={onNext}
             disabled={accounts.length <= 1}
-            className="rounded-full border border-slate-700 p-2 text-slate-300 transition hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-full border border-[var(--app-border)] p-2 text-muted transition hover:border-sky-400 hover:text-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <ChevronRight className="h-4 w-4" />
           </button>
@@ -882,7 +882,7 @@ function AccountsCard({
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-900/40 px-4 py-8 text-center text-sm text-slate-500">
+    <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)]/70 px-4 py-8 text-center text-sm text-muted">
       {message}
     </div>
   );

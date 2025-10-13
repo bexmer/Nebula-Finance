@@ -137,10 +137,14 @@ class AppController:
 
     def _get_dashboard_kpis(self, year: int, months: List[int], transactions: Optional[List[Transaction]] = None):
         """Calcula los KPIs de ingresos, gastos y ahorro para el período seleccionado."""
-        _, end_date = self._get_date_range(year, months)
+        start_date, end_date = self._get_date_range(year, months)
 
         if transactions is None:
-            transactions = list(Transaction.select().where(Transaction.date.between(start_date, end_date)))
+            transactions = list(
+                Transaction.select().where(
+                    (Transaction.date >= start_date) & (Transaction.date <= end_date)
+                )
+            )
 
         income = sum(float(t.amount or 0) for t in transactions if t.type == "Ingreso")
         expense = sum(abs(float(t.amount or 0)) for t in transactions if t.type != "Ingreso")
@@ -683,7 +687,7 @@ class AppController:
                 updates["account_type"] = account_type
 
             if "initial_balance" in data:
-                updates["initial_balance"] = float(data["initial_balance"] or 0)
+                return {"error": "El saldo inicial no se puede modificar."}
 
             if "current_balance" in data:
                 updates["current_balance"] = float(data["current_balance"] or 0)

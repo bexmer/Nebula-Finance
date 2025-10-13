@@ -41,12 +41,12 @@ export function KpiCard({
   }
 
   const iconColorClass = !hasComparison
-    ? "text-slate-400"
+    ? "text-muted"
     : isImprovement === null
-    ? "text-slate-400"
+    ? "text-muted"
     : isImprovement
-    ? "text-emerald-400"
-    : "text-rose-400";
+    ? "text-emerald-500 dark:text-emerald-400"
+    : "text-rose-500 dark:text-rose-400";
 
   const trendIcon = !hasComparison ? (
     <Minus className="h-4 w-4" />
@@ -57,13 +57,13 @@ export function KpiCard({
   );
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/70 p-6 backdrop-blur">
+    <div className="app-card relative overflow-hidden p-6">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm font-medium text-slate-400">{title}</p>
-          <p className="mt-3 text-3xl font-semibold text-white">{value}</p>
+          <p className="text-sm font-medium text-muted">{title}</p>
+          <p className="mt-3 text-3xl font-semibold">{value}</p>
         </div>
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-sky-500/10 text-sky-400">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-sky-100 text-sky-500 dark:bg-sky-500/15 dark:text-sky-300">
           {icon}
         </div>
       </div>
@@ -72,7 +72,7 @@ export function KpiCard({
           {trendIcon}
           {formatPercentage(comparison)}
         </span>
-        <span className="text-slate-500">{comparisonLabel}</span>
+        <span className="text-muted">{comparisonLabel}</span>
       </div>
     </div>
   );

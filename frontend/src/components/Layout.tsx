@@ -1,36 +1,60 @@
 import { Outlet } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
-import { Suspense } from "react";
+import { Suspense, useEffect } from "react";
 import { Plus } from "lucide-react";
-import { useStore } from "../store/useStore"; // Importar el store
-import { TransactionModal } from "./TransactionModal"; // Importar el modal
+import { useStore } from "../store/useStore";
+import { TransactionModal } from "./TransactionModal";
 
 export function Layout() {
-  // Obtenemos la función para abrir el modal desde nuestro store global
-  const { openTransactionModal } = useStore();
+  const { openTransactionModal, theme, initializePreferences } = useStore(
+    (state) => ({
+      openTransactionModal: state.openTransactionModal,
+      theme: state.theme,
+      initializePreferences: state.initializePreferences,
+    })
+  );
+
+  useEffect(() => {
+    initializePreferences();
+  }, [initializePreferences]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.theme = theme;
+    if (theme === "dark") {
+      root.classList.add("dark");
+    } else {
+      root.classList.remove("dark");
+    }
+  }, [theme]);
 
   return (
-    <div className="flex h-screen bg-gray-900 text-white">
-      <Sidebar />
-      <main className="flex-grow p-6 overflow-auto">
-        <Suspense
-          fallback={<div className="text-center">Cargando página...</div>}
-        >
-          <Outlet />
-        </Suspense>
-      </main>
+    <div className="bg-app text-slate-900 transition-colors duration-300 dark:text-slate-100">
+      <div className="flex min-h-screen w-full flex-col md:flex-row">
+        <Sidebar />
+        <div className="flex min-h-screen flex-1 flex-col">
+          <main className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-10">
+            <Suspense
+              fallback={
+                <div className="app-card mx-auto max-w-xl p-6 text-center text-muted">
+                  Cargando contenido...
+                </div>
+              }
+            >
+              <Outlet />
+            </Suspense>
+          </main>
+        </div>
+      </div>
 
-      {/* --- BOTÓN FLOTANTE GLOBAL Y ÚNICO --- */}
       <button
         onClick={() => openTransactionModal(null)}
-        className="fixed bottom-8 right-8 bg-blue-600 hover:bg-blue-700 text-white w-14 h-14 rounded-full flex items-center justify-center shadow-lg z-40 transition-transform hover:scale-110"
-        aria-label="Añadir Transacción"
+        className="fixed bottom-6 right-6 z-40 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-r from-sky-500 via-indigo-500 to-fuchsia-500 text-white shadow-xl shadow-sky-500/30 ring-4 ring-sky-200/30 transition-transform duration-200 hover:scale-110 focus:outline-none focus:ring-4 focus:ring-indigo-300 dark:ring-offset-0 dark:focus:ring-indigo-500"
+        aria-label="Añadir transacción"
       >
-        <Plus size={28} />
+        <Plus className="h-7 w-7" />
       </button>
 
-      {/* --- MODAL GLOBAL Y ÚNICO --- */}
-      {/* El modal ahora vive aquí para poder ser llamado desde cualquier página */}
       <TransactionModal />
     </div>
   );

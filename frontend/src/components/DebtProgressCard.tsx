@@ -26,42 +26,42 @@ export function DebtProgressCard({ debt, onEdit, onDelete }: CardProps) {
   const progress = Math.min(100, Math.max(0, debt.percentage));
 
   return (
-    <div className="flex flex-col justify-between rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+    <div className="app-card flex flex-col justify-between p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-white">{debt.name}</p>
-          <p className="mt-1 text-xs text-slate-400">
+          <p className="text-sm font-semibold">{debt.name}</p>
+          <p className="mt-1 text-xs text-muted">
             {formatCurrency(debt.current_balance)} restante
           </p>
         </div>
-        <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-semibold text-emerald-300">
+        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200">
           {progress.toFixed(1)}% pagado
         </span>
       </div>
-      <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-800">
+      <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
         <div
-          className="h-full rounded-full bg-emerald-500"
+          className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-sky-500"
           style={{ width: `${progress}%` }}
         ></div>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-300">
+      <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-muted">
         <div>
-          <p className="font-semibold text-slate-200">Acumulado</p>
+          <p className="font-semibold">Acumulado</p>
           <p>{formatCurrency(paidAmount)}</p>
         </div>
         <div>
-          <p className="font-semibold text-slate-200">Total</p>
+          <p className="font-semibold">Total</p>
           <p>{formatCurrency(debt.total_amount)}</p>
         </div>
         {typeof debt.minimum_payment === "number" && (
           <div>
-            <p className="font-semibold text-slate-200">Pago mínimo</p>
+            <p className="font-semibold">Pago mínimo</p>
             <p>{formatCurrency(debt.minimum_payment)}</p>
           </div>
         )}
         {typeof debt.interest_rate === "number" && (
           <div>
-            <p className="font-semibold text-slate-200">Tasa anual</p>
+            <p className="font-semibold">Tasa anual</p>
             <p>{debt.interest_rate.toFixed(2)}%</p>
           </div>
         )}
@@ -69,13 +69,13 @@ export function DebtProgressCard({ debt, onEdit, onDelete }: CardProps) {
       <div className="mt-4 flex flex-wrap items-center justify-end gap-3 text-xs">
         <button
           onClick={onEdit}
-          className="rounded-full bg-slate-800 px-3 py-1 font-medium text-sky-400 transition hover:bg-slate-700"
+          className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 font-medium text-sky-600 transition hover:bg-sky-100 dark:border-sky-500/50 dark:bg-sky-500/15 dark:text-sky-200"
         >
           Editar
         </button>
         <button
           onClick={onDelete}
-          className="rounded-full bg-slate-800 px-3 py-1 font-medium text-rose-400 transition hover:bg-slate-700"
+          className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 font-medium text-rose-600 transition hover:bg-rose-100 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200"
         >
           Eliminar
         </button>
