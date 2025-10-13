@@ -77,6 +77,10 @@ class BudgetEntryModel(BaseModel):
     month: Optional[int] = None
     year: Optional[int] = None
     amount: Optional[float] = None
+    goal_id: Optional[int] = None
+    goal_name: Optional[str] = None
+    debt_id: Optional[int] = None
+    debt_name: Optional[str] = None
 
 
 class BudgetEntryCreateModel(BaseModel):
@@ -88,6 +92,8 @@ class BudgetEntryCreateModel(BaseModel):
     due_date: Optional[datetime.date] = None
     month: Optional[int] = None
     year: Optional[int] = None
+    goal_id: Optional[int] = None
+    debt_id: Optional[int] = None
 
 
 class BudgetEntryUpdateModel(BaseModel):
@@ -99,6 +105,8 @@ class BudgetEntryUpdateModel(BaseModel):
     due_date: Optional[datetime.date] = None
     month: Optional[int] = None
     year: Optional[int] = None
+    goal_id: Optional[int] = None
+    debt_id: Optional[int] = None
 
 class GoalModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)

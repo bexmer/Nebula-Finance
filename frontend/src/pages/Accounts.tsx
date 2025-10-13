@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 
+import { useNumberFormatter } from "../context/DisplayPreferencesContext";
+import { apiPath } from "../utils/api";
+
 interface Account {
   id: number;
   name: string;
@@ -16,8 +19,6 @@ interface AccountFormState {
   accountType: string;
   initialBalance: string;
 }
-
-const API_BASE_URL = "http://127.0.0.1:8000";
 
 const resolveDetailMessage = (detail: unknown): string | null => {
   if (!detail) {
@@ -50,14 +51,7 @@ export function Accounts() {
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
-
-  const formatCurrency = useCallback((value: number) => {
-    return new Intl.NumberFormat("es-MX", {
-      style: "currency",
-      currency: "MXN",
-      minimumFractionDigits: 2,
-    }).format(value);
-  }, []);
+  const { formatCurrency } = useNumberFormatter();
 
   const resetForm = useCallback(
     (availableTypes: string[] = accountTypes) => {
@@ -77,8 +71,8 @@ export function Accounts() {
     const fetchInitialData = async () => {
       try {
         const [accountsResponse, typesResponse] = await Promise.all([
-          axios.get<Account[]>(`${API_BASE_URL}/api/accounts`),
-          axios.get<string[]>(`${API_BASE_URL}/api/parameters/account-types`),
+          axios.get<Account[]>(apiPath("/accounts")),
+          axios.get<string[]>(apiPath("/parameters/account-types")),
         ]);
 
         if (!isMounted) {
@@ -157,7 +151,7 @@ export function Accounts() {
     try {
       setSubmitting(true);
       if (selectedAccountId === null) {
-        const response = await axios.post<Account>(`${API_BASE_URL}/api/accounts`, {
+        const response = await axios.post<Account>(apiPath("/accounts"), {
           ...basePayload,
           initial_balance: initialBalanceValue,
         });
@@ -165,7 +159,7 @@ export function Accounts() {
         setFeedback("Cuenta añadida correctamente.");
       } else {
         const response = await axios.put<Account>(
-          `${API_BASE_URL}/api/accounts/${selectedAccountId}`,
+          apiPath(`/accounts/${selectedAccountId}`),
           basePayload
         );
         setAccounts((prev) =>
@@ -193,7 +187,7 @@ export function Accounts() {
     }
 
     try {
-      await axios.delete(`${API_BASE_URL}/api/accounts/${selectedAccountId}`);
+      await axios.delete(apiPath(`/accounts/${selectedAccountId}`));
       setAccounts((prev) => prev.filter((account) => account.id !== selectedAccountId));
       setFeedback("Cuenta eliminada correctamente.");
       resetForm();

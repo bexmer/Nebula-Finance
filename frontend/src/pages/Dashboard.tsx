@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { KpiCard } from "../components/KpiCard";
 import { GoalProgressCard, GoalData } from "../components/GoalProgressCard";
+import { API_BASE_URL } from "../utils/api";
 
 ChartJS.register(
   CategoryScale,
@@ -37,8 +38,6 @@ ChartJS.register(
   Legend,
   Filler,
 );
-
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";
 
 const MONTH_OPTIONS = [
   { value: 1, label: "Enero" },
@@ -181,7 +180,7 @@ export function Dashboard() {
         );
 
         const response = await axios.get<DashboardData>(
-          `${API_BASE_URL}/api/dashboard?${params.toString()}`,
+          `${API_BASE_URL}/dashboard?${params.toString()}`,
         );
 
         if (!isMounted) return;

@@ -1,4 +1,5 @@
 import { Pencil, Trash2 } from "lucide-react";
+import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 
 export interface GoalData {
   id: number;
@@ -14,17 +15,9 @@ interface CardProps {
   onDelete?: () => void;
 }
 
-const formatCurrency = (value: number) => {
-  const formatter = new Intl.NumberFormat("es-MX", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  const sign = value < 0 ? "-" : "";
-  return `${sign}$${formatter.format(Math.abs(value))}`;
-};
-
 export function GoalProgressCard({ goal, onEdit, onDelete }: CardProps) {
   const progress = Math.min(100, Math.max(0, goal.percentage));
+  const { formatCurrency, formatPercent } = useNumberFormatter();
 
   return (
     <div className="app-card flex h-full flex-col justify-between p-4">
@@ -67,7 +60,7 @@ export function GoalProgressCard({ goal, onEdit, onDelete }: CardProps) {
         ></div>
       </div>
       <div className="mt-2 text-right text-xs font-medium text-muted">
-        {progress.toFixed(1)}%
+        {formatPercent(progress)}
       </div>
     </div>
   );

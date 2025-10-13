@@ -1,6 +1,10 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import axios from "axios";
+import { Pencil, RefreshCcw, Trash2 } from "lucide-react";
+
+import { useNumberFormatter } from "../context/DisplayPreferencesContext";
+import { apiPath } from "../utils/api";
 
 interface PortfolioSummary {
   symbol: string;
@@ -53,13 +57,28 @@ export function Portfolio() {
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const { formatCurrency, formatPercent } = useNumberFormatter();
+
+  const holdingsBySymbol = useMemo(() => {
+    const map = new Map<string, PortfolioSummary>();
+    summary.forEach((asset) => {
+      map.set(asset.symbol.toUpperCase(), asset);
+    });
+    return map;
+  }, [summary]);
+
+  const holdingSymbols = useMemo(
+    () => Array.from(holdingsBySymbol.keys()).sort(),
+    [holdingsBySymbol]
+  );
+
   const fetchPortfolio = useCallback(async () => {
     setLoading(true);
     setFetchError(null);
     try {
       const [summaryRes, historyRes] = await Promise.all([
-        axios.get("http://127.0.0.1:8000/api/portfolio/summary"),
-        axios.get("http://127.0.0.1:8000/api/portfolio/history"),
+        axios.get(apiPath("/portfolio/summary")),
+        axios.get(apiPath("/portfolio/history")),
       ]);
       setSummary(summaryRes.data);
       setHistory(historyRes.data);
@@ -84,13 +103,48 @@ export function Portfolio() {
     (field: keyof TradeFormState) =>
     (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       const value = event.target.value;
-      setFormState((prev) => ({ ...prev, [field]: value }));
+      setFormState((prev) => {
+        if (field === "symbol") {
+          const normalized = value.toUpperCase();
+          const nextState = { ...prev, symbol: normalized };
+          if (prev.type === "sell") {
+            const holding = holdingsBySymbol.get(normalized);
+            if (holding) {
+              nextState.asset_type = holding.asset_type;
+            }
+          }
+          return nextState;
+        }
+
+        if (field === "type") {
+          const nextType = value as TradeFormState["type"];
+          if (nextType === "sell") {
+            const normalizedSymbol = prev.symbol.trim().toUpperCase();
+            const fallbackSymbol = holdingsBySymbol.has(normalizedSymbol)
+              ? normalizedSymbol
+              : holdingSymbols[0] ?? normalizedSymbol;
+            const holding = fallbackSymbol
+              ? holdingsBySymbol.get(fallbackSymbol)
+              : undefined;
+            return {
+              ...prev,
+              type: nextType,
+              symbol: fallbackSymbol,
+              asset_type: holding?.asset_type ?? prev.asset_type,
+            };
+          }
+
+          return { ...prev, type: nextType };
+        }
+
+        return { ...prev, [field]: value };
+      });
     };
 
   const handleEdit = (trade: TradeHistory) => {
     setFormState({
       id: trade.id,
-      symbol: trade.symbol,
+      symbol: trade.symbol.toUpperCase(),
       asset_type: trade.asset_type ?? "",
       type: trade.type,
       quantity: trade.quantity.toString(),
@@ -100,12 +154,47 @@ export function Portfolio() {
     setFormError(null);
   };
 
+  useEffect(() => {
+    if (formState.type !== "sell") {
+      return;
+    }
+
+    const normalized = formState.symbol.trim().toUpperCase();
+    if (normalized && holdingsBySymbol.has(normalized)) {
+      const holding = holdingsBySymbol.get(normalized)!;
+      if (
+        formState.asset_type !== holding.asset_type ||
+        formState.symbol !== normalized
+      ) {
+        setFormState((prev) => ({
+          ...prev,
+          symbol: normalized,
+          asset_type: holding.asset_type,
+        }));
+      }
+    } else if (!normalized && holdingSymbols.length > 0) {
+      const fallbackSymbol = holdingSymbols[0];
+      const holding = holdingsBySymbol.get(fallbackSymbol);
+      setFormState((prev) => ({
+        ...prev,
+        symbol: fallbackSymbol,
+        asset_type: holding?.asset_type ?? prev.asset_type,
+      }));
+    }
+  }, [
+    formState.type,
+    formState.symbol,
+    formState.asset_type,
+    holdingSymbols,
+    holdingsBySymbol,
+  ]);
+
   const handleDelete = async (tradeId: number) => {
     if (!window.confirm("¿Deseas eliminar esta operación?")) {
       return;
     }
     try {
-      await axios.delete(`http://127.0.0.1:8000/api/portfolio/trades/${tradeId}`);
+      await axios.delete(apiPath(`/portfolio/trades/${tradeId}`));
       if (formState.id === tradeId) {
         resetForm();
       }
@@ -132,7 +221,9 @@ export function Portfolio() {
     const quantity = parseFloat(formState.quantity);
     const price = parseFloat(formState.price);
 
-    if (!formState.symbol.trim()) {
+    const normalizedSymbol = formState.symbol.trim().toUpperCase();
+
+    if (!normalizedSymbol) {
       setFormError("El símbolo del activo es obligatorio.");
       return;
     }
@@ -152,9 +243,26 @@ export function Portfolio() {
       return;
     }
 
+    if (formState.type === "sell" && !holdingsBySymbol.has(normalizedSymbol)) {
+      setFormError(
+        "Selecciona un activo existente de tu portafolio para registrar una venta."
+      );
+      return;
+    }
+
+    const resolvedAssetType =
+      formState.type === "sell"
+        ? holdingsBySymbol.get(normalizedSymbol)!.asset_type
+        : formState.asset_type.trim();
+
+    if (!resolvedAssetType) {
+      setFormError("Define el tipo de activo para esta operación.");
+      return;
+    }
+
     const payload = {
-      symbol: formState.symbol.trim().toUpperCase(),
-      asset_type: formState.asset_type.trim() || "Activo",
+      symbol: normalizedSymbol,
+      asset_type: resolvedAssetType,
       trade_type: formState.type,
       quantity,
       price,
@@ -164,15 +272,9 @@ export function Portfolio() {
     setIsSubmitting(true);
     try {
       if (formState.id) {
-        await axios.put(
-          `http://127.0.0.1:8000/api/portfolio/trades/${formState.id}`,
-          payload
-        );
+        await axios.put(apiPath(`/portfolio/trades/${formState.id}`), payload);
       } else {
-        await axios.post(
-          "http://127.0.0.1:8000/api/portfolio/trades",
-          payload
-        );
+        await axios.post(apiPath("/portfolio/trades"), payload);
       }
       resetForm();
       await fetchPortfolio();
@@ -194,13 +296,6 @@ export function Portfolio() {
       setIsSubmitting(false);
     }
   };
-
-  const formatCurrency = (value: number) =>
-    new Intl.NumberFormat("es-MX", {
-      style: "currency",
-      currency: "MXN",
-      minimumFractionDigits: 2,
-    }).format(value || 0);
 
   const totals = useMemo(
     () =>
@@ -261,9 +356,6 @@ export function Portfolio() {
       .sort((a, b) => a.roi - b.roi)[0];
   }, [enrichedSummary]);
 
-  const formatPercent = (value: number) =>
-    `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
-
   const formatDate = (value: string) => {
     try {
       return new Date(value).toLocaleDateString("es-MX", {
@@ -277,6 +369,12 @@ export function Portfolio() {
   };
 
   const isEditing = formState.id !== null;
+  const isSale = formState.type === "sell";
+  const normalizedSymbolState = formState.symbol.trim().toUpperCase();
+  const symbolMatchesHolding =
+    isSale && normalizedSymbolState
+      ? holdingsBySymbol.has(normalizedSymbolState)
+      : false;
 
   return (
     <div className="space-y-10">
@@ -290,8 +388,9 @@ export function Portfolio() {
         </div>
         <button
           onClick={() => fetchPortfolio()}
-          className="self-start rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:text-white"
+          className="self-start inline-flex items-center gap-2 rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:text-white"
         >
+          <RefreshCcw className="h-4 w-4" />
           Actualizar datos
         </button>
       </div>
@@ -495,15 +594,17 @@ export function Portfolio() {
                           <div className="flex justify-end gap-2">
                             <button
                               onClick={() => handleEdit(trade)}
-                              className="rounded-full bg-slate-800 px-3 py-1 text-xs font-medium text-sky-400 transition hover:bg-slate-700"
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-sky-400/40 bg-slate-800 text-sky-200 transition hover:border-sky-300 hover:text-sky-100"
+                              aria-label="Editar operación"
                             >
-                              Editar
+                              <Pencil className="h-4 w-4" />
                             </button>
                             <button
                               onClick={() => handleDelete(trade.id)}
-                              className="rounded-full bg-slate-800 px-3 py-1 text-xs font-medium text-rose-400 transition hover:bg-slate-700"
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-rose-400/40 bg-slate-800 text-rose-200 transition hover:border-rose-300 hover:text-rose-100"
+                              aria-label="Eliminar operación"
                             >
-                              Eliminar
+                              <Trash2 className="h-4 w-4" />
                             </button>
                           </div>
                         </td>
@@ -538,9 +639,22 @@ export function Portfolio() {
                   type="text"
                   value={formState.symbol}
                   onChange={handleFieldChange("symbol")}
+                  list={isSale && holdingSymbols.length ? "portfolio-holdings" : undefined}
                   className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none"
                   placeholder="Ej. AAPL"
                 />
+                {isSale && holdingSymbols.length > 0 && (
+                  <datalist id="portfolio-holdings">
+                    {holdingSymbols.map((symbol) => (
+                      <option key={symbol} value={symbol} />
+                    ))}
+                  </datalist>
+                )}
+                {isSale && holdingSymbols.length === 0 && (
+                  <p className="text-xs text-slate-400">
+                    Registra compras antes de capturar ventas.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-medium text-slate-300">
@@ -550,9 +664,15 @@ export function Portfolio() {
                   type="text"
                   value={formState.asset_type}
                   onChange={handleFieldChange("asset_type")}
-                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none"
+                  disabled={symbolMatchesHolding}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                   placeholder="Acción, ETF, Cripto..."
                 />
+                {symbolMatchesHolding && (
+                  <p className="text-xs text-slate-400">
+                    Tipo asignado automáticamente según tu posición actual.
+                  </p>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">

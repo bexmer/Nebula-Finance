@@ -3,6 +3,8 @@ import Modal from "react-modal";
 import axios from "axios";
 import { useStore, Transaction } from "../store/useStore";
 
+import { apiPath } from "../utils/api";
+
 // --- Interfaces para los datos que cargaremos para los desplegables ---
 interface Account {
   id: number;
@@ -72,9 +74,9 @@ export function AddTransactionModal({
   useEffect(() => {
     if (isOpen) {
       Promise.all([
-        axios.get("http://127.0.0.1:8000/api/accounts"),
-        axios.get("http://127.0.0.1:8000/api/dashboard-goals"),
-        axios.get("http://127.0.0.1:8000/api/debts"),
+        axios.get(apiPath("/accounts")),
+        axios.get(apiPath("/dashboard-goals")),
+        axios.get(apiPath("/debts")),
       ])
         .then(([accountsRes, goalsRes, debtsRes]) => {
           setAccounts(accountsRes.data);
@@ -133,15 +135,12 @@ export function AddTransactionModal({
       if (transaction) {
         // Modo Editar (PUT)
         await axios.put(
-          `http://127.0.0.1:8000/api/transactions/${transaction.id}`,
+          apiPath(`/transactions/${transaction.id}`),
           transactionData
         );
       } else {
         // Modo Crear (POST)
-        await axios.post(
-          "http://127.0.0.1:8000/api/transactions",
-          transactionData
-        );
+        await axios.post(apiPath("/transactions"), transactionData);
       }
       onSave(); // Llama a la función para refrescar la lista de transacciones
       onClose(); // Cierra el modal

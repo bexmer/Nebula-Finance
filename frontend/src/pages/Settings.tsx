@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 
+import { API_BASE_URL } from "../utils/api";
+
 type FeedbackType = "success" | "error";
 type Feedback = { type: FeedbackType; message: string } | null;
 
@@ -60,8 +62,6 @@ type CategoryFormState = {
   name: string;
   parentId: string;
 };
-
-const API_BASE_URL = "http://127.0.0.1:8000";
 
 const TABS = [
   { id: "transaction-types", label: "Tipos de Transacción y Reglas" },
@@ -164,25 +164,25 @@ export function Settings() {
 
   const refreshTransactionConfig = useCallback(async () => {
     const [typesResponse, rulesResponse] = await Promise.all([
-      axios.get<TransactionTypeItem[]>(`${API_BASE_URL}/api/config/transaction-types`),
-      axios.get<BudgetRuleItem[]>(`${API_BASE_URL}/api/config/budget-rules`),
+      axios.get<TransactionTypeItem[]>(`${API_BASE_URL}/config/transaction-types`),
+      axios.get<BudgetRuleItem[]>(`${API_BASE_URL}/config/budget-rules`),
     ]);
     setTransactionTypes(typesResponse.data);
     setBudgetRules(rulesResponse.data);
   }, []);
 
   const refreshAccountTypes = useCallback(async () => {
-    const response = await axios.get<AccountTypeItem[]>(`${API_BASE_URL}/api/config/account-types`);
+    const response = await axios.get<AccountTypeItem[]>(`${API_BASE_URL}/config/account-types`);
     setAccountTypes(response.data);
   }, []);
 
   const refreshCategories = useCallback(async () => {
-    const response = await axios.get<CategoryItem[]>(`${API_BASE_URL}/api/config/categories`);
+    const response = await axios.get<CategoryItem[]>(`${API_BASE_URL}/config/categories`);
     setCategories(response.data);
   }, []);
 
   const refreshDisplayPreferences = useCallback(async () => {
-    const response = await axios.get<DisplayPreferences>(`${API_BASE_URL}/api/config/display`);
+    const response = await axios.get<DisplayPreferences>(`${API_BASE_URL}/config/display`);
     setDisplayPreferences(response.data);
   }, []);
 
@@ -270,10 +270,10 @@ export function Settings() {
 
     try {
       if (transactionForm.id === null) {
-        await axios.post(`${API_BASE_URL}/api/config/transaction-types`, payload);
+        await axios.post(`${API_BASE_URL}/config/transaction-types`, payload);
         showFeedback(setTransactionFeedback, "success", "Tipo de transacción añadido correctamente.");
       } else {
-        await axios.put(`${API_BASE_URL}/api/config/transaction-types/${transactionForm.id}`, payload);
+        await axios.put(`${API_BASE_URL}/config/transaction-types/${transactionForm.id}`, payload);
         showFeedback(setTransactionFeedback, "success", "Tipo de transacción actualizado.");
       }
       await refreshTransactionConfig();
@@ -289,7 +289,7 @@ export function Settings() {
       return;
     }
     try {
-      await axios.delete(`${API_BASE_URL}/api/config/transaction-types/${transactionForm.id}`);
+      await axios.delete(`${API_BASE_URL}/config/transaction-types/${transactionForm.id}`);
       showFeedback(setTransactionFeedback, "success", "Tipo de transacción eliminado.");
       resetTransactionForm();
       await refreshTransactionConfig();
@@ -316,10 +316,10 @@ export function Settings() {
 
     try {
       if (budgetRuleForm.id === null) {
-        await axios.post(`${API_BASE_URL}/api/config/budget-rules`, payload);
+        await axios.post(`${API_BASE_URL}/config/budget-rules`, payload);
         showFeedback(setBudgetRuleFeedback, "success", "Regla de presupuesto añadida.");
       } else {
-        await axios.put(`${API_BASE_URL}/api/config/budget-rules/${budgetRuleForm.id}`, payload);
+        await axios.put(`${API_BASE_URL}/config/budget-rules/${budgetRuleForm.id}`, payload);
         showFeedback(setBudgetRuleFeedback, "success", "Regla de presupuesto actualizada.");
       }
       await refreshTransactionConfig();
@@ -334,7 +334,7 @@ export function Settings() {
       return;
     }
     try {
-      await axios.delete(`${API_BASE_URL}/api/config/budget-rules/${budgetRuleForm.id}`);
+      await axios.delete(`${API_BASE_URL}/config/budget-rules/${budgetRuleForm.id}`);
       showFeedback(setBudgetRuleFeedback, "success", "Regla eliminada correctamente.");
       resetBudgetRuleForm();
       await refreshTransactionConfig();
@@ -352,10 +352,10 @@ export function Settings() {
 
     try {
       if (accountTypeForm.id === null) {
-        await axios.post(`${API_BASE_URL}/api/config/account-types`, { name: accountTypeForm.name.trim() });
+        await axios.post(`${API_BASE_URL}/config/account-types`, { name: accountTypeForm.name.trim() });
         showFeedback(setAccountFeedback, "success", "Tipo de cuenta añadido.");
       } else {
-        await axios.put(`${API_BASE_URL}/api/config/account-types/${accountTypeForm.id}`, {
+        await axios.put(`${API_BASE_URL}/config/account-types/${accountTypeForm.id}`, {
           name: accountTypeForm.name.trim(),
         });
         showFeedback(setAccountFeedback, "success", "Tipo de cuenta actualizado.");
@@ -372,7 +372,7 @@ export function Settings() {
       return;
     }
     try {
-      await axios.delete(`${API_BASE_URL}/api/config/account-types/${accountTypeForm.id}`);
+      await axios.delete(`${API_BASE_URL}/config/account-types/${accountTypeForm.id}`);
       showFeedback(setAccountFeedback, "success", "Tipo de cuenta eliminado.");
       resetAccountTypeForm();
       await refreshAccountTypes();
@@ -399,10 +399,10 @@ export function Settings() {
 
     try {
       if (categoryForm.id === null) {
-        await axios.post(`${API_BASE_URL}/api/config/categories`, payload);
+        await axios.post(`${API_BASE_URL}/config/categories`, payload);
         showFeedback(setCategoryFeedback, "success", "Categoría añadida.");
       } else {
-        await axios.put(`${API_BASE_URL}/api/config/categories/${categoryForm.id}`, payload);
+        await axios.put(`${API_BASE_URL}/config/categories/${categoryForm.id}`, payload);
         showFeedback(setCategoryFeedback, "success", "Categoría actualizada.");
       }
       await refreshCategories();
@@ -417,7 +417,7 @@ export function Settings() {
       return;
     }
     try {
-      await axios.delete(`${API_BASE_URL}/api/config/categories/${categoryForm.id}`);
+      await axios.delete(`${API_BASE_URL}/config/categories/${categoryForm.id}`);
       showFeedback(setCategoryFeedback, "success", "Categoría eliminada.");
       resetCategoryForm();
       await refreshCategories();
@@ -432,7 +432,7 @@ export function Settings() {
       return;
     }
     try {
-      const response = await axios.put<DisplayPreferences>(`${API_BASE_URL}/api/config/display`, displayPreferences);
+      const response = await axios.put<DisplayPreferences>(`${API_BASE_URL}/config/display`, displayPreferences);
       setDisplayPreferences(response.data);
       showFeedback(setVisualFeedback, "success", "Preferencias guardadas correctamente.");
     } catch (error) {

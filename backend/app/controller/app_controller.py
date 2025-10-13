@@ -795,12 +795,50 @@ class AppController:
             
         results = []
         for transaction in query:
-            t_data = transaction.__data__
-            t_data['account'] = transaction.account.__data__ # Anidar info de la cuenta
-            results.append(t_data)
+            transaction_data = {
+                "id": transaction.id,
+                "date": transaction.date.isoformat(),
+                "description": transaction.description,
+                "amount": float(transaction.amount or 0),
+                "type": transaction.type,
+                "category": transaction.category,
+                "account_id": transaction.account.id,
+                "account": transaction.account.__data__,
+                "goal_id": transaction.goal.id if transaction.goal else None,
+                "goal_name": transaction.goal.name if transaction.goal else None,
+                "debt_id": transaction.debt.id if transaction.debt else None,
+                "debt_name": transaction.debt.name if transaction.debt else None,
+            }
+            results.append(transaction_data)
         return results
-            
-    
+
+
+    def _adjust_goal_progress(self, goal_id: Optional[int], amount_delta: float) -> None:
+        if not goal_id or amount_delta == 0:
+            return
+
+        goal = Goal.get_or_none(Goal.id == goal_id)
+        if not goal:
+            return
+
+        current = float(goal.current_amount or 0)
+        goal.current_amount = max(0.0, current + amount_delta)
+        goal.save()
+
+
+    def _adjust_debt_balance(self, debt_id: Optional[int], payment_delta: float) -> None:
+        if not debt_id or payment_delta == 0:
+            return
+
+        debt = Debt.get_or_none(Debt.id == debt_id)
+        if not debt:
+            return
+
+        current = float(debt.current_balance or 0)
+        debt.current_balance = max(0.0, current - payment_delta)
+        debt.save()
+
+
     def add_transaction(self, data):
         try:
             is_recurring = data.pop('is_recurring', False)
@@ -813,7 +851,21 @@ class AppController:
             else: account.current_balance -= amount
             account.save()
             
+            goal_value = data.get('goal_id')
+            debt_value = data.get('debt_id')
+
+            goal_id = int(goal_value) if goal_value not in (None, "", 0) else None
+            debt_id = int(debt_value) if debt_value not in (None, "", 0) else None
+
+            data['goal_id'] = goal_id
+            data['debt_id'] = debt_id
+
             transaction = Transaction.create(**data)
+
+            if goal_id:
+                self._adjust_goal_progress(goal_id, amount)
+            if debt_id:
+                self._adjust_debt_balance(debt_id, amount)
 
             if is_recurring:
                 RecurringTransaction.create(
@@ -830,21 +882,47 @@ class AppController:
             original_transaction = Transaction.get_by_id(transaction_id)
             
             original_account = Account.get_by_id(original_transaction.account_id)
-            if original_transaction.type == 'Ingreso': original_account.current_balance -= original_transaction.amount
-            else: original_account.current_balance += original_transaction.amount
-            
+            if original_transaction.type == 'Ingreso':
+                original_account.current_balance -= original_transaction.amount
+            else:
+                original_account.current_balance += original_transaction.amount
+
+            self._adjust_goal_progress(
+                original_transaction.goal_id, -float(original_transaction.amount or 0)
+            )
+            self._adjust_debt_balance(
+                original_transaction.debt_id, -float(original_transaction.amount or 0)
+            )
+
             new_account = Account.get_by_id(data['account_id'])
             new_amount = float(data['amount'])
-            if data['type'] == 'Ingreso': new_account.current_balance += new_amount
-            else: new_account.current_balance -= new_amount
+            if data['type'] == 'Ingreso':
+                new_account.current_balance += new_amount
+            else:
+                new_account.current_balance -= new_amount
 
             original_account.save()
-            if original_account.id != new_account.id: new_account.save()
-                
-            query = Transaction.update(**data).where(Transaction.id == transaction_id)
-            query.execute()
-            
-            return Transaction.get_by_id(transaction_id).__data__
+            if original_account.id != new_account.id:
+                new_account.save()
+
+            goal_value = data.get('goal_id')
+            debt_value = data.get('debt_id')
+
+            goal_id = int(goal_value) if goal_value not in (None, "", 0) else None
+            debt_id = int(debt_value) if debt_value not in (None, "", 0) else None
+
+            data['goal_id'] = goal_id
+            data['debt_id'] = debt_id
+
+            Transaction.update(**data).where(Transaction.id == transaction_id).execute()
+
+            if goal_id:
+                self._adjust_goal_progress(goal_id, new_amount)
+            if debt_id:
+                self._adjust_debt_balance(debt_id, new_amount)
+
+            updated = Transaction.get_by_id(transaction_id)
+            return updated.__data__
         except Exception as e:
             return {"error": f"Error al actualizar: {e}"}
 
@@ -858,6 +936,9 @@ class AppController:
                 else:
                     account.current_balance += transaction.amount
                 account.save()
+
+            self._adjust_goal_progress(transaction.goal_id, -float(transaction.amount or 0))
+            self._adjust_debt_balance(transaction.debt_id, -float(transaction.amount or 0))
             transaction.delete_instance()
             return {"success": True}
         except Transaction.DoesNotExist:
@@ -914,6 +995,13 @@ class AppController:
             "is_deletable": not in_use,
         }
 
+    def _sum_budget_rule_percentage(self, exclude_id: Optional[int] = None) -> float:
+        query = BudgetRule.select(fn.SUM(BudgetRule.percentage))
+        if exclude_id is not None:
+            query = query.where(BudgetRule.id != exclude_id)
+        total = query.scalar() or 0.0
+        return float(total)
+
     def get_transaction_types_overview(self) -> List[Dict[str, Any]]:
         query = (
             Parameter
@@ -967,6 +1055,9 @@ class AppController:
             new_name = (data["name"] or "").strip()
             if not new_name:
                 return {"error": "El nombre del tipo de transacción es obligatorio."}
+
+            if not parameter.is_deletable and new_name != original_name:
+                return {"error": "Este tipo es protegido, solo puedes actualizar su regla de presupuesto."}
 
             duplicate = Parameter.select().where(
                 (Parameter.group == "Tipo de Transacción")
@@ -1036,6 +1127,13 @@ class AppController:
         except (TypeError, ValueError):
             return {"error": "El porcentaje debe ser un número."}
 
+        if percentage_value < 0 or percentage_value > 100:
+            return {"error": "El porcentaje debe estar entre 0 y 100."}
+
+        current_total = self._sum_budget_rule_percentage()
+        if current_total + percentage_value > 100.0001:
+            return {"error": "La suma de las reglas de presupuesto no puede exceder el 100%."}
+
         rule = BudgetRule.create(name=name, percentage=percentage_value)
         return self._serialize_budget_rule(rule)
 
@@ -1065,6 +1163,13 @@ class AppController:
                 updates["percentage"] = float(data["percentage"])
             except (TypeError, ValueError):
                 return {"error": "El porcentaje debe ser un número."}
+
+            if updates["percentage"] < 0 or updates["percentage"] > 100:
+                return {"error": "El porcentaje debe estar entre 0 y 100."}
+
+            other_total = self._sum_budget_rule_percentage(exclude_id=rule.id)
+            if other_total + updates["percentage"] > 100.0001:
+                return {"error": "La suma de las reglas de presupuesto no puede exceder el 100%."}
 
         if updates:
             BudgetRule.update(updates).where(BudgetRule.id == rule.id).execute()
@@ -1593,6 +1698,27 @@ class AppController:
 
         is_dict = isinstance(entry, dict)
 
+        goal = None
+        debt = None
+        if is_dict:
+            goal = entry.get("goal") or entry.get("goal_id")
+            debt = entry.get("debt") or entry.get("debt_id")
+        else:
+            goal = entry.goal
+            debt = entry.debt
+
+        goal_obj = None
+        debt_obj = None
+        if isinstance(goal, Goal):
+            goal_obj = goal
+        elif goal:
+            goal_obj = Goal.get_or_none(Goal.id == goal)
+
+        if isinstance(debt, Debt):
+            debt_obj = debt
+        elif debt:
+            debt_obj = Debt.get_or_none(Debt.id == debt)
+
         return {
             "id": entry["id"] if is_dict else entry.id,
             "description": entry.get("description") if is_dict else entry.description,
@@ -1605,10 +1731,15 @@ class AppController:
             "due_date": due_date.isoformat() if due_date else None,
             "month": month,
             "year": year,
+            "goal_id": goal_obj.id if goal_obj else None,
+            "goal_name": goal_obj.name if goal_obj else None,
+            "debt_id": debt_obj.id if debt_obj else None,
+            "debt_name": debt_obj.name if debt_obj else None,
         }
 
     def _prepare_budget_payload(self, data, existing_entry=None):
         """Normaliza los datos recibidos desde la API para la base de datos."""
+        MISSING = object()
         try:
             category = data["category"]
             entry_type = data.get("type", "Gasto")
@@ -1646,19 +1777,53 @@ class AppController:
                 year = int(data.get("year", default_year))
                 due_date = datetime.date(year, month, 1)
 
+            goal_marker = data.get("goal_id", MISSING)
+            debt_marker = data.get("debt_id", MISSING)
+
+            goal = existing_entry.goal if existing_entry else None
+            debt = existing_entry.debt if existing_entry else None
+
+            if goal_marker is not MISSING:
+                if goal_marker in (None, "", 0):
+                    goal = None
+                else:
+                    goal = Goal.get_or_none(Goal.id == int(goal_marker))
+                    if goal is None:
+                        raise ValueError("La meta seleccionada no existe.")
+
+            if debt_marker is not MISSING:
+                if debt_marker in (None, "", 0):
+                    debt = None
+                else:
+                    debt = Debt.get_or_none(Debt.id == int(debt_marker))
+                    if debt is None:
+                        raise ValueError("La deuda seleccionada no existe.")
+
+            if goal is not None and debt is not None:
+                raise ValueError("Una entrada de presupuesto no puede estar ligada a una meta y una deuda a la vez.")
+
             return {
                 "description": description,
                 "category": category,
                 "type": entry_type,
                 "budgeted_amount": amount,
                 "due_date": due_date,
+                "goal": goal,
+                "debt": debt,
             }
         except (ValueError, KeyError) as e:
             raise ValueError(f"Datos de presupuesto inválidos: {e}")
 
     def get_budget_entries(self, filters=None):
         """Obtiene las entradas del presupuesto."""
-        entries = BudgetEntry.select().order_by(BudgetEntry.due_date.desc())
+        entries = (
+            BudgetEntry
+            .select(BudgetEntry, Goal, Debt)
+            .join(Goal, JOIN.LEFT_OUTER)
+            .switch(BudgetEntry)
+            .join(Debt, JOIN.LEFT_OUTER)
+            .order_by(BudgetEntry.due_date.desc())
+        )
         return [self._serialize_budget_entry(entry) for entry in entries]
 
     def add_budget_entry(self, data):

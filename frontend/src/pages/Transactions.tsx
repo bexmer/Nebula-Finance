@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { Filter, Plus, Trash2, TrendingDown, TrendingUp, Wallet } from "lucide-react";
+
+import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 import { useStore, TransactionFilters } from "../store/useStore";
+import { apiPath } from "../utils/api";
 
 // Interfaces para los selects de los filtros
 interface ParameterOption {
@@ -27,14 +30,7 @@ export function Transactions() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  const currencyFormatter = useMemo(
-    () =>
-      new Intl.NumberFormat("es-MX", {
-        style: "currency",
-        currency: "MXN",
-      }),
-    []
-  );
+  const { formatCurrency } = useNumberFormatter();
 
   const totals = useMemo(() => {
     let incomeTotal = 0;
@@ -58,7 +54,7 @@ export function Transactions() {
   // Carga inicial de datos para los filtros
   useEffect(() => {
     axios
-      .get<ParameterOption[]>("http://127.0.0.1:8000/api/parameters/transaction-types")
+      .get<ParameterOption[]>(apiPath("/parameters/transaction-types"))
       .then((res) => setTransactionTypes(res.data));
   }, []);
 
@@ -84,7 +80,7 @@ export function Transactions() {
       const typeObj = transactionTypes.find((t) => t.value === filters.type);
       if (typeObj) {
         axios
-          .get<ParameterOption[]>(`http://127.0.0.1:8000/api/parameters/categories/${typeObj.id}`)
+          .get<ParameterOption[]>(apiPath(`/parameters/categories/${typeObj.id}`))
           .then((res) => setCategories(res.data));
       }
     } else {
@@ -171,7 +167,7 @@ export function Transactions() {
     try {
       await Promise.all(
         selectedTransactionIds.map((id) =>
-          axios.delete(`http://127.0.0.1:8000/api/transactions/${id}`, {
+          axios.delete(apiPath(`/transactions/${id}`), {
             params: { adjust_balance: adjustBalance },
           })
         )
@@ -233,7 +229,7 @@ export function Transactions() {
             <div>
               <p className="text-sm uppercase tracking-wide text-emerald-300/80">Ingresos</p>
               <p className="mt-2 text-3xl font-bold text-emerald-300">
-                {currencyFormatter.format(totals.income)}
+                {formatCurrency(totals.income)}
               </p>
             </div>
             <span className="rounded-full bg-emerald-500/15 p-3">
@@ -249,7 +245,7 @@ export function Transactions() {
             <div>
               <p className="text-sm uppercase tracking-wide text-rose-300/80">Gastos</p>
               <p className="mt-2 text-3xl font-bold text-rose-300">
-                {currencyFormatter.format(totals.expense)}
+                {formatCurrency(totals.expense)}
               </p>
             </div>
             <span className="rounded-full bg-rose-500/15 p-3">
@@ -269,7 +265,7 @@ export function Transactions() {
                   totals.balance >= 0 ? "text-emerald-200" : "text-rose-200"
                 }`}
               >
-                {currencyFormatter.format(totals.balance)}
+                {formatCurrency(totals.balance)}
               </p>
             </div>
             <span className="rounded-full bg-slate-500/15 p-3">
@@ -497,9 +493,25 @@ export function Transactions() {
                         {new Date(t.date).toLocaleDateString()}
                       </td>
                       <td className="px-4 py-3 text-sm font-medium text-gray-100">
-                        <span className="block max-w-xs truncate" title={t.description}>
-                          {t.description}
-                        </span>
+                        <div className="flex flex-col gap-1">
+                          <span className="block max-w-xs truncate" title={t.description}>
+                            {t.description}
+                          </span>
+                          {(t.goal_name || t.debt_name) && (
+                            <div className="flex flex-wrap gap-2 text-xs text-slate-400">
+                              {t.goal_name && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-300">
+                                  Meta: {t.goal_name}
+                                </span>
+                              )}
+                              {t.debt_name && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-rose-300">
+                                  Deuda: {t.debt_name}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-300">
                         {t.account?.name ?? "-"}
@@ -525,7 +537,7 @@ export function Transactions() {
                           isIncome ? "text-emerald-300" : "text-rose-300"
                         }`}
                       >
-                        {currencyFormatter.format(t.amount)}
+                        {formatCurrency(t.amount)}
                       </td>
                     </tr>
                   );

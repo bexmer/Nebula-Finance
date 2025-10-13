@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import Modal from "react-modal";
 import axios from "axios";
 
+import { apiPath } from "../utils/api";
+
 const customStyles = {
   content: {
     top: "50%",
@@ -90,7 +92,7 @@ export function GoalDebtModal({
 
     const isGoal = mode === "goal";
     const resource = isGoal ? "goals" : "debts";
-    const url = `http://127.0.0.1:8000/api/${resource}${item ? `/${item.id}` : ""}`;
+    const url = apiPath(`/${resource}${item ? `/${item.id}` : ""}`);
 
     let data: Record<string, unknown>;
 

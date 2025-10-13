@@ -11,6 +11,8 @@ import {
   Type as TypeIcon,
 } from "lucide-react";
 
+import { apiPath } from "../utils/api";
+
 const customStyles = {
   content: {
     top: "50%",
@@ -40,11 +42,18 @@ interface BudgetEntry {
   due_date?: string | null;
   month?: number;
   year?: number;
+  goal_id?: number | null;
+  debt_id?: number | null;
 }
 
 interface ParameterOption {
   id: number;
   value: string;
+}
+
+interface SelectOption {
+  id: number;
+  name: string;
 }
 
 interface ModalProps {
@@ -61,18 +70,9 @@ interface BudgetFormState {
   typeId: string;
   typeValue: string;
   categoryValue: string;
+  goalId: string;
+  debtId: string;
 }
-
-const RAW_API_BASE_URL =
-  (import.meta.env.VITE_API_URL as string | undefined) ?? "http://127.0.0.1:8000";
-const API_BASE_URL = RAW_API_BASE_URL.replace(/\/$/, "");
-const USE_PREFIXED_API = API_BASE_URL.endsWith("/api");
-const apiPath = (segment: string) => {
-  const normalized = segment.startsWith("/") ? segment : `/${segment}`;
-  return USE_PREFIXED_API
-    ? `${API_BASE_URL}${normalized}`
-    : `${API_BASE_URL}/api${normalized}`;
-};
 
 const createEmptyForm = (): BudgetFormState => ({
   description: "",
@@ -81,12 +81,16 @@ const createEmptyForm = (): BudgetFormState => ({
   typeId: "",
   typeValue: "",
   categoryValue: "",
+  goalId: "",
+  debtId: "",
 });
 
 export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
   const [formData, setFormData] = useState<BudgetFormState>(createEmptyForm());
   const [transactionTypes, setTransactionTypes] = useState<ParameterOption[]>([]);
   const [categories, setCategories] = useState<ParameterOption[]>([]);
+  const [goals, setGoals] = useState<SelectOption[]>([]);
+  const [debts, setDebts] = useState<SelectOption[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +101,29 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
       categories.slice().sort((a, b) => a.value.localeCompare(b.value, "es")),
     [categories]
   );
+
+  const activeType = useMemo(() => {
+    if (!formData.typeId) {
+      return null;
+    }
+    const typeIdNumber = Number(formData.typeId);
+    return transactionTypes.find((type) => type.id === typeIdNumber) ?? null;
+  }, [formData.typeId, transactionTypes]);
+
+  const normalizedTypeName = useMemo(() => {
+    if (!activeType) {
+      return "";
+    }
+    return activeType.value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+  }, [activeType]);
+
+  const requiresGoal = normalizedTypeName.includes("ahorro");
+  const requiresDebt = normalizedTypeName.includes("deuda");
+  const shouldShowGoalSelect = requiresGoal || Boolean(formData.goalId);
+  const shouldShowDebtSelect = requiresDebt || Boolean(formData.debtId);
 
   const fetchCategoriesByType = useCallback(async (typeId: number) => {
     try {
@@ -133,10 +160,21 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
     setCatalogNotice(null);
 
     try {
-      const typesResponse = await axios.get<ParameterOption[]>(
-        apiPath("/parameters/transaction-types")
-      );
+      const [typesResponse, goalsResponse, debtsResponse] = await Promise.all([
+        axios.get<ParameterOption[]>(apiPath("/parameters/transaction-types")),
+        axios.get<SelectOption[]>(apiPath("/goals")),
+        axios.get<SelectOption[]>(apiPath("/debts")),
+      ]);
+
       const typeOptions = typesResponse.data;
+      const goalOptions = goalsResponse.data.map((goal) => ({
+        id: goal.id,
+        name: goal.name,
+      }));
+      const debtOptions = debtsResponse.data.map((debt) => ({
+        id: debt.id,
+        name: debt.name,
+      }));
 
       if (typeOptions.length === 0) {
         throw new Error("missing-types");
@@ -160,6 +198,8 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
       }
 
       setTransactionTypes(typeOptions);
+      setGoals(goalOptions);
+      setDebts(debtOptions);
       setCategories(nextCategories);
 
       const amountValue = entry
@@ -173,7 +213,23 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
         typeId: String(fallbackType.id),
         typeValue: fallbackType.value,
         categoryValue: entry?.category ?? (nextCategories[0]?.value ?? ""),
+        goalId: entry?.goal_id ? String(entry.goal_id) : "",
+        debtId: entry?.debt_id ? String(entry.debt_id) : "",
       });
+
+      const normalizedDefault = fallbackType.value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+      if (normalizedDefault.includes("ahorro") && goalOptions.length === 0) {
+        setCatalogNotice(
+          "Para planear un ahorro necesitas crear una meta desde la sección Metas y deudas."
+        );
+      } else if (normalizedDefault.includes("deuda") && debtOptions.length === 0) {
+        setCatalogNotice(
+          "Para planear un pago de deuda necesitas registrar una deuda en Metas y deudas."
+        );
+      }
 
       if (categoryOptions.length === 0) {
         setCatalogNotice(
@@ -217,6 +273,8 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
       ...prev,
       typeId: String(nextTypeId),
       typeValue: typeOption?.value ?? prev.typeValue,
+      goalId: "",
+      debtId: "",
     }));
 
     const nextCategories = await fetchCategoriesByType(nextTypeId);
@@ -227,6 +285,23 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
       setCatalogNotice(
         "No encontramos categorías para este tipo. Revisa la sección de Configuración."
       );
+    }
+
+    if (typeOption) {
+      const normalized = typeOption.value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+      if (normalized.includes("ahorro") && goals.length === 0) {
+        setCatalogNotice(
+          "Para planear un ahorro necesitas crear una meta desde la sección Metas y deudas."
+        );
+      }
+      if (normalized.includes("deuda") && debts.length === 0) {
+        setCatalogNotice(
+          "Para planear un pago de deuda necesitas registrar una deuda en Metas y deudas."
+        );
+      }
     }
 
     setFormData((prev) => ({
@@ -244,6 +319,14 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
 
   const handleCategoryChange = (event: ChangeEvent<HTMLSelectElement>) => {
     setFormData((prev) => ({ ...prev, categoryValue: event.target.value }));
+  };
+
+  const handleGoalChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    setFormData((prev) => ({ ...prev, goalId: event.target.value }));
+  };
+
+  const handleDebtChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    setFormData((prev) => ({ ...prev, debtId: event.target.value }));
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -268,12 +351,24 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
       return;
     }
 
+    if (requiresGoal && !formData.goalId) {
+      setError("Selecciona la meta que deseas fondear con este presupuesto.");
+      return;
+    }
+
+    if (requiresDebt && !formData.debtId) {
+      setError("Selecciona la deuda a la que aplicarás este presupuesto.");
+      return;
+    }
+
     const payload = {
       description: trimmedDescription || formData.categoryValue,
       type: formData.typeValue,
       category: formData.categoryValue,
       budgeted_amount: parsedAmount,
       due_date: formData.due_date,
+      goal_id: formData.goalId ? Number(formData.goalId) : null,
+      debt_id: formData.debtId ? Number(formData.debtId) : null,
     };
 
     setIsSubmitting(true);
@@ -366,6 +461,74 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
               </select>
             </label>
           </div>
+
+          {(shouldShowGoalSelect || shouldShowDebtSelect) && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {shouldShowGoalSelect && (
+                goals.length > 0 ? (
+                  <label className="flex flex-col gap-2 text-sm text-slate-200">
+                    <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Meta
+                    </span>
+                    <select
+                      name="goalId"
+                      value={formData.goalId}
+                      onChange={handleGoalChange}
+                      required={requiresGoal}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none"
+                    >
+                      <option value="">
+                        {requiresGoal
+                          ? "Selecciona una meta"
+                          : "Asociar meta (opcional)"}
+                      </option>
+                      {goals.map((goal) => (
+                        <option key={goal.id} value={goal.id}>
+                          {goal.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-slate-700/70 px-3 py-2 text-sm text-slate-400">
+                    Crea una meta para vincular este presupuesto de ahorro.
+                  </div>
+                )
+              )}
+
+              {shouldShowDebtSelect && (
+                debts.length > 0 ? (
+                  <label className="flex flex-col gap-2 text-sm text-slate-200">
+                    <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      Deuda
+                    </span>
+                    <select
+                      name="debtId"
+                      value={formData.debtId}
+                      onChange={handleDebtChange}
+                      required={requiresDebt}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-2 text-sm text-white focus:border-sky-500 focus:outline-none"
+                    >
+                      <option value="">
+                        {requiresDebt
+                          ? "Selecciona una deuda"
+                          : "Asociar deuda (opcional)"}
+                      </option>
+                      {debts.map((debt) => (
+                        <option key={debt.id} value={debt.id}>
+                          {debt.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-slate-700/70 px-3 py-2 text-sm text-slate-400">
+                    Registra una deuda para asignar este presupuesto de pago.
+                  </div>
+                )
+              )}
+            </div>
+          )}
 
           <label className="flex flex-col gap-2 text-sm text-slate-200">
             <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">

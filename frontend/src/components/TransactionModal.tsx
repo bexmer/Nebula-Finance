@@ -1,6 +1,8 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import axios from "axios";
+
 import { useStore } from "../store/useStore";
+import { apiPath } from "../utils/api";
 
 interface SelectOption {
   id: number;
@@ -11,17 +13,6 @@ interface ParameterOption {
   id: number;
   value: string;
 }
-
-const RAW_API_BASE_URL =
-  (import.meta.env.VITE_API_URL as string | undefined) ?? "http://127.0.0.1:8000";
-const API_BASE_URL = RAW_API_BASE_URL.replace(/\/$/, "");
-const USE_PREFIXED_API = API_BASE_URL.endsWith("/api");
-const apiPath = (segment: string) => {
-  const normalized = segment.startsWith("/") ? segment : `/${segment}`;
-  return USE_PREFIXED_API
-    ? `${API_BASE_URL}${normalized}`
-    : `${API_BASE_URL}/api${normalized}`;
-};
 
 const initialState = {
   description: "",
@@ -44,6 +35,7 @@ export const TransactionModal = () => {
     editingTransaction,
     transactionPrefill,
     fetchTransactions,
+    transactionSuccessHandler,
   } = useStore();
 
   const [formData, setFormData] = useState(initialState);
@@ -55,6 +47,29 @@ export const TransactionModal = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [catalogNotice, setCatalogNotice] = useState<string | null>(null);
+
+  const activeType = useMemo(() => {
+    if (!formData.typeId) {
+      return null;
+    }
+    const typeIdNumber = Number(formData.typeId);
+    return transactionTypes.find((type) => type.id === typeIdNumber) ?? null;
+  }, [formData.typeId, transactionTypes]);
+
+  const normalizedTypeName = useMemo(() => {
+    if (!activeType) {
+      return "";
+    }
+    return activeType.value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+  }, [activeType]);
+
+  const requiresGoal = normalizedTypeName.includes("ahorro");
+  const requiresDebt = normalizedTypeName.includes("deuda");
+  const shouldShowGoalSelect = requiresGoal || Boolean(formData.goal_id);
+  const shouldShowDebtSelect = requiresDebt || Boolean(formData.debt_id);
 
   const fetchCategoriesByType = useCallback(async (typeId: number) => {
     try {
@@ -236,7 +251,26 @@ export const TransactionModal = () => {
     }));
     setCatalogNotice(null);
     if (typeId) {
-      fetchCategoriesByType(Number(typeId)).then((data) => setCategories(data));
+      const numericType = Number(typeId);
+      fetchCategoriesByType(numericType).then((data) => setCategories(data));
+
+      const selectedType = transactionTypes.find((item) => item.id === numericType);
+      if (selectedType) {
+        const normalized = selectedType.value
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase();
+        if (normalized.includes("ahorro") && goals.length === 0) {
+          setCatalogNotice(
+            "Para registrar un ahorro necesitas crear una meta desde la sección Metas y deudas."
+          );
+        }
+        if (normalized.includes("deuda") && debts.length === 0) {
+          setCatalogNotice(
+            "Para registrar un pago de deuda necesitas crear una deuda desde la sección Metas y deudas."
+          );
+        }
+      }
     } else {
       setCategories([]);
     }
@@ -285,16 +319,29 @@ export const TransactionModal = () => {
       return;
     }
 
+    if (requiresGoal && !submissionData.goal_id) {
+      setError("Selecciona la meta a la que se asignará este ahorro.");
+      return;
+    }
+
+    if (requiresDebt && !submissionData.debt_id) {
+      setError("Selecciona la deuda que deseas pagar con esta transacción.");
+      return;
+    }
+
     try {
       if (editingTransaction) {
         await axios.put(
-          `${API_BASE_URL}/api/transactions/${editingTransaction.id}`,
+          apiPath(`/transactions/${editingTransaction.id}`),
           submissionData
         );
       } else {
-        await axios.post(`${API_BASE_URL}/api/transactions`, submissionData);
+        await axios.post(apiPath("/transactions"), submissionData);
       }
       await fetchTransactions();
+      if (transactionSuccessHandler) {
+        await Promise.resolve(transactionSuccessHandler());
+      }
       closeTransactionModal();
     } catch (submitError) {
       console.error("Error al guardar la transacción:", submitError);
@@ -405,37 +452,59 @@ export const TransactionModal = () => {
               </select>
             </div>
 
-            {(goals.length > 0 || debts.length > 0) && (
+            {(shouldShowGoalSelect || shouldShowDebtSelect) && (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {goals.length > 0 && (
-                  <select
-                    name="goal_id"
-                    value={formData.goal_id}
-                    onChange={handleChange}
-                    className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
-                  >
-                    <option value="">-- Asociar meta (opcional) --</option>
-                    {goals.map((goal) => (
-                      <option key={goal.id} value={goal.id}>
-                        {goal.name}
+                {shouldShowGoalSelect && (
+                  goals.length > 0 ? (
+                    <select
+                      name="goal_id"
+                      value={formData.goal_id}
+                      onChange={handleChange}
+                      required={requiresGoal}
+                      className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                    >
+                      <option value="">
+                        {requiresGoal
+                          ? "-- Selecciona una meta --"
+                          : "-- Asociar meta (opcional) --"}
                       </option>
-                    ))}
-                  </select>
+                      {goals.map((goal) => (
+                        <option key={goal.id} value={goal.id}>
+                          {goal.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-[var(--app-border)] px-3 py-2 text-sm text-muted">
+                      Crea una meta para poder registrar este ahorro.
+                    </div>
+                  )
                 )}
-                {debts.length > 0 && (
-                  <select
-                    name="debt_id"
-                    value={formData.debt_id}
-                    onChange={handleChange}
-                    className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
-                  >
-                    <option value="">-- Asociar deuda (opcional) --</option>
-                    {debts.map((debt) => (
-                      <option key={debt.id} value={debt.id}>
-                        {debt.name}
+                {shouldShowDebtSelect && (
+                  debts.length > 0 ? (
+                    <select
+                      name="debt_id"
+                      value={formData.debt_id}
+                      onChange={handleChange}
+                      required={requiresDebt}
+                      className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                    >
+                      <option value="">
+                        {requiresDebt
+                          ? "-- Selecciona una deuda --"
+                          : "-- Asociar deuda (opcional) --"}
                       </option>
-                    ))}
-                  </select>
+                      {debts.map((debt) => (
+                        <option key={debt.id} value={debt.id}>
+                          {debt.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-[var(--app-border)] px-3 py-2 text-sm text-muted">
+                      Registra una deuda para poder vincular este pago.
+                    </div>
+                  )
                 )}
               </div>
             )}

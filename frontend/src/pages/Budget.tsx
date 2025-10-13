@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 import { BudgetModal } from "../components/BudgetModal";
 import { useStore } from "../store/useStore";
+import { useNumberFormatter } from "../context/DisplayPreferencesContext";
+import { apiPath } from "../utils/api";
 
 interface BudgetEntry {
   id: number;
@@ -22,6 +24,10 @@ interface BudgetEntry {
   year?: number;
   description?: string;
   due_date?: string | null;
+  goal_id?: number | null;
+  goal_name?: string | null;
+  debt_id?: number | null;
+  debt_name?: string | null;
 }
 
 interface ParameterOption {
@@ -67,11 +73,10 @@ export function Budget() {
   const [monthFilter, setMonthFilter] = useState("all");
   const [yearFilter, setYearFilter] = useState("all");
   const { openTransactionModal } = useStore();
+  const { formatCurrency } = useNumberFormatter();
 
   const fetchBudgetEntries = async () => {
-    const response = await axios.get<BudgetEntry[]>(
-      "http://127.0.0.1:8000/api/budget"
-    );
+    const response = await axios.get<BudgetEntry[]>(apiPath("/budget"));
     const entries = response.data.map((entry) => ({
       ...entry,
       amount: entry.amount ?? entry.budgeted_amount ?? 0,
@@ -92,20 +97,9 @@ export function Budget() {
 
   useEffect(() => {
     axios
-      .get<ParameterOption[]>(
-        "http://127.0.0.1:8000/api/parameters/transaction-types"
-      )
+      .get<ParameterOption[]>(apiPath("/parameters/transaction-types"))
       .then((res) => setTransactionTypes(res.data));
   }, []);
-
-  const currencyFormatter = useMemo(
-    () =>
-      new Intl.NumberFormat("es-MX", {
-        style: "currency",
-        currency: "MXN",
-      }),
-    []
-  );
 
   const parseEntryDate = useCallback((entry: BudgetEntry) => {
     if (entry.due_date) {
@@ -232,9 +226,7 @@ export function Budget() {
     }
 
     await Promise.all(
-      selectedEntryIds.map((entryId) =>
-        axios.delete(`http://127.0.0.1:8000/api/budget/${entryId}`)
-      )
+      selectedEntryIds.map((entryId) => axios.delete(apiPath(`/budget/${entryId}`)))
     );
 
     fetchBudgetEntries();
@@ -243,13 +235,33 @@ export function Budget() {
 
   const handleRegisterPayment = (entry: BudgetEntry) => {
     const entryDate = parseEntryDate(entry);
-    openTransactionModal(null, {
-      description: entry.description || `Pago de ${entry.category}`,
-      amount: entry.amount,
-      date: entryDate.toISOString().split("T")[0],
-      type: entry.type || "Gasto",
-      category: entry.category,
-    });
+    const shouldDelete = window.confirm(
+      "¿Deseas eliminar esta entrada de presupuesto después de registrar el pago?"
+    );
+
+    openTransactionModal(
+      null,
+      {
+        description: entry.description || `Pago de ${entry.category}`,
+        amount: entry.amount,
+        date: entryDate.toISOString().split("T")[0],
+        type: entry.type || "Gasto",
+        category: entry.category,
+        goal_id: entry.goal_id ?? undefined,
+        debt_id: entry.debt_id ?? undefined,
+      },
+      async () => {
+        try {
+          if (shouldDelete) {
+            await axios.delete(apiPath(`/budget/${entry.id}`));
+          }
+        } catch (error) {
+          console.error("Error al eliminar la entrada de presupuesto:", error);
+        } finally {
+          await fetchBudgetEntries();
+        }
+      }
+    );
   };
 
   const resetFilters = () => {
@@ -330,7 +342,7 @@ export function Budget() {
             <div>
               <p className="text-sm uppercase tracking-wide text-emerald-300/80">Planificado</p>
               <p className="mt-2 text-3xl font-bold text-emerald-300">
-                {currencyFormatter.format(totals.planned)}
+                {formatCurrency(totals.planned)}
               </p>
             </div>
             <span className="rounded-full bg-emerald-500/15 p-3">
@@ -346,7 +358,7 @@ export function Budget() {
             <div>
               <p className="text-sm uppercase tracking-wide text-blue-300/80">Próximos 30 días</p>
               <p className="mt-2 text-3xl font-bold text-blue-300">
-                {currencyFormatter.format(totals.upcoming)}
+                {formatCurrency(totals.upcoming)}
               </p>
             </div>
             <span className="rounded-full bg-blue-500/15 p-3">
@@ -377,7 +389,7 @@ export function Budget() {
               <p className="text-sm uppercase tracking-wide text-rose-300/80">Próxima salida</p>
               <p className="mt-2 text-xl font-semibold text-rose-200">
                 {totals.nextEntry
-                  ? currencyFormatter.format(totals.nextEntry.amount)
+                  ? formatCurrency(totals.nextEntry.amount)
                   : "Sin registros"}
               </p>
             </div>
@@ -591,7 +603,7 @@ export function Budget() {
                         </span>
                       </td>
                       <td className="px-4 py-4 text-right text-sm font-semibold text-slate-100">
-                        {currencyFormatter.format(entry.amount)}
+                        {formatCurrency(entry.amount)}
                       </td>
                       <td className="px-4 py-4 text-right text-sm">
                         <div className="flex flex-wrap justify-end gap-2">

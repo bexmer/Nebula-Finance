@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import axios from "axios";
 
+import { apiPath } from "../utils/api";
+
 // Define la "forma" de una transacción para usarla en toda la app
 export interface Transaction {
   id: number;
@@ -13,6 +15,8 @@ export interface Transaction {
   account?: { name: string }; // La cuenta puede ser opcional al crear
   goal_id?: number | null;
   debt_id?: number | null;
+  goal_name?: string | null;
+  debt_name?: string | null;
 }
 
 export interface TransactionPrefill {
@@ -42,13 +46,15 @@ interface AppState {
   isTransactionModalOpen: boolean;
   editingTransaction: Transaction | null;
   transactionPrefill: TransactionPrefill | null;
+  transactionSuccessHandler: (() => Promise<void> | void) | null;
   theme: "light" | "dark";
   sidebarCollapsed: boolean;
   fetchTransactions: (filters?: TransactionFilters) => Promise<void>;
   setFilters: (filters: Partial<TransactionFilters>) => void;
   openTransactionModal: (
     transaction: Transaction | null,
-    prefill?: TransactionPrefill | null
+    prefill?: TransactionPrefill | null,
+    onSuccess?: (() => Promise<void> | void) | null
   ) => void;
   closeTransactionModal: () => void;
   toggleTheme: () => void;
@@ -73,6 +79,7 @@ export const useStore = create<AppState>((set, get) => ({
   isTransactionModalOpen: false,
   editingTransaction: null,
   transactionPrefill: null,
+  transactionSuccessHandler: null,
   theme:
     (typeof window !== "undefined" &&
       (localStorage.getItem("nebula-theme") as "light" | "dark" | null)) ||
@@ -92,10 +99,9 @@ export const useStore = create<AppState>((set, get) => ({
         Object.entries(filtersForRequest).filter(([, value]) => value !== "")
       );
 
-      const response = await axios.get<Transaction[]>(
-        "http://127.0.0.1:8000/api/transactions",
-        { params }
-      );
+      const response = await axios.get<Transaction[]>(apiPath("/transactions"), {
+        params,
+      });
 
       const updates: Partial<AppState> = {
         transactions: response.data,
@@ -116,11 +122,12 @@ export const useStore = create<AppState>((set, get) => ({
     set({ filters: newFilters });
   },
 
-  openTransactionModal: (transaction, prefill = null) => {
+  openTransactionModal: (transaction, prefill = null, onSuccess = null) => {
     set({
       isTransactionModalOpen: true,
       editingTransaction: transaction,
       transactionPrefill: prefill,
+      transactionSuccessHandler: onSuccess,
     });
   },
 
@@ -129,6 +136,7 @@ export const useStore = create<AppState>((set, get) => ({
       isTransactionModalOpen: false,
       editingTransaction: null,
       transactionPrefill: null,
+      transactionSuccessHandler: null,
     });
   },
   toggleTheme: () => {

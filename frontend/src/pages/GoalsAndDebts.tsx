@@ -1,8 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
 import axios from "axios";
+
 import { GoalProgressCard } from "../components/GoalProgressCard";
 import { DebtProgressCard } from "../components/DebtProgressCard";
 import { GoalDebtModal } from "../components/GoalDebtModal";
+import { useNumberFormatter } from "../context/DisplayPreferencesContext";
+import { apiPath } from "../utils/api";
 
 interface GoalData {
   id: number;
@@ -35,13 +38,15 @@ export function GoalsAndDebts() {
     null
   );
 
+  const { formatCurrency } = useNumberFormatter();
+
   const fetchData = async () => {
     setLoading(true);
     setError(null);
     try {
       const [goalsRes, debtsRes] = await Promise.all([
-        axios.get("http://127.0.0.1:8000/api/goals"),
-        axios.get("http://127.0.0.1:8000/api/debts"),
+        axios.get(apiPath("/goals")),
+        axios.get(apiPath("/debts")),
       ]);
       setGoals(
         goalsRes.data.map((goal: any) => ({
@@ -95,7 +100,7 @@ export function GoalsAndDebts() {
       )
     ) {
       try {
-        await axios.delete(`http://127.0.0.1:8000/api/${endpoint}/${id}`);
+        await axios.delete(apiPath(`/${endpoint}/${id}`));
         fetchData();
       } catch (error) {
         console.error(`Error al eliminar ${type}:`, error);
@@ -148,13 +153,6 @@ export function GoalsAndDebts() {
       highestPayment,
     };
   }, [debts]);
-
-  const formatCurrency = (value: number) =>
-    new Intl.NumberFormat("es-MX", {
-      style: "currency",
-      currency: "MXN",
-      minimumFractionDigits: 2,
-    }).format(value || 0);
 
   return (
     <div className="space-y-10">

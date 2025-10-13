@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
+
+import { API_BASE_URL } from "../utils/api";
 import {
   Bar,
   Line,
@@ -24,8 +26,6 @@ ChartJS.register(
   Tooltip,
   Legend
 );
-
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";
 
 const MONTH_OPTIONS = [
   { value: 1, label: "Ene" },
@@ -158,7 +158,7 @@ export function Analysis() {
         }
 
         const response = await axios.get<AnalysisResponse>(
-          `${API_BASE_URL}/api/analysis`,
+          `${API_BASE_URL}/analysis`,
           {
             params,
             paramsSerializer,

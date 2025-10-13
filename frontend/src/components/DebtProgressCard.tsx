@@ -1,5 +1,7 @@
 import { Pencil, Trash2 } from "lucide-react";
 
+import { useNumberFormatter } from "../context/DisplayPreferencesContext";
+
 interface DebtData {
   id: number;
   name: string;
@@ -16,16 +18,10 @@ interface CardProps {
   onDelete: () => void;
 }
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("es-MX", {
-    style: "currency",
-    currency: "MXN",
-    minimumFractionDigits: 2,
-  }).format(value || 0);
-
 export function DebtProgressCard({ debt, onEdit, onDelete }: CardProps) {
   const paidAmount = Math.max(debt.total_amount - debt.current_balance, 0);
   const progress = Math.min(100, Math.max(0, debt.percentage));
+  const { formatCurrency, formatPercent } = useNumberFormatter();
 
   return (
     <div className="app-card flex flex-col justify-between p-5">
@@ -37,7 +33,7 @@ export function DebtProgressCard({ debt, onEdit, onDelete }: CardProps) {
           </p>
         </div>
         <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200">
-          {progress.toFixed(1)}% pagado
+          {formatPercent(progress)} pagado
         </span>
       </div>
       <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
