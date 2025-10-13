@@ -112,6 +112,10 @@ export const useStore = create<AppState>((set, get) => ({
       }
 
       set(updates);
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("nebula:transactions-updated"));
+      }
     } catch (error) {
       console.error("Error al obtener las transacciones:", error);
     }

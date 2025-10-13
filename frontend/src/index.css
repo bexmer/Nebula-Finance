@@ -11,6 +11,9 @@
   --app-text: #0f172a;
   --app-muted: #64748b;
   --app-card-shadow: 0 18px 36px rgba(15, 23, 42, 0.08);
+  --app-chart-text: #0f172a;
+  --app-chart-grid: rgba(100, 116, 139, 0.2);
+  --app-chart-grid-strong: rgba(100, 116, 139, 0.35);
 }
 
 :root.dark,
@@ -23,6 +26,9 @@
   --app-text: #e2e8f0;
   --app-muted: #94a3b8;
   --app-card-shadow: 0 24px 48px rgba(8, 47, 73, 0.35);
+  --app-chart-text: #e2e8f0;
+  --app-chart-grid: rgba(148, 163, 184, 0.2);
+  --app-chart-grid-strong: rgba(148, 163, 184, 0.3);
 }
 
 * {
@@ -90,6 +96,48 @@ button {
 
 .app-scrollbar::-webkit-scrollbar-track {
   background-color: transparent;
+}
+
+:root:not(.dark) .bg-slate-900\/60,
+:root:not(.dark) .bg-slate-950\/50,
+:root:not(.dark) .bg-slate-950\/60,
+:root:not(.dark) .bg-slate-950\/70,
+:root:not(.dark) .bg-slate-950\/80 {
+  background-color: var(--app-surface);
+  border-color: var(--app-border);
+  color: var(--app-text);
+}
+
+:root:not(.dark) .border-slate-800,
+:root:not(.dark) .border-slate-700,
+:root:not(.dark) .border-slate-600 {
+  border-color: var(--app-border) !important;
+}
+
+:root:not(.dark) .bg-slate-900\/60 .text-white,
+:root:not(.dark) .bg-slate-950\/50 .text-white,
+:root:not(.dark) .bg-slate-950\/60 .text-white,
+:root:not(.dark) .bg-slate-950\/70 .text-white,
+:root:not(.dark) .bg-slate-950\/80 .text-white {
+  color: var(--app-text) !important;
+}
+
+:root:not(.dark) .bg-slate-900\/60 .text-slate-400,
+:root:not(.dark) .bg-slate-950\/50 .text-slate-400,
+:root:not(.dark) .bg-slate-950\/60 .text-slate-400,
+:root:not(.dark) .bg-slate-950\/70 .text-slate-400,
+:root:not(.dark) .bg-slate-950\/80 .text-slate-400,
+:root:not(.dark) .bg-slate-900\/60 .text-slate-500,
+:root:not(.dark) .bg-slate-950\/50 .text-slate-500,
+:root:not(.dark) .bg-slate-950\/60 .text-slate-500,
+:root:not(.dark) .bg-slate-950\/70 .text-slate-500,
+:root:not(.dark) .bg-slate-950\/80 .text-slate-500,
+:root:not(.dark) .bg-slate-900\/60 .text-slate-300,
+:root:not(.dark) .bg-slate-950\/50 .text-slate-300,
+:root:not(.dark) .bg-slate-950\/60 .text-slate-300,
+:root:not(.dark) .bg-slate-950\/70 .text-slate-300,
+:root:not(.dark) .bg-slate-950\/80 .text-slate-300 {
+  color: var(--app-muted) !important;
 }
 
 @media (max-width: 768px) {

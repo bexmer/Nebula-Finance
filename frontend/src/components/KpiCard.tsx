@@ -1,4 +1,5 @@
 import { ReactNode } from "react";
+import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 
 interface KpiCardProps {
@@ -10,15 +11,6 @@ interface KpiCardProps {
   icon: ReactNode;
 }
 
-const formatPercentage = (value?: number | null) => {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return "Sin datos";
-  }
-  const rounded = Number(value.toFixed(1));
-  const sign = rounded > 0 ? "+" : "";
-  return `${sign}${rounded}%`;
-};
-
 export function KpiCard({
   title,
   value,
@@ -27,6 +19,7 @@ export function KpiCard({
   inverse = false,
   icon,
 }: KpiCardProps) {
+  const { formatPercent } = useNumberFormatter();
   const hasComparison = comparison !== null && comparison !== undefined && !Number.isNaN(comparison);
   const isPositive = hasComparison && (comparison as number) > 0;
   const isNegative = hasComparison && (comparison as number) < 0;
@@ -70,7 +63,7 @@ export function KpiCard({
       <div className="mt-5 flex items-center gap-3 text-sm">
         <span className={`inline-flex items-center gap-1 font-medium ${iconColorClass}`}>
           {trendIcon}
-          {formatPercentage(comparison)}
+          {formatPercent(comparison ?? null)}
         </span>
         <span className="text-muted">{comparisonLabel}</span>
       </div>

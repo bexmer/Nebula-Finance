@@ -80,6 +80,21 @@ export function GoalsAndDebts() {
     fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const handleSync = () => {
+      fetchData();
+    };
+    window.addEventListener("nebula:transactions-updated", handleSync);
+    window.addEventListener("nebula:goals-refresh", handleSync);
+    return () => {
+      window.removeEventListener("nebula:transactions-updated", handleSync);
+      window.removeEventListener("nebula:goals-refresh", handleSync);
+    };
+  }, [fetchData]);
+
   const handleOpenModal = (mode: "goal" | "debt", item: any | null) => {
     setModalMode(mode);
     setSelectedItem(item);
@@ -87,7 +102,9 @@ export function GoalsAndDebts() {
   };
 
   const handleSave = () => {
-    fetchData();
+    fetchData().then(() => {
+      window.dispatchEvent(new CustomEvent("nebula:goals-refresh"));
+    });
   };
 
   const handleDelete = async (type: "goal" | "debt", id: number) => {
@@ -101,7 +118,9 @@ export function GoalsAndDebts() {
     ) {
       try {
         await axios.delete(apiPath(`/${endpoint}/${id}`));
-        fetchData();
+        fetchData().then(() => {
+          window.dispatchEvent(new CustomEvent("nebula:goals-refresh"));
+        });
       } catch (error) {
         console.error(`Error al eliminar ${type}:`, error);
       }

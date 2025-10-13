@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 
 import { API_BASE_URL } from "../utils/api";
+import { useDisplayPreferences } from "../context/DisplayPreferencesContext";
 
 type FeedbackType = "success" | "error";
 type Feedback = { type: FeedbackType; message: string } | null;
@@ -114,6 +115,8 @@ export function Settings() {
   const [accountTypes, setAccountTypes] = useState<AccountTypeItem[]>([]);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [displayPreferences, setDisplayPreferences] = useState<DisplayPreferences | null>(null);
+  const { refresh: refreshDisplayContext, preferences: displayContextPreferences } =
+    useDisplayPreferences();
 
   const [transactionForm, setTransactionForm] = useState<TransactionTypeFormState>({
     id: null,
@@ -182,9 +185,8 @@ export function Settings() {
   }, []);
 
   const refreshDisplayPreferences = useCallback(async () => {
-    const response = await axios.get<DisplayPreferences>(`${API_BASE_URL}/config/display`);
-    setDisplayPreferences(response.data);
-  }, []);
+    await refreshDisplayContext();
+  }, [refreshDisplayContext]);
 
   useEffect(() => {
     let isMounted = true;
@@ -219,6 +221,16 @@ export function Settings() {
       setCategoryForm((prev) => ({ ...prev, parentId: String(transactionTypes[0].id) }));
     }
   }, [transactionTypes, categoryForm.id, categoryForm.parentId]);
+
+  useEffect(() => {
+    if (!displayContextPreferences) {
+      return;
+    }
+    setDisplayPreferences({
+      abbreviate_numbers: displayContextPreferences.abbreviateNumbers,
+      threshold: displayContextPreferences.threshold,
+    });
+  }, [displayContextPreferences]);
 
   const selectedTransactionType = useMemo(
     () => transactionTypes.find((item) => item.id === transactionForm.id) ?? null,
@@ -434,6 +446,7 @@ export function Settings() {
     try {
       const response = await axios.put<DisplayPreferences>(`${API_BASE_URL}/config/display`, displayPreferences);
       setDisplayPreferences(response.data);
+      await refreshDisplayContext();
       showFeedback(setVisualFeedback, "success", "Preferencias guardadas correctamente.");
     } catch (error) {
       showFeedback(setVisualFeedback, "error", resolveErrorMessage(error));
@@ -459,14 +472,14 @@ export function Settings() {
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold text-white">Configuración de Parámetros</h1>
-        <p className="text-sm text-slate-400">
+        <h1 className="text-3xl font-bold text-[var(--app-text)]">Configuración de Parámetros</h1>
+        <p className="text-sm text-muted">
           Administra los catálogos que alimentan el dashboard, las transacciones y los reportes financieros.
         </p>
       </div>
 
-      <div className="rounded-2xl border border-slate-800 bg-slate-950/80 shadow-xl backdrop-blur">
-        <div className="flex flex-wrap gap-2 border-b border-slate-800 bg-slate-950/60 px-6 py-4">
+      <div className="app-card p-0">
+        <div className="flex flex-wrap gap-2 border-b border-[var(--app-border)] bg-[var(--app-surface-muted)] px-6 py-4">
           {TABS.map((tab) => {
             const isActive = activeTab === tab.id;
             return (
@@ -474,10 +487,10 @@ export function Settings() {
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
-                className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 ${
+                className={`rounded-full px-4 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 ${
                   isActive
-                    ? "bg-sky-500 text-white shadow"
-                    : "bg-slate-800/70 text-slate-300 hover:bg-slate-700/70"
+                    ? "bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow"
+                    : "border border-[var(--app-border)] bg-[var(--app-surface)] text-muted hover:border-sky-400 hover:text-sky-600"
                 }`}
               >
                 {tab.label}
@@ -945,82 +958,83 @@ export function Settings() {
           {activeTab === "visualization" && (
             displayPreferences ? (
               <div className="max-w-2xl space-y-6">
-              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-lg font-semibold text-white">Visualización de números</h2>
-                    <p className="text-sm text-slate-400">
-                      Controla cómo se muestran las cantidades grandes en reportes y tarjetas.
-                    </p>
-                  </div>
-                  {renderFeedback(visualFeedback)}
-                </div>
-
-                <form onSubmit={handleVisualizationSubmit} className="mt-4 space-y-5">
-                  <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/70 px-4 py-3">
+                <div className="app-card p-6">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <p className="text-sm font-semibold text-white">Abreviar números grandes</p>
-                      <p className="text-xs text-slate-400">
-                        Ejemplo: $1,250,000 → $1.25M
+                      <h2 className="text-lg font-semibold text-[var(--app-text)]">Visualización de números</h2>
+                      <p className="text-sm text-muted">
+                        Controla cómo se muestran las cantidades grandes en reportes y tarjetas.
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setDisplayPreferences((prev) =>
-                          prev ? { ...prev, abbreviate_numbers: !prev.abbreviate_numbers } : prev
-                        )
-                      }
-                      className={`relative h-8 w-14 rounded-full transition ${
-                        displayPreferences.abbreviate_numbers ? "bg-sky-500" : "bg-slate-700"
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-1 h-6 w-6 rounded-full bg-white transition-transform ${
-                          displayPreferences.abbreviate_numbers ? "translate-x-6" : "translate-x-1"
+                    {renderFeedback(visualFeedback)}
+                  </div>
+
+                  <form onSubmit={handleVisualizationSubmit} className="mt-4 space-y-5">
+                    <div className="flex flex-col gap-4 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-[var(--app-text)]">Abreviar números grandes</p>
+                        <p className="text-xs text-muted">Ejemplo: $1,250,000 → $1.25M</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDisplayPreferences((prev) =>
+                            prev ? { ...prev, abbreviate_numbers: !prev.abbreviate_numbers } : prev
+                          )
+                        }
+                        className={`relative inline-flex h-9 w-16 items-center rounded-full border border-transparent transition ${
+                          displayPreferences.abbreviate_numbers
+                            ? "bg-sky-500 shadow-lg shadow-sky-500/30"
+                            : "bg-[var(--app-surface)]"
                         }`}
-                      />
-                    </button>
-                  </div>
+                        aria-pressed={displayPreferences.abbreviate_numbers}
+                      >
+                        <span
+                          className={`ml-1 inline-block h-7 w-7 transform rounded-full bg-white shadow transition-transform ${
+                            displayPreferences.abbreviate_numbers ? "translate-x-6" : "translate-x-0"
+                          }`}
+                        />
+                      </button>
+                    </div>
 
-                  <div className="space-y-1">
-                    <label className="text-sm font-medium text-slate-300" htmlFor="threshold-select">
-                      Abreviar a partir de
-                    </label>
-                    <select
-                      id="threshold-select"
-                      value={displayPreferences.threshold}
-                      onChange={(event) =>
-                        setDisplayPreferences((prev) =>
-                          prev ? { ...prev, threshold: Number(event.target.value) } : prev
-                        )
-                      }
-                      className="w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-sm text-white outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/40"
-                    >
-                      {THRESHOLD_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium text-[var(--app-text)]" htmlFor="threshold-select">
+                        Abreviar a partir de
+                      </label>
+                      <select
+                        id="threshold-select"
+                        value={displayPreferences.threshold}
+                        onChange={(event) =>
+                          setDisplayPreferences((prev) =>
+                            prev ? { ...prev, threshold: Number(event.target.value) } : prev
+                          )
+                        }
+                        className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-[var(--app-text)] outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/30 dark:text-slate-100"
+                      >
+                        {THRESHOLD_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="submit"
-                      className="inline-flex items-center justify-center rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-400"
-                    >
-                      Guardar configuración de visualización
-                    </button>
-                    <p className="text-xs text-slate-500">
-                      Los cambios se aplican inmediatamente a los reportes y tarjetas monetarias.
-                    </p>
-                  </div>
-                </form>
-              </div>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                      <button
+                        type="submit"
+                        className="inline-flex items-center justify-center rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-400"
+                      >
+                        Guardar configuración de visualización
+                      </button>
+                      <p className="text-xs text-muted">
+                        Los cambios se aplican inmediatamente a los reportes y tarjetas monetarias.
+                      </p>
+                    </div>
+                  </form>
+                </div>
               </div>
             ) : (
-              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center text-sm text-slate-400">
+              <div className="app-card p-8 text-center text-sm text-muted">
                 No fue posible cargar las preferencias de visualización. Intenta recargar la página.
               </div>
             )

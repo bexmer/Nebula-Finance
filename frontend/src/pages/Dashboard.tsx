@@ -26,6 +26,7 @@ import {
 import { KpiCard } from "../components/KpiCard";
 import { GoalProgressCard, GoalData } from "../components/GoalProgressCard";
 import { API_BASE_URL } from "../utils/api";
+import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 
 ChartJS.register(
   CategoryScale,
@@ -54,37 +55,10 @@ const MONTH_OPTIONS = [
   { value: 12, label: "Diciembre" },
 ];
 
-const currencyFormatter = new Intl.NumberFormat("es-MX", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
 const monthFormatter = new Intl.DateTimeFormat("es-MX", {
   month: "short",
   year: "numeric",
 });
-
-const formatCurrency = (value: number) => {
-  if (!Number.isFinite(value)) {
-    return "$0.00";
-  }
-  const sign = value < 0 ? "-" : "";
-  return `${sign}$${currencyFormatter.format(Math.abs(value))}`;
-};
-
-const formatSignedCurrency = (value: number) => {
-  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
-  return `${sign}${formatCurrency(Math.abs(value))}`;
-};
-
-const formatPercentage = (value?: number | null) => {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return "—";
-  }
-  const rounded = Number(value.toFixed(1));
-  const sign = rounded > 0 ? "+" : rounded < 0 ? "" : "";
-  return `${sign}${rounded}%`;
-};
 
 interface AmountComparison {
   amount: number;
@@ -165,6 +139,16 @@ export function Dashboard() {
     "netWorth",
   );
   const [activeAccountIndex, setActiveAccountIndex] = useState(0);
+  const { formatCurrency, formatPercent } = useNumberFormatter();
+
+  const formatSignedCurrency = (value: number) => {
+    if (!Number.isFinite(value) || value === 0) {
+      return formatCurrency(0);
+    }
+    const absolute = Math.abs(value);
+    const formatted = formatCurrency(absolute);
+    return `${value > 0 ? "+" : "-"}${formatted}`;
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -720,6 +704,14 @@ function BudgetSummaryCard({
   summary: BudgetSummary;
   accentClass: string;
 }) {
+  const { formatCurrency, formatPercent } = useNumberFormatter();
+  const formatSigned = (value: number) => {
+    if (!Number.isFinite(value) || value === 0) {
+      return formatCurrency(0);
+    }
+    const formatted = formatCurrency(Math.abs(value));
+    return `${value > 0 ? "+" : "-"}${formatted}`;
+  };
   const execution = summary.execution ?? 0;
   const progress = Math.max(0, Math.min(100, execution));
 
@@ -728,7 +720,7 @@ function BudgetSummaryCard({
       <div className="flex items-center justify-between">
         <h3 className="text-base font-semibold">{title}</h3>
         <span className="text-xs font-medium text-muted">
-          {summary.execution ? formatPercentage(summary.execution) : "—"}
+          {summary.execution ? formatPercent(summary.execution) : "—"}
         </span>
       </div>
       <p className="mt-1 text-sm text-muted">
@@ -744,10 +736,10 @@ function BudgetSummaryCard({
         ></div>
       </div>
       <div className="mt-3 text-xs text-muted">
-        Variación: <span className="font-semibold">{formatSignedCurrency(summary.difference)}</span>
+        Variación: <span className="font-semibold">{formatSigned(summary.difference)}</span>
       </div>
       <div className="mt-1 text-xs text-muted">
-        Restante: <span className="font-semibold">{formatSignedCurrency(summary.remaining)}</span>
+        Restante: <span className="font-semibold">{formatSigned(summary.remaining)}</span>
       </div>
     </div>
   );
@@ -760,6 +752,8 @@ function BudgetRuleCard({
   rules: BudgetRuleItem[];
   incomeTotal: number;
 }) {
+  const { formatCurrency, formatPercent } = useNumberFormatter();
+
   if (!rules.length) {
     return (
       <div className="app-card p-6">
@@ -807,7 +801,7 @@ function BudgetRuleCard({
               <div className="flex items-center justify-between text-xs text-muted">
                 <span>{formatCurrency(rule.actual_amount)}</span>
                 <span className="font-semibold">
-                  {formatPercentage(rule.actual_percent)} • {stateLabels[rule.state]}
+                  {formatPercent(rule.actual_percent)} • {stateLabels[rule.state]}
                 </span>
               </div>
             </div>
@@ -831,6 +825,16 @@ function AccountsCard({
   onPrev: () => void;
   onNext: () => void;
 }) {
+  const { formatCurrency } = useNumberFormatter();
+
+  const formatSigned = (value: number) => {
+    if (!Number.isFinite(value) || value === 0) {
+      return formatCurrency(0);
+    }
+    const formatted = formatCurrency(Math.abs(value));
+    return `${value > 0 ? "+" : "-"}${formatted}`;
+  };
+
   return (
     <div className="app-card p-6">
       <div className="mb-4 flex items-center justify-between">
@@ -863,7 +867,7 @@ function AccountsCard({
           <div className="mt-8 text-sm">
             <p className="font-medium">{activeAccount.name}</p>
             <p className="text-xs text-white/70">
-              Variación {formatSignedCurrency(activeAccount.current_balance - activeAccount.initial_balance)}
+              Variación {formatSigned(activeAccount.current_balance - activeAccount.initial_balance)}
             </p>
           </div>
           {accounts.length > 1 && (

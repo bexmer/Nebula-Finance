@@ -1,5 +1,6 @@
 from collections import defaultdict
 import calendar
+import calendar
 import datetime
 from typing import Optional, List, Dict, Any
 from dateutil.relativedelta import relativedelta
@@ -171,20 +172,71 @@ class AppController:
         }
 
     def _get_net_worth_data_for_chart(self):
-        """Prepara los datos para el gráfico de evolución de patrimonio neto."""
+        """Prepara datos históricos del patrimonio neto usando el movimiento real."""
         today = datetime.date.today()
-        dates, values = [], []
-        for i in range(12, -1, -1):
-            month_end = (today - relativedelta(months=i)).replace(day=1)
-            next_m = month_end.replace(day=28) + datetime.timedelta(days=4)
-            month_end = next_m - datetime.timedelta(days=next_m.day)
-            if month_end > today: month_end = today
-            
-            total_balance = Account.select(fn.SUM(Account.current_balance)).scalar() or 0.0
-            liabilities = Debt.select(fn.SUM(Debt.current_balance)).scalar() or 0.0
-            
+
+        accounts = list(Account.select())
+        debts = list(Debt.select())
+        transactions = list(
+            Transaction.select()
+            .order_by(Transaction.date.asc(), Transaction.id.asc())
+        )
+
+        account_running: Dict[int, float] = {
+            account.id: float(account.initial_balance or 0.0)
+            for account in accounts
+        }
+
+        # Calcula el saldo inicial de cada deuda sumando los pagos registrados
+        total_debt_payments: Dict[int, float] = defaultdict(float)
+        for transaction in transactions:
+            if transaction.debt_id:
+                total_debt_payments[transaction.debt_id] += float(
+                    transaction.amount or 0.0
+                )
+
+        debt_running: Dict[int, float] = {}
+        for debt in debts:
+            base_balance = float(debt.current_balance or 0.0)
+            paid_total = total_debt_payments.get(debt.id, 0.0)
+            debt_running[debt.id] = max(0.0, base_balance + paid_total)
+
+        month_points: List[datetime.date] = []
+        current_month_start = today.replace(day=1)
+        for offset in range(12, -1, -1):
+            month_start = current_month_start - relativedelta(months=offset)
+            month_end = (month_start + relativedelta(months=1)) - datetime.timedelta(days=1)
+            if month_end > today:
+                month_end = today
+            month_points.append(month_end)
+
+        cursor = 0
+        dates: List[str] = []
+        values: List[float] = []
+        for month_end in month_points:
+            while cursor < len(transactions) and transactions[cursor].date <= month_end:
+                tx = transactions[cursor]
+                amount = float(tx.amount or 0.0)
+                amount_abs = abs(amount)
+                tx_type = (tx.type or "").strip().lower()
+
+                if tx.account_id:
+                    if tx_type == "ingreso":
+                        account_running[tx.account_id] = account_running.get(tx.account_id, 0.0) + amount_abs
+                    else:
+                        account_running[tx.account_id] = account_running.get(tx.account_id, 0.0) - amount_abs
+
+                if tx.debt_id and tx_type != "ingreso":
+                    debt_running[tx.debt_id] = max(0.0, debt_running.get(tx.debt_id, 0.0) - amount_abs)
+
+                cursor += 1
+
+            total_assets = sum(account_running.values())
+            total_liabilities = sum(debt_running.values())
+
             dates.append(month_end.strftime("%Y-%m-%d"))
-            values.append(total_balance - liabilities)
+            values.append(total_assets - total_liabilities)
+
         return {"dates": dates, "values": values}
 
     def _get_cash_flow_data_for_chart(self, year: int, months: List[int]):
@@ -772,7 +824,7 @@ class AppController:
 
     def get_transactions_data(self, filters=None):
         query = Transaction.select(Transaction, Account).join(Account)
-        
+
         if filters:
             if filters.get('search'):
                 query = query.where(Transaction.description.contains(filters['search']))
@@ -811,6 +863,91 @@ class AppController:
             }
             results.append(transaction_data)
         return results
+
+
+    def get_recurring_transactions(self):
+        today = datetime.date.today()
+        rules = []
+        for rule in RecurringTransaction.select().order_by(RecurringTransaction.description):
+            next_run = self._calculate_next_occurrence(rule, today)
+            rules.append(
+                {
+                    "id": rule.id,
+                    "description": rule.description,
+                    "amount": float(rule.amount or 0.0),
+                    "type": rule.type,
+                    "category": rule.category,
+                    "frequency": rule.frequency,
+                    "day_of_month": rule.day_of_month,
+                    "day_of_month_2": rule.day_of_month_2,
+                    "start_date": rule.start_date.isoformat() if rule.start_date else None,
+                    "last_processed_date": rule.last_processed_date.isoformat()
+                    if rule.last_processed_date
+                    else None,
+                    "next_run": next_run.isoformat() if next_run else None,
+                }
+            )
+        return rules
+
+    def _calculate_next_occurrence(
+        self, rule: RecurringTransaction, reference: datetime.date
+    ) -> Optional[datetime.date]:
+        if not reference:
+            reference = datetime.date.today()
+
+        start = rule.start_date or reference
+        frequency = (rule.frequency or "").strip().lower()
+
+        if frequency in ("mensual", "quincenal"):
+            candidate_days: List[int] = []
+            if rule.day_of_month:
+                candidate_days.append(rule.day_of_month)
+            if frequency == "quincenal" and rule.day_of_month_2:
+                candidate_days.append(rule.day_of_month_2)
+            if not candidate_days:
+                candidate_days.append(start.day)
+
+            base_month = reference.replace(day=1)
+            for offset in range(0, 14):
+                month_candidate = base_month + relativedelta(months=offset)
+                for day in sorted(candidate_days):
+                    last_day = calendar.monthrange(
+                        month_candidate.year, month_candidate.month
+                    )[1]
+                    safe_day = min(day, last_day)
+                    candidate = month_candidate.replace(day=safe_day)
+                    if candidate < start:
+                        continue
+                    if candidate >= reference:
+                        return candidate
+            return None
+
+        if frequency == "semanal":
+            anchor = rule.last_processed_date or start
+            if anchor >= reference:
+                return anchor
+            delta_days = (reference - anchor).days
+            weeks_ahead = (delta_days + 6) // 7
+            return anchor + datetime.timedelta(days=7 * weeks_ahead)
+
+        if frequency == "anual":
+            month = rule.month_of_year or start.month
+            day = rule.day_of_month or start.day
+            year = max(reference.year, start.year)
+
+            def resolve(year_value: int) -> datetime.date:
+                month_last_day = calendar.monthrange(year_value, month)[1]
+                target_day = min(day, month_last_day)
+                return datetime.date(year_value, month, target_day)
+
+            candidate = resolve(year)
+            if candidate < start:
+                candidate = resolve(year + 1)
+            if candidate < reference:
+                candidate = resolve(candidate.year + 1)
+            return candidate
+
+        return rule.last_processed_date or start
 
 
     def _adjust_goal_progress(self, goal_id: Optional[int], amount_delta: float) -> None:

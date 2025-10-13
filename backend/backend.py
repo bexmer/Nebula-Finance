@@ -205,6 +205,20 @@ class CategoryUpdateModel(BaseModel):
     parent_id: Optional[int] = None
 
 
+class RecurringTransactionModel(BaseModel):
+    id: int
+    description: str
+    amount: float
+    type: str
+    category: str
+    frequency: str
+    day_of_month: Optional[int] = None
+    day_of_month_2: Optional[int] = None
+    start_date: Optional[datetime.date] = None
+    last_processed_date: Optional[datetime.date] = None
+    next_run: Optional[str] = None
+
+
 class DisplayPreferencesModel(BaseModel):
     abbreviate_numbers: bool
     threshold: int
@@ -319,6 +333,11 @@ def get_transactions(
         filters["sort_by"] = sort_by
 
     return controller.get_transactions_data(filters if filters else None)
+
+
+@app.get("/api/recurring-transactions", response_model=List[RecurringTransactionModel])
+def list_recurring_transactions():
+    return controller.get_recurring_transactions()
 
 
 @app.get("/api/dashboard")
