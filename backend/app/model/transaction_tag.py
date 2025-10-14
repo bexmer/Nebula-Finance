@@ -1,4 +1,4 @@
-from peewee import ForeignKeyField, UniqueConstraint
+from peewee import ForeignKeyField
 
 from .base_model import BaseModel
 from .tag import Tag
@@ -20,4 +20,4 @@ class TransactionTag(BaseModel):
     )
 
     class Meta:
-        constraints = [UniqueConstraint("transaction", "tag")]
+        indexes = ((("transaction", "tag"), True),)
