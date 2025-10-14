@@ -67,12 +67,14 @@ class AppController:
     def _prefetch_transactions(self, query):
         """Carga relaciones necesarias para trabajar con splits y etiquetas."""
 
+        tag_links = TransactionTag.select().join(Tag)
+
         return list(
             prefetch(
                 query,
                 Account,
                 TransactionSplit,
-                (TransactionTag, Tag),
+                tag_links,
             )
         )
 
