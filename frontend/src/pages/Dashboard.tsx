@@ -724,16 +724,22 @@ function MonthMultiSelect({ value, onChange }: MonthMultiSelectProps) {
     <div className="relative" ref={containerRef}>
       <button
         onClick={() => setIsOpen((previous) => !previous)}
-        className="flex items-center justify-between gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-4 py-2 text-sm font-medium text-slate-900 transition hover:border-sky-400 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+        className="flex items-center justify-between gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-4 py-2 text-sm font-medium text-slate-900 shadow-sm transition-all duration-200 hover:-translate-y-px hover:border-sky-400 hover:shadow-lg focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
       >
         {label}
-        <span className="text-xs text-muted">▼</span>
+        <span
+          className={`text-xs text-muted transition-transform duration-300 ${
+            isOpen ? "rotate-180" : ""
+          }`}
+        >
+          ▼
+        </span>
       </button>
       {isOpen && (
-        <div className="absolute right-0 z-20 mt-2 w-56 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-4 shadow-xl">
+        <div className="popover-panel absolute right-0 z-30 mt-2 w-60 origin-top-right p-4">
           <button
             onClick={toggleAll}
-            className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-muted transition hover:border-sky-400 hover:text-sky-600 dark:hover:text-sky-300"
+            className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-muted transition-all hover:border-sky-400 hover:text-sky-600 dark:hover:text-sky-300"
           >
             {value.length === MONTH_OPTIONS.length
               ? "Limpiar selección"
@@ -743,7 +749,7 @@ function MonthMultiSelect({ value, onChange }: MonthMultiSelectProps) {
             {MONTH_OPTIONS.map((month) => (
               <label
                 key={month.value}
-                className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-slate-900 hover:bg-sky-50 dark:text-slate-100 dark:hover:bg-slate-800"
+                className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-slate-900 transition-colors duration-150 hover:bg-[var(--app-surface-muted)] dark:text-slate-100 dark:hover:bg-slate-800/70"
               >
                 <input
                   type="checkbox"

@@ -14,10 +14,21 @@ import {
   Sun,
   Moon,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useStore } from "../store/useStore";
 import nebulaLogoFull from "../assets/logo-nb.png";
 import nebulaLogoMark from "../assets/logo-mini-nb.png";
+
+const themeLogos = {
+  light: {
+    full: nebulaLogoFull,
+    mark: nebulaLogoMark,
+  },
+  dark: {
+    full: nebulaLogoFull,
+    mark: nebulaLogoMark,
+  },
+};
 
 const navItems = [
   {
@@ -67,7 +78,11 @@ export function Sidebar() {
 
   const collapseWidthClass = sidebarCollapsed ? "md:w-20" : "md:w-72";
   const navLabelClass = sidebarCollapsed ? "md:hidden" : "md:inline";
-  const logoSrc = sidebarCollapsed ? nebulaLogoMark : nebulaLogoFull;
+
+  const logoSrc = useMemo(() => {
+    const palette = theme === "dark" ? themeLogos.dark : themeLogos.light;
+    return sidebarCollapsed ? palette.mark : palette.full;
+  }, [sidebarCollapsed, theme]);
 
   return (
     <aside
@@ -78,7 +93,7 @@ export function Sidebar() {
           <img
             src={logoSrc}
             alt="Nebula Finance"
-            className={`transition-all duration-300 ${
+            className={`transition-all duration-500 ease-out motion-reduce:duration-0 ${
               sidebarCollapsed ? "h-10 w-10" : "h-10 w-auto"
             }`}
           />
