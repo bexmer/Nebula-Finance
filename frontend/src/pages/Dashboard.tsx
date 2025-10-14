@@ -423,7 +423,7 @@ export function Dashboard() {
     <div className="space-y-5 text-slate-900 dark:text-slate-100">
       <div className="app-card flex flex-col gap-6 p-6 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold">Dashboard</h1>
+          <h1 className="section-title">Dashboard</h1>
           <p className="mt-1 text-sm text-muted">
             Controla tus finanzas personales con una vista integral de tu patrimonio.
           </p>

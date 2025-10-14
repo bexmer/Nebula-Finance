@@ -440,7 +440,7 @@ export function Portfolio() {
     <div className="space-y-10">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-100">Portafolio</h1>
+          <h1 className="section-title">Portafolio</h1>
           <p className="text-sm text-muted">
             Visualiza el rendimiento de tus inversiones y registra nuevas
             operaciones en segundos.

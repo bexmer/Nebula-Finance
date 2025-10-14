@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, type CSSProperties } from "react";
 import axios from "axios";
 
 import { useStore } from "../store/useStore";
@@ -415,8 +415,11 @@ export const TransactionModal = () => {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6">
-      <div className="app-card w-full max-w-2xl p-6">
+    <div className="app-modal-overlay">
+      <div
+        className="app-modal-panel app-card w-full p-6"
+        style={{ "--modal-max-width": "min(95vw, 760px)" } as CSSProperties}
+      >
         <h2 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
           {editingTransaction ? "Editar transacción" : "Registrar transacción"}
         </h2>

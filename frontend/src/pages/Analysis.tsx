@@ -339,7 +339,7 @@ export function Analysis() {
     <div className="space-y-8">
       <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-[var(--app-text)]">Análisis financiero</h1>
+          <h1 className="section-title">Análisis financiero</h1>
           <p className="text-sm text-muted">
             Visualiza tendencias anuales, compara tu presupuesto y proyecta tu flujo de efectivo.
           </p>

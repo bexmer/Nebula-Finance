@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ChangeEvent, FormEvent } from "react";
+import type { ChangeEvent, CSSProperties, FormEvent } from "react";
 import Modal from "react-modal";
 import axios from "axios";
 import {
@@ -13,23 +13,6 @@ import {
 
 import { apiPath } from "../utils/api";
 
-const customStyles = {
-  content: {
-    top: "50%",
-    left: "50%",
-    right: "auto",
-    bottom: "auto",
-    marginRight: "-50%",
-    transform: "translate(-50%, -50%)",
-    backgroundColor: "transparent",
-    border: "none",
-    padding: 0,
-  },
-  overlay: {
-    backgroundColor: "rgba(15, 23, 42, 0.75)",
-    zIndex: 50,
-  },
-};
 Modal.setAppElement("#root");
 
 interface BudgetEntry {
@@ -448,8 +431,17 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
   };
 
   return (
-    <Modal isOpen={isOpen} onRequestClose={onClose} style={customStyles}>
-      <div className="w-full max-w-xl app-card p-6 shadow-2xl backdrop-blur">
+    <Modal
+      isOpen={isOpen}
+      onRequestClose={onClose}
+      className="nebula-modal__content"
+      overlayClassName="nebula-modal__overlay"
+      closeTimeoutMS={320}
+    >
+      <div
+        className="nebula-modal__panel app-card w-full p-6 shadow-2xl backdrop-blur"
+        style={{ "--modal-max-width": "min(95vw, 720px)" } as CSSProperties}
+      >
         <div className="mb-5 flex items-start justify-between gap-3">
           <div>
             <h2 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">

@@ -264,7 +264,7 @@ export function Accounts() {
 
   return (
     <div className="space-y-6 text-slate-900 dark:text-slate-100">
-      <h1 className="text-3xl font-semibold">Cuentas</h1>
+      <h1 className="section-title">Cuentas</h1>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,360px)_1fr]">
         <div className="app-card p-6">

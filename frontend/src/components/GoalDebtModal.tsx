@@ -1,25 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type CSSProperties } from "react";
 import Modal from "react-modal";
 import axios from "axios";
 
 import { apiPath } from "../utils/api";
-
-const customStyles = {
-  content: {
-    top: "50%",
-    left: "50%",
-    right: "auto",
-    bottom: "auto",
-    marginRight: "-50%",
-    transform: "translate(-50%, -50%)",
-    backgroundColor: "transparent",
-    border: "none",
-    padding: 0,
-    width: "90%",
-    maxWidth: "500px",
-  },
-  overlay: { backgroundColor: "rgba(0, 0, 0, 0.75)" },
-};
 
 Modal.setAppElement("#root");
 
@@ -202,8 +185,17 @@ export function GoalDebtModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onRequestClose={onClose} style={customStyles}>
-      <div className="w-full max-w-lg app-card p-6">
+    <Modal
+      isOpen={isOpen}
+      onRequestClose={onClose}
+      className="nebula-modal__content"
+      overlayClassName="nebula-modal__overlay"
+      closeTimeoutMS={320}
+    >
+      <div
+        className="nebula-modal__panel app-card p-6"
+        style={{ "--modal-max-width": "min(90vw, 520px)" } as CSSProperties}
+      >
         <h2 className="text-2xl font-semibold text-slate-900 dark:text-slate-100 mb-4">
           {item ? "Editar" : "Añadir"} {mode === "goal" ? "Meta" : "Deuda"}
         </h2>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import {
   Calendar,
@@ -74,6 +74,8 @@ export function Budget() {
   const [yearFilter, setYearFilter] = useState("all");
   const { openTransactionModal } = useStore();
   const { formatCurrency } = useNumberFormatter();
+  const [listPulse, setListPulse] = useState(false);
+  const budgetInitialLoad = useRef(true);
 
   const fetchBudgetEntries = async () => {
     const response = await axios.get<BudgetEntry[]>(apiPath("/budget"));
@@ -321,11 +323,21 @@ export function Budget() {
     filteredEntries.length > 0 &&
     filteredEntries.every((entry) => selectedEntryIds.includes(entry.id));
 
+  useEffect(() => {
+    if (budgetInitialLoad.current) {
+      budgetInitialLoad.current = false;
+      return;
+    }
+    setListPulse(true);
+    const timeout = window.setTimeout(() => setListPulse(false), 650);
+    return () => window.clearTimeout(timeout);
+  }, [budgetEntries]);
+
   return (
     <div className="space-y-6">
       <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Presupuesto</h1>
+          <h1 className="section-title">Presupuesto</h1>
           <p className="mt-1 max-w-2xl text-muted">
             Organiza tus compromisos financieros futuros y registra rápidamente los pagos
             cuando ocurran.
@@ -498,7 +510,9 @@ export function Budget() {
         </div>
       </section>
 
-      <section className="app-card overflow-hidden">
+      <section
+        className={`app-card overflow-hidden ${listPulse ? "list-highlight" : ""}`}
+      >
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--app-border)] px-6 py-4">
           <div>
             <h2 className="text-lg font-semibold">Entradas planificadas</h2>
@@ -530,7 +544,7 @@ export function Budget() {
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-[var(--app-border)]">
+          <table className="min-w-full divide-y divide-[var(--app-border)] table-animate">
             <thead className="bg-[var(--app-surface-muted)]">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">

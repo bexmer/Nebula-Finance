@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import {
   Filter,
@@ -69,6 +69,8 @@ export function Transactions() {
   const [recurringError, setRecurringError] = useState<string | null>(null);
 
   const { formatCurrency } = useNumberFormatter();
+  const [listPulse, setListPulse] = useState(false);
+  const transactionsInitialLoad = useRef(true);
 
   const totals = useMemo(() => {
     const dataset =
@@ -151,6 +153,16 @@ export function Transactions() {
   }, [transactions, activeTab]);
 
   const showTable = activeTab !== "recurring";
+
+  useEffect(() => {
+    if (transactionsInitialLoad.current) {
+      transactionsInitialLoad.current = false;
+      return;
+    }
+    setListPulse(true);
+    const timeout = window.setTimeout(() => setListPulse(false), 650);
+    return () => window.clearTimeout(timeout);
+  }, [transactions]);
 
   // Carga inicial de datos para los filtros
   useEffect(() => {
@@ -385,7 +397,7 @@ export function Transactions() {
   return (
     <div className="space-y-6">
       <header className="space-y-2">
-        <h1 className="text-3xl font-bold">Transacciones</h1>
+        <h1 className="section-title">Transacciones</h1>
         <p className="mt-1 max-w-2xl text-muted">
           Visualiza tus movimientos, aplica filtros avanzados y administra tu historial financiero sin perder el contexto del flujo de efectivo.
         </p>
@@ -567,7 +579,9 @@ export function Transactions() {
         </div>
       </section>
 
-      <section className="app-card overflow-hidden p-0">
+      <section
+        className={`app-card overflow-hidden p-0 ${listPulse ? "list-highlight" : ""}`}
+      >
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--app-border)] bg-[var(--app-surface-muted)] px-6 py-4">
           <div>
             <h2 className="text-lg font-semibold">Movimientos registrados</h2>
@@ -635,10 +649,11 @@ export function Transactions() {
             );
           })}
         </div>
-        {showTable ? (
-          <>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-[var(--app-border)]">
+        <div key={activeTab} className="tab-transition">
+          {showTable ? (
+            <>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-[var(--app-border)] table-animate">
                 <thead className="bg-[var(--app-surface-muted)]">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
@@ -669,7 +684,7 @@ export function Transactions() {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[var(--app-border)]">
+                  <tbody className="divide-y divide-[var(--app-border)]">
                   {paginatedTransactions.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="px-4 py-10 text-center text-muted">
@@ -754,9 +769,9 @@ export function Transactions() {
                     })
                   )}
                 </tbody>
-              </table>
-            </div>
-            <div className="flex flex-col gap-4 border-t border-[var(--app-border)] bg-[var(--app-surface)] px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
+                </table>
+              </div>
+              <div className="flex flex-col gap-4 border-t border-[var(--app-border)] bg-[var(--app-surface)] px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex items-center gap-2 text-sm text-muted">
                 <span>Mostrar</span>
                 <select
@@ -809,60 +824,61 @@ export function Transactions() {
                   </button>
                 </div>
               </div>
-            </div>
-          </>
-        ) : (
-          <div className="px-6 py-6">
-            {recurringLoading ? (
-              <p className="text-sm text-muted">Cargando transacciones recurrentes...</p>
-            ) : recurringError ? (
-              <p className="rounded-xl border border-rose-300/60 bg-rose-50 px-4 py-3 text-sm text-rose-600 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-200">
-                {recurringError}
-              </p>
-            ) : recurringTransactions.length === 0 ? (
-              <p className="text-sm text-muted">
-                Aún no registras transacciones recurrentes. Marca una transacción como recurrente desde el formulario para que aparezca aquí.
-              </p>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2">
-                {recurringTransactions.map((rule) => {
-                  const isIncome = rule.type === "Ingreso";
-                  return (
-                    <div
-                      key={rule.id}
-                      className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] p-4"
-                    >
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-base font-semibold">{rule.description}</h3>
-                        <span
-                          className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${
-                            isIncome
-                              ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
-                              : "bg-rose-500/15 text-rose-600 dark:text-rose-300"
-                          }`}
-                        >
-                          {rule.type}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-sm text-muted">
-                        Monto: <span className="font-semibold">{formatCurrency(rule.amount)}</span>
-                      </p>
-                      <p className="text-sm text-muted">Categoría: {rule.category}</p>
-                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted">
-                        <span className="inline-flex items-center gap-2 rounded-full bg-[var(--app-surface)] px-3 py-1">
-                          Frecuencia: {rule.frequency}
-                        </span>
-                        <span className="inline-flex items-center gap-2 rounded-full bg-[var(--app-surface)] px-3 py-1">
-                          Próxima ejecución: {formatRecurringDate(rule.next_run)}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
               </div>
-            )}
-          </div>
-        )}
+            </>
+          ) : (
+            <div className="px-6 py-6">
+              {recurringLoading ? (
+                <p className="text-sm text-muted">Cargando transacciones recurrentes...</p>
+              ) : recurringError ? (
+                <p className="rounded-xl border border-rose-300/60 bg-rose-50 px-4 py-3 text-sm text-rose-600 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-200">
+                  {recurringError}
+                </p>
+              ) : recurringTransactions.length === 0 ? (
+                <p className="text-sm text-muted">
+                  Aún no registras transacciones recurrentes. Marca una transacción como recurrente desde el formulario para que aparezca aquí.
+                </p>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2 card-animate">
+                  {recurringTransactions.map((rule) => {
+                    const isIncome = rule.type === "Ingreso";
+                    return (
+                      <div
+                        key={rule.id}
+                        className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] p-4"
+                      >
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-base font-semibold">{rule.description}</h3>
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${
+                              isIncome
+                                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
+                                : "bg-rose-500/15 text-rose-600 dark:text-rose-300"
+                            }`}
+                          >
+                            {rule.type}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm text-muted">
+                          Monto: <span className="font-semibold">{formatCurrency(rule.amount)}</span>
+                        </p>
+                        <p className="text-sm text-muted">Categoría: {rule.category}</p>
+                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted">
+                          <span className="inline-flex items-center gap-2 rounded-full bg-[var(--app-surface)] px-3 py-1">
+                            Frecuencia: {rule.frequency}
+                          </span>
+                          <span className="inline-flex items-center gap-2 rounded-full bg-[var(--app-surface)] px-3 py-1">
+                            Próxima ejecución: {formatRecurringDate(rule.next_run)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </section>
     </div>
   );
