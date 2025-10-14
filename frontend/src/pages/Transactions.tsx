@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import {
   Filter,
@@ -12,6 +12,7 @@ import {
   Wallet,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type { KeyboardEvent } from "react";
 
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 import { useStore, TransactionFilters } from "../store/useStore";
@@ -67,6 +68,10 @@ export function Transactions() {
   const [recurringTransactions, setRecurringTransactions] = useState<RecurringRule[]>([]);
   const [recurringLoading, setRecurringLoading] = useState(false);
   const [recurringError, setRecurringError] = useState<string | null>(null);
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
+  const [tagFilterInput, setTagFilterInput] = useState("");
+
+  const normalizeTagValue = useCallback((value: string) => value.replace(/^#+/, "").trim(), []);
 
   const { formatCurrency } = useNumberFormatter();
   const [listPulse, setListPulse] = useState(false);
@@ -87,19 +92,26 @@ export function Transactions() {
           });
     let incomeTotal = 0;
     let expenseTotal = 0;
+    let incomeCount = 0;
+    let expenseCount = 0;
     dataset.forEach((transaction) => {
+      if (transaction.is_transfer) {
+        return;
+      }
       if (transaction.type === "Ingreso") {
         incomeTotal += transaction.amount;
+        incomeCount += 1;
       } else {
         expenseTotal += transaction.amount;
+        expenseCount += 1;
       }
     });
     return {
       income: incomeTotal,
       expense: expenseTotal,
       balance: incomeTotal - expenseTotal,
-      incomeCount: dataset.filter((t) => t.type === "Ingreso").length,
-      expenseCount: dataset.filter((t) => t.type !== "Ingreso").length,
+      incomeCount,
+      expenseCount,
     };
   }, [transactions, activeTab]);
 
@@ -170,6 +182,48 @@ export function Transactions() {
       .get<ParameterOption[]>(apiPath("/parameters/transaction-types"))
       .then((res) => setTransactionTypes(res.data));
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    axios
+      .get<{ id: number; name: string }[]>(apiPath("/tags"))
+      .then((res) => {
+        if (!isMounted) return;
+        const fetched = res.data
+          .map((tag) => normalizeTagValue(tag.name))
+          .filter((tag) => Boolean(tag));
+        setAvailableTags((prev) => {
+          const combined = new Set(prev);
+          fetched.forEach((tag) => {
+            if (tag) {
+              combined.add(tag);
+            }
+          });
+          return combined.size === prev.length ? prev : Array.from(combined);
+        });
+      })
+      .catch((error) => {
+        console.error("Error al obtener etiquetas disponibles:", error);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [normalizeTagValue]);
+
+  useEffect(() => {
+    setAvailableTags((prev) => {
+      const combined = new Set(prev);
+      transactions.forEach((transaction) => {
+        (transaction.tags ?? []).forEach((tag) => {
+          const sanitized = normalizeTagValue(tag);
+          if (sanitized) {
+            combined.add(sanitized);
+          }
+        });
+      });
+      return combined.size === prev.length ? prev : Array.from(combined);
+    });
+  }, [transactions, normalizeTagValue]);
 
   useEffect(() => {
     let isMounted = true;
@@ -273,6 +327,79 @@ export function Transactions() {
 
     setFilters({ [typedName]: value } as Partial<TransactionFilters>);
   };
+
+  const handleAddFilterTag = useCallback(
+    (value: string) => {
+      const sanitized = normalizeTagValue(value);
+      if (!sanitized) {
+        return false;
+      }
+      const exists = filters.tags.some(
+        (tag) => normalizeTagValue(tag).toLowerCase() === sanitized.toLowerCase()
+      );
+      if (exists) {
+        return false;
+      }
+      setFilters({ tags: [...filters.tags, sanitized] });
+      return true;
+    },
+    [filters.tags, normalizeTagValue, setFilters]
+  );
+
+  const handleRemoveFilterTag = useCallback(
+    (tagToRemove: string) => {
+      const normalizedRemove = normalizeTagValue(tagToRemove).toLowerCase();
+      const updated = filters.tags.filter(
+        (tag) => normalizeTagValue(tag).toLowerCase() !== normalizedRemove
+      );
+      setFilters({ tags: updated });
+    },
+    [filters.tags, normalizeTagValue, setFilters]
+  );
+
+  const handleTagFilterKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter" || event.key === ",") {
+        event.preventDefault();
+        if (handleAddFilterTag(tagFilterInput)) {
+          setTagFilterInput("");
+        }
+      } else if (event.key === "Backspace" && !tagFilterInput && filters.tags.length > 0) {
+        event.preventDefault();
+        const updated = filters.tags.slice(0, -1);
+        setFilters({ tags: updated });
+      }
+    },
+    [filters.tags, handleAddFilterTag, setFilters, tagFilterInput]
+  );
+
+  const handleTagFilterBlur = useCallback(() => {
+    if (handleAddFilterTag(tagFilterInput)) {
+      setTagFilterInput("");
+    }
+  }, [handleAddFilterTag, tagFilterInput]);
+
+  const tagFilterSuggestions = useMemo(() => {
+    if (availableTags.length === 0) {
+      return [] as string[];
+    }
+    const normalizedSelected = new Set(
+      filters.tags.map((tag) => normalizeTagValue(tag).toLowerCase())
+    );
+    const searchTerm = normalizeTagValue(tagFilterInput).toLowerCase();
+    return availableTags
+      .filter((tag) => {
+        const normalized = normalizeTagValue(tag).toLowerCase();
+        if (!normalized || normalizedSelected.has(normalized)) {
+          return false;
+        }
+        if (!searchTerm) {
+          return true;
+        }
+        return normalized.includes(searchTerm);
+      })
+      .slice(0, 10);
+  }, [availableTags, filters.tags, normalizeTagValue, tagFilterInput]);
 
   const handleTabChange = (tab: TransactionsTab) => {
     if (tab === activeTab) {
@@ -384,6 +511,7 @@ export function Transactions() {
   };
 
   const handleResetFilters = () => {
+    setTagFilterInput("");
     setFilters({
       search: "",
       start_date: "",
@@ -391,6 +519,7 @@ export function Transactions() {
       type: "",
       category: "",
       sort_by: "date_desc",
+      tags: [],
     });
   };
 
@@ -567,6 +696,57 @@ export function Transactions() {
               <option value="amount_asc">Monto (asc)</option>
             </select>
           </div>
+          <div className="xl:col-span-2">
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
+              Etiquetas
+            </label>
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2">
+              {filters.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-3 py-1 text-xs font-semibold text-sky-600 dark:text-sky-300"
+                >
+                  #{normalizeTagValue(tag)}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveFilterTag(tag)}
+                    className="rounded-full px-1 text-[10px] font-bold text-sky-600 transition hover:text-rose-500 dark:text-sky-200"
+                    aria-label={`Quitar etiqueta ${tag}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              <input
+                type="text"
+                value={tagFilterInput}
+                onChange={(event) => setTagFilterInput(event.target.value.slice(0, 40))}
+                onKeyDown={handleTagFilterKeyDown}
+                onBlur={handleTagFilterBlur}
+                placeholder={filters.tags.length === 0 ? "Ej. viaje-playa-2024" : "Agregar etiqueta"}
+                className="min-w-[140px] flex-1 border-none bg-transparent text-sm text-[var(--app-text)] focus:outline-none"
+              />
+            </div>
+            {tagFilterSuggestions.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted">
+                <span>Sugerencias:</span>
+                {tagFilterSuggestions.map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => {
+                      if (handleAddFilterTag(tag)) {
+                        setTagFilterInput("");
+                      }
+                    }}
+                    className="rounded-full border border-sky-400/70 px-2 py-1 font-semibold text-sky-600 transition hover:border-sky-400 hover:text-sky-500 dark:text-sky-300"
+                  >
+                    #{tag}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
         <div className="mt-4 flex justify-end">
           <button
@@ -695,6 +875,19 @@ export function Transactions() {
                     paginatedTransactions.map((t) => {
                       const isSelected = selectedTransactionIds.includes(t.id);
                       const isIncome = t.type === "Ingreso";
+                      const isTransfer = Boolean(t.is_transfer);
+                      const splits = t.splits ?? [];
+                      const hasSplits = splits.length > 0;
+                      const amountClass = isTransfer
+                        ? "text-muted"
+                        : isIncome
+                          ? "text-emerald-600 dark:text-emerald-300"
+                          : "text-rose-600 dark:text-rose-300";
+                      const typeBadgeClass = isTransfer
+                        ? "bg-indigo-500/15 text-indigo-600 dark:text-indigo-300"
+                        : isIncome
+                          ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
+                          : "bg-rose-500/15 text-rose-600 dark:text-rose-300";
                       return (
                         <tr
                           key={t.id}
@@ -734,6 +927,26 @@ export function Transactions() {
                                   )}
                                 </div>
                               )}
+                              {isTransfer && t.transfer_account_name && (
+                                <span className="text-xs text-muted">
+                                  Transferencia hacia {t.transfer_account_name}
+                                </span>
+                              )}
+                              {t.tags && t.tags.length > 0 && (
+                                <div className="flex flex-wrap gap-2 text-xs text-muted">
+                                  {t.tags.map((tag) => {
+                                    const sanitized = normalizeTagValue(tag);
+                                    return (
+                                      <span
+                                        key={tag}
+                                        className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 font-semibold text-sky-600 dark:text-sky-300"
+                                      >
+                                        #{sanitized || tag}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
                           </td>
                           <td className="px-4 py-3 text-sm text-muted">
@@ -741,26 +954,48 @@ export function Transactions() {
                           </td>
                           <td className="px-4 py-3 text-sm">
                             <span
-                              className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                                isIncome
-                                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
-                                  : "bg-rose-500/15 text-rose-600 dark:text-rose-300"
-                              }`}
+                              className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${typeBadgeClass}`}
                             >
-                              {t.type}
+                              {isTransfer ? "Transferencia" : t.type}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-sm text-muted">
-                            <span className="inline-flex rounded-full bg-[var(--app-surface-muted)] px-3 py-1 text-xs">
-                              {t.category}
-                            </span>
+                            {isTransfer ? (
+                              <div className="space-y-1">
+                                <span className="inline-flex rounded-full bg-[var(--app-surface-muted)] px-3 py-1 text-xs font-semibold text-[var(--app-text)]">
+                                  Transferencia interna
+                                </span>
+                                <span className="block text-xs text-muted">
+                                  Destino: {t.transfer_account_name ?? "Sin cuenta definida"}
+                                </span>
+                              </div>
+                            ) : hasSplits ? (
+                              <div className="space-y-2">
+                                <span className="inline-flex rounded-full bg-[var(--app-surface-muted)] px-3 py-1 text-xs font-semibold text-[var(--app-text)]">
+                                  Múltiples categorías
+                                </span>
+                                <div className="space-y-1 text-xs">
+                                  {splits.map((split, splitIndex) => (
+                                    <div
+                                      key={`${split.category}-${splitIndex}`}
+                                      className="flex items-center justify-between gap-2 text-muted"
+                                    >
+                                      <span className="truncate">{split.category}</span>
+                                      <span className="font-semibold text-[var(--app-text)]">
+                                        {formatCurrency(split.amount)}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="inline-flex rounded-full bg-[var(--app-surface-muted)] px-3 py-1 text-xs">
+                                {t.category}
+                              </span>
+                            )}
                           </td>
                           <td
-                            className={`px-4 py-3 text-right text-sm font-semibold ${
-                              isIncome
-                                ? "text-emerald-600 dark:text-emerald-300"
-                                : "text-rose-600 dark:text-rose-300"
-                            }`}
+                            className={`px-4 py-3 text-right text-sm font-semibold ${amountClass}`}
                           >
                             {formatCurrency(t.amount)}
                           </td>

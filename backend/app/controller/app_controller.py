@@ -3,21 +3,27 @@ import calendar
 import calendar
 import datetime
 import json
-from typing import Optional, List, Dict, Any, Tuple
+from collections import defaultdict
+from typing import Any, Dict, List, Optional, Tuple
+
 from dateutil.relativedelta import relativedelta
-from peewee import fn, JOIN
+from peewee import JOIN, fn, prefetch
 
 # --- Importaciones de Modelos de Datos ---
-from app.model.transaction import Transaction
-from app.model.goal import Goal
-from app.model.debt import Debt
+from app.model.account import Account
 from app.model.budget_entry import BudgetEntry
 from app.model.portfolio_asset import PortfolioAsset
-from app.model.trade import Trade
-from app.model.recurring_transaction import RecurringTransaction
-from app.model.account import Account
-from app.model.parameter import Parameter
 from app.model.budget_rule import BudgetRule
+from app.model.debt import Debt
+from app.model.goal import Goal
+from app.model.recurring_transaction import RecurringTransaction
+from app.model.tag import Tag
+from app.model.parameter import Parameter
+from app.model.trade import Trade
+from app.model.transaction import Transaction
+from app.model.transaction_split import TransactionSplit
+from app.model.transaction_tag import TransactionTag
+from app.model.base_model import db
 
 
 MONTH_LABELS = [
@@ -57,6 +63,117 @@ class AppController:
     # =================================================================
     # --- SECCIÓN: LÓGICA GENERAL Y DE UTILIDAD ---
     # =================================================================
+
+    def _prefetch_transactions(self, query):
+        """Carga relaciones necesarias para trabajar con splits y etiquetas."""
+
+        return list(
+            prefetch(
+                query,
+                Account,
+                TransactionSplit,
+                (TransactionTag, Tag),
+            )
+        )
+
+    @staticmethod
+    def _sanitize_tags(tags: Optional[List[str]]) -> List[str]:
+        """Normaliza una lista de etiquetas eliminando duplicados y espacios."""
+
+        if not tags:
+            return []
+
+        cleaned: List[str] = []
+        seen = set()
+        for tag in tags:
+            name = (tag or "").strip()
+            if not name:
+                continue
+            key = name.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(name)
+        return cleaned
+
+    @staticmethod
+    def _prepare_splits(splits: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        """Filtra y normaliza los detalles de una transacción dividida."""
+
+        if not splits:
+            return []
+
+        prepared: List[Dict[str, Any]] = []
+        for split in splits:
+            category = (split or {}).get("category", "").strip()
+            amount_value = (split or {}).get("amount", 0)
+            try:
+                amount = float(amount_value)
+            except (TypeError, ValueError):
+                amount = 0.0
+
+            if not category or amount <= 0:
+                continue
+
+            prepared.append({"category": category, "amount": amount})
+
+        return prepared
+
+    @staticmethod
+    def _iter_transaction_allocations(transactions: List[Transaction]):
+        """Genera tuplas (transacción, monto, categoría) considerando splits."""
+
+        for transaction in transactions:
+            if getattr(transaction, "is_transfer", False):
+                continue
+
+            split_items = list(getattr(transaction, "splits", []))
+            if split_items:
+                for split in split_items:
+                    amount = float(getattr(split, "amount", 0) or 0)
+                    yield transaction, amount, getattr(split, "category", "")
+            else:
+                amount = float(getattr(transaction, "amount", 0) or 0)
+                yield transaction, amount, getattr(transaction, "category", "")
+
+    def _sync_transaction_splits(
+        self, transaction: Transaction, splits: List[Dict[str, Any]]
+    ) -> None:
+        """Reemplaza los splits asociados a una transacción."""
+
+        TransactionSplit.delete().where(
+            TransactionSplit.transaction == transaction
+        ).execute()
+
+        if not splits:
+            return
+
+        TransactionSplit.insert_many(
+            [
+                {
+                    "transaction": transaction.id,
+                    "category": split["category"],
+                    "amount": split["amount"],
+                }
+                for split in splits
+            ]
+        ).execute()
+
+    def _sync_transaction_tags(
+        self, transaction: Transaction, tags: List[str]
+    ) -> None:
+        """Actualiza las etiquetas vinculadas a una transacción."""
+
+        TransactionTag.delete().where(
+            TransactionTag.transaction == transaction
+        ).execute()
+
+        if not tags:
+            return
+
+        for tag_name in tags:
+            tag, _ = Tag.get_or_create(name=tag_name)
+            TransactionTag.get_or_create(transaction=transaction, tag=tag)
 
     def format_currency(self, value):
         """
@@ -100,7 +217,7 @@ class AppController:
         """Agrega y devuelve todos los datos necesarios para el Dashboard."""
 
         month_list = list(months) if months else []
-        transactions = list(self._get_transactions_for_period(year, month_list))
+        transactions = self._get_transactions_for_period(year, month_list)
 
         kpis = self._get_dashboard_kpis(year, month_list, transactions)
         net_worth_data = self._get_net_worth_data_for_chart()
@@ -137,28 +254,50 @@ class AppController:
         }
         return dashboard_data
 
-    def _get_dashboard_kpis(self, year: int, months: List[int], transactions: Optional[List[Transaction]] = None):
+    def _get_dashboard_kpis(
+        self,
+        year: int,
+        months: List[int],
+        transactions: Optional[List[Transaction]] = None,
+    ):
         """Calcula los KPIs de ingresos, gastos y ahorro para el período seleccionado."""
+
         start_date, end_date = self._get_date_range(year, months)
 
         if transactions is None:
-            transactions = list(
-                Transaction.select().where(
-                    (Transaction.date >= start_date) & (Transaction.date <= end_date)
-                )
+            query = (
+                Transaction.select()
+                .where((Transaction.date >= start_date) & (Transaction.date <= end_date))
+                .order_by(Transaction.date)
             )
+            transactions = self._prefetch_transactions(query)
 
-        income = sum(float(t.amount or 0) for t in transactions if t.type == "Ingreso")
-        expense = sum(abs(float(t.amount or 0)) for t in transactions if t.type != "Ingreso")
+        relevant = [t for t in transactions if not getattr(t, "is_transfer", False)]
+        income = sum(float(t.amount or 0) for t in relevant if t.type == "Ingreso")
+        expense = sum(
+            abs(float(t.amount or 0)) for t in relevant if t.type != "Ingreso"
+        )
         net = income - expense
 
         num_months = len(months) if months else 12
         previous_start = start_date - relativedelta(months=num_months)
         previous_end = start_date - relativedelta(days=1)
 
-        previous_trans = list(Transaction.select().where(Transaction.date.between(previous_start, previous_end)))
-        prev_income = sum(float(t.amount or 0) for t in previous_trans if t.type == "Ingreso")
-        prev_expense = sum(abs(float(t.amount or 0)) for t in previous_trans if t.type != "Ingreso")
+        previous_query = (
+            Transaction.select()
+            .where(Transaction.date.between(previous_start, previous_end))
+            .order_by(Transaction.date)
+        )
+        previous_trans = self._prefetch_transactions(previous_query)
+        prev_relevant = [
+            t for t in previous_trans if not getattr(t, "is_transfer", False)
+        ]
+        prev_income = sum(
+            float(t.amount or 0) for t in prev_relevant if t.type == "Ingreso"
+        )
+        prev_expense = sum(
+            abs(float(t.amount or 0)) for t in prev_relevant if t.type != "Ingreso"
+        )
         prev_net = prev_income - prev_expense
 
         def _comparison(current_value, previous_value):
@@ -178,9 +317,8 @@ class AppController:
 
         accounts = list(Account.select())
         debts = list(Debt.select())
-        transactions = list(
-            Transaction.select()
-            .order_by(Transaction.date.asc(), Transaction.id.asc())
+        transactions = self._prefetch_transactions(
+            Transaction.select().order_by(Transaction.date.asc(), Transaction.id.asc())
         )
 
         account_running: Dict[int, float] = {
@@ -221,6 +359,18 @@ class AppController:
                 amount_abs = abs(amount)
                 tx_type = (tx.type or "").strip().lower()
 
+                if getattr(tx, "is_transfer", False):
+                    source_id = getattr(tx, "account_id", None)
+                    target = getattr(tx, "transfer_account", None)
+                    if source_id:
+                        account_running[source_id] = account_running.get(source_id, 0.0) - amount_abs
+                    if target is not None:
+                        dest_id = getattr(target, "id", None)
+                        if dest_id is not None:
+                            account_running[dest_id] = account_running.get(dest_id, 0.0) + amount_abs
+                    cursor += 1
+                    continue
+
                 if tx.account_id:
                     if tx_type == "ingreso":
                         account_running[tx.account_id] = account_running.get(tx.account_id, 0.0) + amount_abs
@@ -249,7 +399,11 @@ class AppController:
             .select(fn.strftime('%Y-%m', Transaction.date).alias('month'),
                     fn.SUM(Transaction.amount).alias('total'),
                     Transaction.type)
-            .where((Transaction.date >= start_date) & (Transaction.date <= end_date))
+            .where(
+                (Transaction.date >= start_date)
+                & (Transaction.date <= end_date)
+                & (Transaction.is_transfer == False)
+            )
             .group_by(fn.strftime('%Y-%m', Transaction.date), Transaction.type)
             .order_by(fn.strftime('%Y-%m', Transaction.date))
         )
@@ -274,10 +428,16 @@ class AppController:
             "expense": expense_data,
         }
 
-    def _get_transactions_for_period(self, year: int, months: List[int]):
+    def _get_transactions_for_period(self, year: int, months: List[int]) -> List[Transaction]:
         """Obtiene las transacciones dentro del periodo seleccionado."""
+
         start_date, end_date = self._get_date_range(year, months)
-        return Transaction.select().where(Transaction.date.between(start_date, end_date))
+        query = (
+            Transaction.select()
+            .where(Transaction.date.between(start_date, end_date))
+            .order_by(Transaction.date)
+        )
+        return self._prefetch_transactions(query)
 
     def _get_budget_vs_actual_summary(
         self,
@@ -299,8 +459,11 @@ class AppController:
             else:
                 budgeted_expense += amount
 
-        actual_income = sum(float(t.amount or 0) for t in transactions if t.type == 'Ingreso')
-        actual_expense = sum(abs(float(t.amount or 0)) for t in transactions if t.type != 'Ingreso')
+        relevant = [t for t in transactions if not getattr(t, "is_transfer", False)]
+        actual_income = sum(float(t.amount or 0) for t in relevant if t.type == 'Ingreso')
+        actual_expense = sum(
+            abs(float(t.amount or 0)) for t in relevant if t.type != 'Ingreso'
+        )
 
         def _build_summary(budgeted: float, actual: float) -> Dict[str, Optional[float]]:
             execution = (actual / budgeted * 100) if budgeted else None
@@ -328,6 +491,8 @@ class AppController:
 
         totals: Dict[str, float] = defaultdict(float)
         for transaction in transactions:
+            if getattr(transaction, 'is_transfer', False):
+                continue
             if transaction.type == 'Ingreso':
                 continue
             amount = abs(float(transaction.amount or 0))
@@ -375,11 +540,11 @@ class AppController:
         """Distribución de gastos por categoría para gráficas de barras."""
 
         totals: Dict[str, float] = defaultdict(float)
-        for transaction in transactions:
+        for transaction, amount, category in self._iter_transaction_allocations(transactions):
             if transaction.type == 'Ingreso':
                 continue
-            category = transaction.category or 'Sin categoría'
-            totals[category] += abs(float(transaction.amount or 0))
+            label = category or 'Sin categoría'
+            totals[label] += abs(amount)
 
         sorted_items = sorted(totals.items(), key=lambda item: item[1], reverse=True)
         categories = [item[0] for item in sorted_items]
@@ -392,6 +557,8 @@ class AppController:
 
         totals: Dict[str, float] = defaultdict(float)
         for transaction in transactions:
+            if getattr(transaction, 'is_transfer', False):
+                continue
             if transaction.type == 'Ingreso':
                 continue
             label = transaction.type or 'Sin tipo'
@@ -409,34 +576,27 @@ class AppController:
         if year is None:
             year = today.year
 
-        if month:
-            start_date = datetime.date(year, month, 1)
-            end_date = (start_date + relativedelta(months=1)) - datetime.timedelta(days=1)
-        else:
-            start_date = datetime.date(year, 1, 1)
-            end_date = datetime.date(year, 12, 31)
+        month_list = [month] if month else list(range(1, 13))
+        transactions = self._get_transactions_for_period(year, month_list)
 
-        query = (
-            Transaction
-            .select(
-                Transaction.category,
-                Transaction.type,
-                fn.SUM(Transaction.amount).alias('total')
-            )
-            .where((Transaction.date >= start_date) & (Transaction.date <= end_date))
-            .group_by(Transaction.category, Transaction.type)
-        )
+        income_totals: Dict[str, float] = defaultdict(float)
+        expense_totals: Dict[str, float] = defaultdict(float)
 
-        income = []
-        expenses = []
-        for row in query.dicts():
-            amount = float(row['total'] or 0)
-            entry = {"category": row['category'], "amount": abs(amount) if amount is not None else 0}
-            if row['type'] == 'Ingreso':
-                entry["amount"] = amount
-                income.append(entry)
+        for transaction, amount, category in self._iter_transaction_allocations(transactions):
+            label = category or 'Sin categoría'
+            if transaction.type == 'Ingreso':
+                income_totals[label] += amount
             else:
-                expenses.append(entry)
+                expense_totals[label] += abs(amount)
+
+        income = [
+            {"category": category, "amount": total}
+            for category, total in income_totals.items()
+        ]
+        expenses = [
+            {"category": category, "amount": total}
+            for category, total in expense_totals.items()
+        ]
 
         income.sort(key=lambda item: item["amount"], reverse=True)
         expenses.sort(key=lambda item: item["amount"], reverse=True)
@@ -461,7 +621,7 @@ class AppController:
             year = today.year
 
         month_list = sorted(set(months)) if months else list(range(1, 13))
-        transactions = list(self._get_transactions_for_period(year, month_list))
+        transactions = self._get_transactions_for_period(year, month_list)
 
         annual_expense_report = self._build_annual_expense_report(year, month_list)
         budget_analysis = self._build_budget_analysis(year, month_list, transactions)
@@ -480,36 +640,22 @@ class AppController:
     def _build_annual_expense_report(self, year: int, months: List[int]) -> Dict[str, Any]:
         """Genera una tabla de gastos anuales agrupados por categoría y mes."""
 
-        start_date, end_date = self._get_date_range(year, months)
         month_list = sorted(set(months)) if months else list(range(1, 13))
-
-        category_field = fn.COALESCE(Transaction.category, 'Sin categoría').alias('category_name')
-        month_field = fn.strftime('%m', Transaction.date).alias('month')
-
-        query = (
-            Transaction.select(
-                category_field,
-                month_field,
-                fn.SUM(Transaction.amount).alias('total'),
-            )
-            .where(
-                (Transaction.date.between(start_date, end_date))
-                & (Transaction.type != 'Ingreso')
-            )
-            .group_by(category_field, month_field)
-        )
+        transactions = self._get_transactions_for_period(year, month_list)
 
         rows: Dict[str, Dict[int, float]] = defaultdict(lambda: defaultdict(float))
         monthly_totals: Dict[int, float] = defaultdict(float)
 
-        for item in query.dicts():
-            category = item.get('category_name') or 'Sin categoría'
-            month_number = int(item.get('month') or 0)
+        for transaction, amount, category in self._iter_transaction_allocations(transactions):
+            if transaction.type == 'Ingreso':
+                continue
+            month_number = int(transaction.date.month)
             if month_number not in month_list:
                 continue
-            amount = abs(float(item.get('total') or 0.0))
-            rows[category][month_number] += amount
-            monthly_totals[month_number] += amount
+            label = category or 'Sin categoría'
+            value = abs(amount)
+            rows[label][month_number] += value
+            monthly_totals[month_number] += value
 
         ordered_months = month_list
         month_headers = [
@@ -568,6 +714,8 @@ class AppController:
 
         actual_totals: Dict[str, float] = defaultdict(float)
         for transaction in transactions:
+            if getattr(transaction, 'is_transfer', False):
+                continue
             if transaction.type == 'Ingreso':
                 continue
             rule = type_to_rule.get(transaction.type)
@@ -655,6 +803,8 @@ class AppController:
 
         monthly_net: Dict[int, float] = defaultdict(float)
         for transaction in transactions:
+            if getattr(transaction, 'is_transfer', False):
+                continue
             month = int(transaction.date.month)
             amount = float(transaction.amount or 0)
             if transaction.type == 'Ingreso':
@@ -824,7 +974,7 @@ class AppController:
     # =================================================================
 
     def get_transactions_data(self, filters=None):
-        query = Transaction.select(Transaction, Account).join(Account)
+        query = Transaction.select()
 
         if filters:
             if filters.get('search'):
@@ -836,18 +986,56 @@ class AppController:
             if filters.get('type'):
                 query = query.where(Transaction.type == filters['type'])
             if filters.get('category'):
-                query = query.where(Transaction.category == filters['category'])
+                category_value = filters['category']
+                split_match = (
+                    TransactionSplit.select(TransactionSplit.transaction_id)
+                    .where(TransactionSplit.category == category_value)
+                )
+                query = query.where(
+                    (Transaction.category == category_value)
+                    | (Transaction.id.in_(split_match))
+                )
+            if filters.get('tags'):
+                tags = [tag for tag in filters['tags'] if tag]
+                if tags:
+                    tag_match = (
+                        TransactionTag.select(TransactionTag.transaction_id)
+                        .join(Tag)
+                        .where(Tag.name.in_(tags))
+                    )
+                    query = query.where(Transaction.id.in_(tag_match))
 
-            sortBy = filters.get('sort_by', 'date_desc')
-            if sortBy == 'date_asc': query = query.order_by(Transaction.date.asc())
-            elif sortBy == 'amount_desc': query = query.order_by(Transaction.amount.desc())
-            elif sortBy == 'amount_asc': query = query.order_by(Transaction.amount.asc())
-            else: query = query.order_by(Transaction.date.desc())
+            sort_by = filters.get('sort_by', 'date_desc')
+            if sort_by == 'date_asc':
+                query = query.order_by(Transaction.date.asc(), Transaction.id.asc())
+            elif sort_by == 'amount_desc':
+                query = query.order_by(Transaction.amount.desc(), Transaction.id.desc())
+            elif sort_by == 'amount_asc':
+                query = query.order_by(Transaction.amount.asc(), Transaction.id.asc())
+            else:
+                query = query.order_by(Transaction.date.desc(), Transaction.id.desc())
         else:
-            query = query.order_by(Transaction.date.desc())
-            
+            query = query.order_by(Transaction.date.desc(), Transaction.id.desc())
+
+        transactions = self._prefetch_transactions(query)
+
         results = []
-        for transaction in query:
+        for transaction in transactions:
+            account = transaction.account
+            splits = [
+                {
+                    "category": split.category,
+                    "amount": float(split.amount or 0),
+                }
+                for split in getattr(transaction, 'splits', [])
+            ]
+            tags = [
+                link.tag.name
+                for link in getattr(transaction, 'tag_links', [])
+                if link.tag is not None
+            ]
+            transfer_account = getattr(transaction, 'transfer_account', None)
+
             transaction_data = {
                 "id": transaction.id,
                 "date": transaction.date.isoformat(),
@@ -855,15 +1043,29 @@ class AppController:
                 "amount": float(transaction.amount or 0),
                 "type": transaction.type,
                 "category": transaction.category,
-                "account_id": transaction.account.id,
-                "account": transaction.account.__data__,
+                "account_id": transaction.account_id,
+                "account": account.__data__ if account else None,
                 "goal_id": transaction.goal.id if transaction.goal else None,
                 "goal_name": transaction.goal.name if transaction.goal else None,
                 "debt_id": transaction.debt.id if transaction.debt else None,
                 "debt_name": transaction.debt.name if transaction.debt else None,
+                "is_transfer": bool(transaction.is_transfer),
+                "transfer_account_id": getattr(transfer_account, 'id', None),
+                "transfer_account_name": getattr(transfer_account, 'name', None),
+                "splits": splits,
+                "tags": tags,
             }
             results.append(transaction_data)
         return results
+
+
+    def get_all_tags(self) -> List[Dict[str, Any]]:
+        """Devuelve todas las etiquetas disponibles ordenadas alfabéticamente."""
+
+        return [
+            {"id": tag.id, "name": tag.name}
+            for tag in Tag.select().order_by(Tag.name.asc())
+        ]
 
 
     def get_recurring_transactions(self):
@@ -983,100 +1185,214 @@ class AppController:
             frequency = data.pop('frequency', None)
             day_of_month = data.pop('day_of_month', None)
 
+            splits_payload = self._prepare_splits(data.pop('splits', None))
+            tags_payload = self._sanitize_tags(data.pop('tags', None))
+
             amount = float(data['amount'])
-            account = Account.get_by_id(data['account_id'])
-            if data['type'] == 'Ingreso': account.current_balance += amount
-            else: account.current_balance -= amount
-            account.save()
-            
+            if amount <= 0:
+                return {"error": "El monto debe ser mayor a cero."}
+
+            if splits_payload:
+                total_splits = sum(split['amount'] for split in splits_payload)
+                if abs(total_splits - amount) > 0.01:
+                    return {"error": "La suma de las divisiones debe coincidir con el monto total."}
+                data['category'] = data.get('category') or 'Múltiples categorías'
+
+            is_transfer = bool(data.get('is_transfer'))
+            transfer_account_value = data.get('transfer_account_id')
+
+            if is_transfer:
+                if not transfer_account_value:
+                    return {"error": "Selecciona la cuenta de destino de la transferencia."}
+                if int(transfer_account_value) == int(data['account_id']):
+                    return {"error": "La cuenta de origen y destino deben ser diferentes."}
+                data['type'] = 'Transferencia'
+                data['category'] = data.get('category') or 'Transferencia interna'
+                data['goal_id'] = None
+                data['debt_id'] = None
+            else:
+                data['is_transfer'] = False
+                data['transfer_account_id'] = None
+
             goal_value = data.get('goal_id')
             debt_value = data.get('debt_id')
-
             goal_id = int(goal_value) if goal_value not in (None, "", 0) else None
             debt_id = int(debt_value) if debt_value not in (None, "", 0) else None
-
             data['goal_id'] = goal_id
             data['debt_id'] = debt_id
 
-            transaction = Transaction.create(**data)
+            with db.atomic():
+                account = Account.get_by_id(data['account_id'])
 
-            if goal_id:
-                self._adjust_goal_progress(goal_id, amount)
-            if debt_id:
-                self._adjust_debt_balance(debt_id, amount)
+                if is_transfer:
+                    destination = Account.get_by_id(int(transfer_account_value))
+                    account.current_balance -= amount
+                    destination.current_balance += amount
+                    account.save()
+                    if destination.id != account.id:
+                        destination.save()
+                    data['is_transfer'] = True
+                    data['transfer_account_id'] = destination.id
+                else:
+                    if data['type'] == 'Ingreso':
+                        account.current_balance += amount
+                    else:
+                        account.current_balance -= amount
+                    account.save()
 
-            if is_recurring:
-                RecurringTransaction.create(
-                    description=data['description'], amount=amount, type=data['type'],
-                    category=data['category'], frequency=frequency, day_of_month=day_of_month,
-                    start_date=data['date'], last_processed_date=data['date']
-                )
+                transaction = Transaction.create(**data)
+
+                if not is_transfer:
+                    if goal_id:
+                        self._adjust_goal_progress(goal_id, amount)
+                    if debt_id:
+                        self._adjust_debt_balance(debt_id, amount)
+
+                self._sync_transaction_splits(transaction, splits_payload)
+                self._sync_transaction_tags(transaction, tags_payload)
+
+                if is_recurring:
+                    RecurringTransaction.create(
+                        description=data['description'],
+                        amount=amount,
+                        type=data['type'],
+                        category=data['category'],
+                        frequency=frequency,
+                        day_of_month=day_of_month,
+                        start_date=data['date'],
+                        last_processed_date=data['date'],
+                    )
+
             return transaction.__data__
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             return {"error": f"Datos inválidos: {e}"}
 
     def update_transaction(self, transaction_id, data):
         try:
-            original_transaction = Transaction.get_by_id(transaction_id)
-            
-            original_account = Account.get_by_id(original_transaction.account_id)
-            if original_transaction.type == 'Ingreso':
-                original_account.current_balance -= original_transaction.amount
+            splits_payload = self._prepare_splits(data.pop('splits', None))
+            tags_payload = self._sanitize_tags(data.pop('tags', None))
+
+            amount = float(data['amount'])
+            if amount <= 0:
+                return {"error": "El monto debe ser mayor a cero."}
+
+            if splits_payload:
+                total_splits = sum(split['amount'] for split in splits_payload)
+                if abs(total_splits - amount) > 0.01:
+                    return {"error": "La suma de las divisiones debe coincidir con el monto total."}
+                data['category'] = data.get('category') or 'Múltiples categorías'
+
+            is_transfer = bool(data.get('is_transfer'))
+            transfer_account_value = data.get('transfer_account_id')
+            if is_transfer:
+                if not transfer_account_value:
+                    return {"error": "Selecciona la cuenta de destino de la transferencia."}
+                if int(transfer_account_value) == int(data['account_id']):
+                    return {"error": "La cuenta de origen y destino deben ser diferentes."}
+                data['type'] = 'Transferencia'
+                data['category'] = data.get('category') or 'Transferencia interna'
+                data['goal_id'] = None
+                data['debt_id'] = None
             else:
-                original_account.current_balance += original_transaction.amount
-
-            self._adjust_goal_progress(
-                original_transaction.goal_id, -float(original_transaction.amount or 0)
-            )
-            self._adjust_debt_balance(
-                original_transaction.debt_id, -float(original_transaction.amount or 0)
-            )
-
-            new_account = Account.get_by_id(data['account_id'])
-            new_amount = float(data['amount'])
-            if data['type'] == 'Ingreso':
-                new_account.current_balance += new_amount
-            else:
-                new_account.current_balance -= new_amount
-
-            original_account.save()
-            if original_account.id != new_account.id:
-                new_account.save()
+                data['is_transfer'] = False
+                data['transfer_account_id'] = None
 
             goal_value = data.get('goal_id')
             debt_value = data.get('debt_id')
-
             goal_id = int(goal_value) if goal_value not in (None, "", 0) else None
             debt_id = int(debt_value) if debt_value not in (None, "", 0) else None
-
             data['goal_id'] = goal_id
             data['debt_id'] = debt_id
 
-            Transaction.update(**data).where(Transaction.id == transaction_id).execute()
+            with db.atomic():
+                original_transaction = Transaction.get_by_id(transaction_id)
+                original_amount = float(original_transaction.amount or 0)
 
-            if goal_id:
-                self._adjust_goal_progress(goal_id, new_amount)
-            if debt_id:
-                self._adjust_debt_balance(debt_id, new_amount)
+                if original_transaction.is_transfer:
+                    source_account = original_transaction.account
+                    target_account = original_transaction.transfer_account
+                    if source_account:
+                        source_account.current_balance += original_amount
+                        source_account.save()
+                    if target_account:
+                        target_account.current_balance -= original_amount
+                        target_account.save()
+                else:
+                    original_account = Account.get_by_id(original_transaction.account_id)
+                    if original_transaction.type == 'Ingreso':
+                        original_account.current_balance -= original_amount
+                    else:
+                        original_account.current_balance += original_amount
+                    original_account.save()
 
-            updated = Transaction.get_by_id(transaction_id)
+                    self._adjust_goal_progress(
+                        original_transaction.goal_id,
+                        -original_amount,
+                    )
+                    self._adjust_debt_balance(
+                        original_transaction.debt_id,
+                        -original_amount,
+                    )
+
+                new_account = Account.get_by_id(data['account_id'])
+
+                if is_transfer:
+                    destination = Account.get_by_id(int(transfer_account_value))
+                    new_account.current_balance -= amount
+                    destination.current_balance += amount
+                    new_account.save()
+                    if destination.id != new_account.id:
+                        destination.save()
+                    data['is_transfer'] = True
+                    data['transfer_account_id'] = destination.id
+                else:
+                    if data['type'] == 'Ingreso':
+                        new_account.current_balance += amount
+                    else:
+                        new_account.current_balance -= amount
+                    new_account.save()
+
+                Transaction.update(**data).where(Transaction.id == transaction_id).execute()
+                updated = Transaction.get_by_id(transaction_id)
+
+                self._sync_transaction_splits(updated, splits_payload)
+                self._sync_transaction_tags(updated, tags_payload)
+
+                if not is_transfer:
+                    if goal_id:
+                        self._adjust_goal_progress(goal_id, amount)
+                    if debt_id:
+                        self._adjust_debt_balance(debt_id, amount)
+
             return updated.__data__
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             return {"error": f"Error al actualizar: {e}"}
 
     def delete_transaction(self, transaction_id, adjust_balance: bool = False):
         try:
             transaction = Transaction.get_by_id(transaction_id)
             if adjust_balance:
-                account = transaction.account
-                if transaction.type == 'Ingreso':
-                    account.current_balance -= transaction.amount
+                amount = float(transaction.amount or 0)
+                if transaction.is_transfer:
+                    source_account = transaction.account
+                    target_account = transaction.transfer_account
+                    if source_account:
+                        source_account.current_balance += amount
+                        source_account.save()
+                    if target_account:
+                        target_account.current_balance -= amount
+                        target_account.save()
                 else:
-                    account.current_balance += transaction.amount
-                account.save()
+                    account = transaction.account
+                    if transaction.type == 'Ingreso':
+                        account.current_balance -= amount
+                    else:
+                        account.current_balance += amount
+                    account.save()
 
-            self._adjust_goal_progress(transaction.goal_id, -float(transaction.amount or 0))
-            self._adjust_debt_balance(transaction.debt_id, -float(transaction.amount or 0))
+            if not transaction.is_transfer:
+                self._adjust_goal_progress(transaction.goal_id, -float(transaction.amount or 0))
+                self._adjust_debt_balance(transaction.debt_id, -float(transaction.amount or 0))
             transaction.delete_instance()
             return {"success": True}
         except Transaction.DoesNotExist:

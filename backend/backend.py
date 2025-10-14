@@ -71,15 +71,30 @@ class AccountUpdateModel(BaseModel):
     initial_balance: Optional[float] = None
     current_balance: Optional[float] = None
 
+
+class TransactionSplitModel(BaseModel):
+    category: constr(strip_whitespace=True, min_length=1, max_length=100)
+    amount: float
+
+    @field_validator("amount")
+    @classmethod
+    def validate_split_amount(cls, value: float):
+        return enforce_digit_limit(value, "amount")
+
+
 class TransactionModel(BaseModel):
     description: constr(max_length=100)
     amount: float
     date: datetime.date
     type: str
-    category: str
+    category: Optional[str] = None
     account_id: int
     goal_id: Optional[int] = None
     debt_id: Optional[int] = None
+    is_transfer: bool = False
+    transfer_account_id: Optional[int] = None
+    splits: Optional[List[TransactionSplitModel]] = None
+    tags: Optional[List[constr(strip_whitespace=True, max_length=40)]] = None
 
     @field_validator("amount")
     @classmethod
@@ -375,6 +390,10 @@ def get_transactions(
         default=None, alias="type", description="Tipo de transacción"
     ),
     category: Optional[str] = Query(default=None, description="Categoría de la transacción"),
+    tags: Optional[str] = Query(
+        default=None,
+        description="Lista de etiquetas separadas por coma para filtrar",
+    ),
     sort_by: Optional[str] = Query(default="date_desc", description="Ordenamiento deseado"),
 ):
     filters: Dict[str, Any] = {}
@@ -389,6 +408,8 @@ def get_transactions(
         filters["type"] = transaction_type
     if category:
         filters["category"] = category
+    if tags:
+        filters["tags"] = [tag.strip() for tag in tags.split(",") if tag.strip()]
     if sort_by:
         filters["sort_by"] = sort_by
 
@@ -398,6 +419,11 @@ def get_transactions(
 @app.get("/api/recurring-transactions", response_model=List[RecurringTransactionModel])
 def list_recurring_transactions():
     return controller.get_recurring_transactions()
+
+
+@app.get("/api/tags")
+def list_tags():
+    return controller.get_all_tags()
 
 
 @app.get("/api/dashboard")

@@ -11,12 +11,18 @@ from app.model.goal import Goal
 from app.model.parameter import Parameter
 from app.model.portfolio_asset import PortfolioAsset
 from app.model.recurring_transaction import RecurringTransaction
+from app.model.tag import Tag
 from app.model.trade import Trade
 from app.model.transaction import Transaction
+from app.model.transaction_split import TransactionSplit
+from app.model.transaction_tag import TransactionTag
 
 # Every model that requires a table created on startup.
 MODELS = [
     Transaction,
+    TransactionSplit,
+    TransactionTag,
+    Tag,
     Goal,
     Debt,
     BudgetEntry,
@@ -27,6 +33,26 @@ MODELS = [
     Parameter,
     BudgetRule,
 ]
+
+
+def ensure_transaction_enhancements() -> None:
+    """Add new transaction columns required for transfers if missing."""
+
+    table_name = Transaction._meta.table_name
+    existing_columns = {
+        column_info[1]
+        for column_info in db.execute_sql(f"PRAGMA table_info({table_name})").fetchall()
+    }
+
+    if "is_transfer" not in existing_columns:
+        db.execute_sql(
+            f"ALTER TABLE {table_name} ADD COLUMN is_transfer INTEGER DEFAULT 0"
+        )
+
+    if "transfer_account_id" not in existing_columns:
+        db.execute_sql(
+            f"ALTER TABLE {table_name} ADD COLUMN transfer_account_id INTEGER"
+        )
 
 
 def ensure_budget_entry_links() -> None:
@@ -122,6 +148,22 @@ def seed_initial_parameters() -> None:
     print("Initial parameters seeded with parent-child relationships.")
 
 
+def ensure_transfer_transaction_type() -> None:
+    """Guarantee that the transfer type exists even on existing databases."""
+
+    exists = Parameter.select().where(
+        (Parameter.group == "Tipo de Transacción")
+        & (Parameter.value == "Transferencia")
+    ).exists()
+
+    if not exists:
+        Parameter.create(
+            group="Tipo de Transacción",
+            value="Transferencia",
+            is_deletable=False,
+        )
+
+
 def initialize_database() -> None:
     """Connect to the database, create tables, and seed initial data."""
 
@@ -133,9 +175,11 @@ def initialize_database() -> None:
         db.create_tables(MODELS, safe=True)
         print("Tables created successfully (if they didn't exist).")
 
+        ensure_transaction_enhancements()
         ensure_budget_entry_links()
         seed_initial_budget_rules()
         seed_initial_parameters()
+        ensure_transfer_transaction_type()
 
         print("Database initialization complete.")
     except OperationalError as exc:

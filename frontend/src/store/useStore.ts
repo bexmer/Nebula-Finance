@@ -4,6 +4,11 @@ import axios from "axios";
 import { apiPath } from "../utils/api";
 
 // Define la "forma" de una transacción para usarla en toda la app
+export interface TransactionSplit {
+  category: string;
+  amount: number;
+}
+
 export interface Transaction {
   id: number;
   date: string;
@@ -17,6 +22,11 @@ export interface Transaction {
   debt_id?: number | null;
   goal_name?: string | null;
   debt_name?: string | null;
+  is_transfer?: boolean;
+  transfer_account_id?: number | null;
+  transfer_account_name?: string | null;
+  splits?: TransactionSplit[];
+  tags?: string[];
 }
 
 export interface TransactionPrefill {
@@ -37,6 +47,7 @@ export interface TransactionFilters {
   type: string;
   category: string;
   sort_by: string;
+  tags: string[];
 }
 
 // Define la "forma" de nuestro almacén de estado global
@@ -70,6 +81,7 @@ const defaultFilters: TransactionFilters = {
   type: "",
   category: "",
   sort_by: "date_desc",
+  tags: [],
 };
 
 export const useStore = create<AppState>((set, get) => ({
@@ -96,7 +108,19 @@ export const useStore = create<AppState>((set, get) => ({
 
     try {
       const params = Object.fromEntries(
-        Object.entries(filtersForRequest).filter(([, value]) => value !== "")
+        Object.entries(filtersForRequest)
+          .filter(([key, value]) => {
+            if (key === "tags") {
+              return Array.isArray(value) && value.length > 0;
+            }
+            return value !== "";
+          })
+          .map(([key, value]) => {
+            if (key === "tags" && Array.isArray(value)) {
+              return [key, value.join(",")];
+            }
+            return [key, value];
+          })
       );
 
       const response = await axios.get<Transaction[]>(apiPath("/transactions"), {
