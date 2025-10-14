@@ -5,6 +5,10 @@ import { Pencil, RefreshCcw, Trash2 } from "lucide-react";
 
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 import { apiPath } from "../utils/api";
+import {
+  getTodayDateInputValue,
+  normalizeDateInputValue,
+} from "../utils/date";
 
 interface PortfolioSummary {
   symbol: string;
@@ -44,7 +48,7 @@ export function Portfolio() {
     type: "buy",
     quantity: "",
     price: "",
-    date: new Date().toISOString().slice(0, 10),
+    date: getTodayDateInputValue(),
   });
 
   const [summary, setSummary] = useState<PortfolioSummary[]>([]);
@@ -183,7 +187,7 @@ export function Portfolio() {
       type: trade.type,
       quantity: trade.quantity.toString(),
       price: trade.price.toString(),
-      date: trade.date,
+      date: normalizeDateInputValue(trade.date),
     };
     setFormState(nextState);
     setInitialSnapshot(nextState);

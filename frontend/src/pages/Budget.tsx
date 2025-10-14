@@ -13,6 +13,7 @@ import { BudgetModal } from "../components/BudgetModal";
 import { useStore } from "../store/useStore";
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 import { apiPath } from "../utils/api";
+import { normalizeDateInputValue } from "../utils/date";
 
 interface BudgetEntry {
   id: number;
@@ -257,7 +258,7 @@ export function Budget() {
       {
         description: entry.description || `Pago de ${entry.category}`,
         amount: entry.amount,
-        date: entryDate.toISOString().split("T")[0],
+        date: normalizeDateInputValue(entryDate),
         type: entry.type || "Gasto",
         category: entry.category,
         goal_id: entry.goal_id ?? undefined,

@@ -1,9 +1,13 @@
 import { useState, useEffect } from "react";
 import Modal from "react-modal";
 import axios from "axios";
-import { useStore, Transaction } from "../store/useStore";
+import { Transaction } from "../store/useStore";
 
 import { apiPath } from "../utils/api";
+import {
+  getTodayDateInputValue,
+  normalizeDateInputValue,
+} from "../utils/date";
 
 // --- Interfaces para los datos que cargaremos para los desplegables ---
 interface Account {
@@ -58,7 +62,7 @@ export function AddTransactionModal({
   // Estados para cada campo del formulario
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [date, setDate] = useState(getTodayDateInputValue());
   const [type, setType] = useState("Gasto");
   const [category, setCategory] = useState("");
   const [accountId, setAccountId] = useState<number | string>("");
@@ -94,7 +98,7 @@ export function AddTransactionModal({
     if (transaction) {
       setDescription(transaction.description);
       setAmount(String(transaction.amount));
-      setDate(new Date(transaction.date).toISOString().split("T")[0]);
+      setDate(normalizeDateInputValue(transaction.date));
       setType(transaction.type);
       setCategory(transaction.category);
       setAccountId(transaction.account_id);
@@ -104,7 +108,7 @@ export function AddTransactionModal({
       // Resetea el formulario si estamos en modo "Crear"
       setDescription("");
       setAmount("");
-      setDate(new Date().toISOString().split("T")[0]);
+      setDate(getTodayDateInputValue());
       setType("Gasto");
       setCategory("");
       setAccountId("");

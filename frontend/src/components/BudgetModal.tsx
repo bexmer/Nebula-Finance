@@ -12,6 +12,10 @@ import {
 } from "lucide-react";
 
 import { apiPath } from "../utils/api";
+import {
+  getTodayDateInputValue,
+  normalizeDateInputValue,
+} from "../utils/date";
 
 Modal.setAppElement("#root");
 
@@ -60,7 +64,7 @@ interface BudgetFormState {
 const createEmptyForm = (): BudgetFormState => ({
   description: "",
   amount: "",
-  due_date: new Date().toISOString().split("T")[0],
+  due_date: getTodayDateInputValue(),
   typeId: "",
   typeValue: "",
   categoryValue: "",
@@ -128,16 +132,16 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
 
   const resolveDueDate = (record: BudgetEntry | null) => {
     if (!record) {
-      return new Date().toISOString().split("T")[0];
+      return getTodayDateInputValue();
     }
     if (record.due_date) {
-      return record.due_date.split("T")[0];
+      return normalizeDateInputValue(record.due_date);
     }
     if (record.year && record.month) {
       const normalized = new Date(record.year, record.month - 1, 1);
-      return normalized.toISOString().split("T")[0];
+      return normalizeDateInputValue(normalized);
     }
-    return new Date().toISOString().split("T")[0];
+    return getTodayDateInputValue();
   };
 
   const loadModalData = useCallback(async () => {

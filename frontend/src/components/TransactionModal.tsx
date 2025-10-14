@@ -4,6 +4,10 @@ import axios from "axios";
 import { useStore, TransactionSplit as TransactionSplitData } from "../store/useStore";
 import { apiPath } from "../utils/api";
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
+import {
+  getTodayDateInputValue,
+  normalizeDateInputValue,
+} from "../utils/date";
 
 interface SelectOption {
   id: number;
@@ -24,7 +28,7 @@ interface SplitRow {
 const initialState = {
   description: "",
   amount: "",
-  date: new Date().toISOString().split("T")[0],
+  date: getTodayDateInputValue(),
   typeId: "",
   categoryValue: "",
   account_id: "",
@@ -339,7 +343,7 @@ export const TransactionModal = () => {
       let nextCategories: ParameterOption[] = [];
       let nextFormState = {
         ...initialState,
-        date: new Date().toISOString().split("T")[0],
+        date: getTodayDateInputValue(),
       };
       let transactionTags: string[] = [];
 
@@ -354,7 +358,7 @@ export const TransactionModal = () => {
             ...nextFormState,
             description: editingTransaction.description,
             amount: String(editingTransaction.amount),
-            date: new Date(editingTransaction.date).toISOString().split("T")[0],
+            date: normalizeDateInputValue(editingTransaction.date),
             account_id: String(editingTransaction.account_id),
             typeId: String(typeObject.id),
             categoryValue: editingTransaction.category,
@@ -370,7 +374,7 @@ export const TransactionModal = () => {
             ...nextFormState,
             description: editingTransaction.description,
             amount: String(editingTransaction.amount),
-            date: new Date(editingTransaction.date).toISOString().split("T")[0],
+            date: normalizeDateInputValue(editingTransaction.date),
             account_id: String(editingTransaction.account_id),
             goal_id: String(editingTransaction.goal_id || ""),
             debt_id: String(editingTransaction.debt_id || ""),
@@ -406,7 +410,7 @@ export const TransactionModal = () => {
         setInitialSplits(splitsFromTransaction as TransactionSplitData[]);
       } else if (transactionPrefill) {
         const normalizedDate = transactionPrefill.date
-          ? new Date(transactionPrefill.date).toISOString().split("T")[0]
+          ? normalizeDateInputValue(transactionPrefill.date, nextFormState.date)
           : nextFormState.date;
 
         nextFormState = {
