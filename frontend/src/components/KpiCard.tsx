@@ -29,7 +29,7 @@ const VARIANT_STYLES: Record<
   }
 > = {
   slate: {
-    card: "app-card relative overflow-hidden p-6",
+    card: "app-card relative overflow-hidden p-5",
     title: "text-sm font-medium text-muted",
     value: "mt-3 text-3xl font-semibold text-slate-900 dark:text-slate-100",
     iconWrapper:
@@ -42,7 +42,7 @@ const VARIANT_STYLES: Record<
   },
   emerald: {
     card:
-      "relative overflow-hidden rounded-2xl border border-emerald-200/70 bg-gradient-to-br from-emerald-400 via-emerald-500 to-emerald-600 p-6 text-emerald-50 shadow-xl shadow-emerald-500/30 dark:border-emerald-500/40",
+      "relative overflow-hidden rounded-2xl border border-emerald-200/70 bg-gradient-to-br from-emerald-400 via-emerald-500 to-emerald-600 p-5 text-emerald-50 shadow-xl shadow-emerald-500/30 dark:border-emerald-500/40",
     title: "text-sm font-semibold uppercase tracking-wide text-emerald-50/80",
     value: "mt-3 text-3xl font-semibold text-white",
     iconWrapper:
@@ -55,7 +55,7 @@ const VARIANT_STYLES: Record<
   },
   rose: {
     card:
-      "relative overflow-hidden rounded-2xl border border-rose-200/70 bg-gradient-to-br from-rose-400 via-orange-400 to-rose-500 p-6 text-rose-50 shadow-xl shadow-rose-500/30 dark:border-rose-500/40",
+      "relative overflow-hidden rounded-2xl border border-rose-200/70 bg-gradient-to-br from-rose-400 via-orange-400 to-rose-500 p-5 text-rose-50 shadow-xl shadow-rose-500/30 dark:border-rose-500/40",
     title: "text-sm font-semibold uppercase tracking-wide text-rose-50/80",
     value: "mt-3 text-3xl font-semibold text-white",
     iconWrapper:
@@ -68,7 +68,7 @@ const VARIANT_STYLES: Record<
   },
   indigo: {
     card:
-      "relative overflow-hidden rounded-2xl border border-indigo-200/70 bg-gradient-to-br from-sky-400 via-indigo-500 to-indigo-600 p-6 text-indigo-50 shadow-xl shadow-indigo-500/30 dark:border-indigo-500/40",
+      "relative overflow-hidden rounded-2xl border border-indigo-200/70 bg-gradient-to-br from-sky-400 via-indigo-500 to-indigo-600 p-5 text-indigo-50 shadow-xl shadow-indigo-500/30 dark:border-indigo-500/40",
     title: "text-sm font-semibold uppercase tracking-wide text-indigo-50/80",
     value: "mt-3 text-3xl font-semibold text-white",
     iconWrapper:
