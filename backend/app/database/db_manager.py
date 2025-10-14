@@ -20,9 +20,9 @@ from app.model.transaction_tag import TransactionTag
 # Every model that requires a table created on startup.
 MODELS = [
     Transaction,
+    Tag,
     TransactionSplit,
     TransactionTag,
-    Tag,
     Goal,
     Debt,
     BudgetEntry,
@@ -35,23 +35,29 @@ MODELS = [
 ]
 
 
+def _existing_columns(table_name: str) -> set[str]:
+    """Return the existing column names for a given table."""
+
+    try:
+        return {column.name for column in db.get_columns(table_name)}
+    except OperationalError:
+        return set()
+
+
 def ensure_transaction_enhancements() -> None:
     """Add new transaction columns required for transfers if missing."""
 
     table_name = Transaction._meta.table_name
-    existing_columns = {
-        column_info[1]
-        for column_info in db.execute_sql(f"PRAGMA table_info({table_name})").fetchall()
-    }
+    existing_columns = _existing_columns(table_name)
 
     if "is_transfer" not in existing_columns:
         db.execute_sql(
-            f"ALTER TABLE {table_name} ADD COLUMN is_transfer INTEGER DEFAULT 0"
+            f'ALTER TABLE "{table_name}" ADD COLUMN is_transfer INTEGER DEFAULT 0'
         )
 
     if "transfer_account_id" not in existing_columns:
         db.execute_sql(
-            f"ALTER TABLE {table_name} ADD COLUMN transfer_account_id INTEGER"
+            f'ALTER TABLE "{table_name}" ADD COLUMN transfer_account_id INTEGER'
         )
 
 
@@ -59,16 +65,13 @@ def ensure_budget_entry_links() -> None:
     """Ensure budget entries can optionally reference a goal or debt."""
 
     table_name = BudgetEntry._meta.table_name
-    existing_columns = {
-        column_info[1]
-        for column_info in db.execute_sql(f"PRAGMA table_info({table_name})").fetchall()
-    }
+    existing_columns = _existing_columns(table_name)
 
     if "goal_id" not in existing_columns:
-        db.execute_sql(f"ALTER TABLE {table_name} ADD COLUMN goal_id INTEGER")
+        db.execute_sql(f'ALTER TABLE "{table_name}" ADD COLUMN goal_id INTEGER')
 
     if "debt_id" not in existing_columns:
-        db.execute_sql(f"ALTER TABLE {table_name} ADD COLUMN debt_id INTEGER")
+        db.execute_sql(f'ALTER TABLE "{table_name}" ADD COLUMN debt_id INTEGER')
 
 
 def seed_initial_budget_rules() -> None:
