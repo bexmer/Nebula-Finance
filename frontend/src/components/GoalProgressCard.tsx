@@ -1,4 +1,5 @@
 import { Pencil, Trash2 } from "lucide-react";
+import type { CSSProperties } from "react";
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 
 export interface GoalData {
@@ -18,6 +19,10 @@ interface CardProps {
 export function GoalProgressCard({ goal, onEdit, onDelete }: CardProps) {
   const progress = Math.min(100, Math.max(0, goal.percentage));
   const { formatCurrency, formatPercent } = useNumberFormatter();
+  const progressBarStyle: CSSProperties = {
+    width: `${progress}%`,
+    transition: "width 0.45s var(--app-ease)",
+  };
 
   return (
     <div className="app-card flex h-full flex-col justify-between p-4">
@@ -56,7 +61,7 @@ export function GoalProgressCard({ goal, onEdit, onDelete }: CardProps) {
       <div className="mt-4 h-2.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
         <div
           className="h-full rounded-full bg-gradient-to-r from-sky-500 to-indigo-500"
-          style={{ width: `${progress}%` }}
+          style={progressBarStyle}
         ></div>
       </div>
       <div className="mt-2 text-right text-xs font-medium text-muted">

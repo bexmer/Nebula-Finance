@@ -11,9 +11,12 @@ import axios from "axios";
 
 import { API_BASE_URL } from "../utils/api";
 
+export type DisplayScale = "normal" | "mini" | "super-mini";
+
 type DisplayPreferencesState = {
   abbreviateNumbers: boolean;
   threshold: number;
+  scale: DisplayScale;
 };
 
 type FormatOptions = {
@@ -35,6 +38,26 @@ type DisplayPreferencesContextValue = {
 const DEFAULT_PREFERENCES: DisplayPreferencesState = {
   abbreviateNumbers: false,
   threshold: 1_000_000,
+  scale: "normal",
+};
+
+const SCALE_STORAGE_KEY = "nebula:display-scale";
+
+const SCALE_MAP: Record<DisplayScale, number> = {
+  normal: 1,
+  mini: 0.9,
+  "super-mini": 0.8,
+};
+
+const getStoredScale = (): DisplayScale => {
+  if (typeof window === "undefined") {
+    return DEFAULT_PREFERENCES.scale;
+  }
+  const stored = window.localStorage.getItem(SCALE_STORAGE_KEY);
+  if (stored === "mini" || stored === "super-mini") {
+    return stored;
+  }
+  return DEFAULT_PREFERENCES.scale;
 };
 
 const DisplayPreferencesContext = createContext<DisplayPreferencesContextValue>({
@@ -93,6 +116,7 @@ export function DisplayPreferencesProvider({
       setPreferences({
         abbreviateNumbers: Boolean(data.abbreviate_numbers),
         threshold: Number(data.threshold ?? DEFAULT_PREFERENCES.threshold),
+        scale: getStoredScale(),
       });
     } catch (error) {
       console.error("No se pudieron cargar las preferencias de visualización:", error);
@@ -105,6 +129,16 @@ export function DisplayPreferencesProvider({
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(SCALE_STORAGE_KEY, preferences.scale);
+    }
+    const root = document.documentElement;
+    const scaleValue = SCALE_MAP[preferences.scale] ?? SCALE_MAP.normal;
+    root.style.setProperty("--app-scale", scaleValue.toString());
+    root.dataset.scale = preferences.scale;
+  }, [preferences.scale]);
 
   const formatCurrency = useCallback(
     (input: number, options?: FormatOptions) => {
@@ -169,7 +203,7 @@ export function DisplayPreferencesProvider({
       formatCurrency,
       formatNumber,
     }),
-    [preferences, loading, refresh, formatCurrency, formatNumber],
+    [preferences, loading, refresh, setPreferences, formatCurrency, formatNumber],
   );
 
   return (

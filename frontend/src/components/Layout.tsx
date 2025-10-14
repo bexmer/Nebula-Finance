@@ -85,7 +85,9 @@ export function Layout() {
               </div>
             }
           >
-            <Outlet />
+            <div key={location.pathname} className="page-transition">
+              <Outlet />
+            </div>
           </Suspense>
         </main>
       </div>

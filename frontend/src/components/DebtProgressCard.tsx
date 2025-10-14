@@ -1,4 +1,5 @@
 import { Pencil, Trash2 } from "lucide-react";
+import type { CSSProperties } from "react";
 
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 
@@ -22,6 +23,10 @@ export function DebtProgressCard({ debt, onEdit, onDelete }: CardProps) {
   const paidAmount = Math.max(debt.total_amount - debt.current_balance, 0);
   const progress = Math.min(100, Math.max(0, debt.percentage));
   const { formatCurrency, formatPercent } = useNumberFormatter();
+  const progressBarStyle: CSSProperties = {
+    width: `${progress}%`,
+    transition: "width 0.45s var(--app-ease)",
+  };
 
   return (
     <div className="app-card flex flex-col justify-between p-5">
@@ -39,7 +44,7 @@ export function DebtProgressCard({ debt, onEdit, onDelete }: CardProps) {
       <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
         <div
           className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-sky-500"
-          style={{ width: `${progress}%` }}
+          style={progressBarStyle}
         ></div>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-muted">

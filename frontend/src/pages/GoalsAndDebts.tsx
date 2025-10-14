@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import axios from "axios";
 
 import { GoalProgressCard } from "../components/GoalProgressCard";
@@ -37,6 +37,11 @@ export function GoalsAndDebts() {
   const [selectedItem, setSelectedItem] = useState<GoalData | DebtData | null>(
     null
   );
+
+  const [goalAnimationKey, setGoalAnimationKey] = useState(0);
+  const [debtAnimationKey, setDebtAnimationKey] = useState(0);
+  const goalsInitialLoad = useRef(true);
+  const debtsInitialLoad = useRef(true);
 
   const { formatCurrency } = useNumberFormatter();
 
@@ -95,6 +100,22 @@ export function GoalsAndDebts() {
     };
   }, [fetchData]);
 
+  useEffect(() => {
+    if (goalsInitialLoad.current) {
+      goalsInitialLoad.current = false;
+      return;
+    }
+    setGoalAnimationKey((key) => key + 1);
+  }, [goals]);
+
+  useEffect(() => {
+    if (debtsInitialLoad.current) {
+      debtsInitialLoad.current = false;
+      return;
+    }
+    setDebtAnimationKey((key) => key + 1);
+  }, [debts]);
+
   const handleOpenModal = (mode: "goal" | "debt", item: any | null) => {
     setModalMode(mode);
     setSelectedItem(item);
@@ -128,10 +149,10 @@ export function GoalsAndDebts() {
   };
 
   const tabButtonClasses = (tabName: "goals" | "debts") =>
-    `px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+    `rounded-full px-4 py-2 text-sm font-semibold transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/70 ${
       activeTab === tabName
-        ? "bg-blue-600 text-white"
-        : "text-gray-300 hover:bg-gray-700"
+        ? "bg-sky-600 text-white shadow shadow-sky-500/30"
+        : "border border-[var(--app-border)] bg-[var(--app-surface)] text-muted hover:border-sky-400 hover:text-[var(--app-text)] dark:bg-slate-800/70 dark:text-slate-300"
     }`;
 
   const goalsSummary = useMemo(() => {
@@ -173,12 +194,17 @@ export function GoalsAndDebts() {
     };
   }, [debts]);
 
+  const activeContentKey =
+    activeTab === "goals"
+      ? `goals-${goalAnimationKey}`
+      : `debts-${debtAnimationKey}`;
+
   return (
     <div className="space-y-10">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white">Metas y Deudas</h1>
-          <p className="text-sm text-slate-400">
+          <h1 className="section-title">Metas y Deudas</h1>
+          <p className="text-sm text-muted">
             Controla tus objetivos financieros y mantén al día los compromisos de pago.
           </p>
         </div>
@@ -254,47 +280,49 @@ export function GoalsAndDebts() {
             </nav>
           </div>
 
-          {loading ? (
-            <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-900/40 p-6 text-sm text-slate-400">
-              Cargando tus registros...
-            </div>
-          ) : error ? (
-            <div className="rounded-2xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-200">
-              {error}
-            </div>
-          ) : activeTab === "goals" ? (
-            goals.length > 0 ? (
-              <div className="grid gap-4 md:grid-cols-2">
-                {goals.map((g) => (
-                  <GoalProgressCard
-                    key={g.id}
-                    goal={g}
-                    onEdit={() => handleOpenModal("goal", g)}
-                    onDelete={() => handleDelete("goal", g.id)}
+          <div key={activeContentKey} className="tab-transition">
+            {loading ? (
+              <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-900/40 p-6 text-sm text-slate-400">
+                Cargando tus registros...
+              </div>
+            ) : error ? (
+              <div className="rounded-2xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-200">
+                {error}
+              </div>
+            ) : activeTab === "goals" ? (
+              goals.length > 0 ? (
+                <div className="grid gap-4 md:grid-cols-2 card-animate">
+                  {goals.map((g) => (
+                    <GoalProgressCard
+                      key={g.id}
+                      goal={g}
+                      onEdit={() => handleOpenModal("goal", g)}
+                      onDelete={() => handleDelete("goal", g.id)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-900/40 p-6 text-sm text-slate-400">
+                  Aún no tienes metas registradas. Agrega tu primera meta para comenzar a monitorear tu progreso.
+                </div>
+              )
+            ) : debts.length > 0 ? (
+              <div className="grid gap-4 md:grid-cols-2 card-animate">
+                {debts.map((d) => (
+                  <DebtProgressCard
+                    key={d.id}
+                    debt={d}
+                    onEdit={() => handleOpenModal("debt", d)}
+                    onDelete={() => handleDelete("debt", d.id)}
                   />
                 ))}
               </div>
             ) : (
               <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-900/40 p-6 text-sm text-slate-400">
-                Aún no tienes metas registradas. Agrega tu primera meta para comenzar a monitorear tu progreso.
+                No tienes deudas activas. Mantente así registrando tus pagos a tiempo.
               </div>
-            )
-          ) : debts.length > 0 ? (
-            <div className="grid gap-4 md:grid-cols-2">
-              {debts.map((d) => (
-                <DebtProgressCard
-                  key={d.id}
-                  debt={d}
-                  onEdit={() => handleOpenModal("debt", d)}
-                  onDelete={() => handleDelete("debt", d.id)}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-900/40 p-6 text-sm text-slate-400">
-              No tienes deudas activas. Mantente así registrando tus pagos a tiempo.
-            </div>
-          )}
+            )}
+          </div>
         </section>
 
         <aside className="w-full max-w-xl space-y-6">

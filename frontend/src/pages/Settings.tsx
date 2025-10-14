@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 
 import { API_BASE_URL } from "../utils/api";
-import { useDisplayPreferences } from "../context/DisplayPreferencesContext";
+import {
+  useDisplayPreferences,
+  type DisplayScale,
+} from "../context/DisplayPreferencesContext";
 
 type FeedbackType = "success" | "error";
 type Feedback = { type: FeedbackType; message: string } | null;
@@ -38,10 +41,14 @@ interface CategoryItem {
   is_deletable: boolean;
 }
 
-interface DisplayPreferences {
+type DisplayPreferencesPayload = {
   abbreviate_numbers: boolean;
   threshold: number;
-}
+};
+
+type DisplayPreferences = DisplayPreferencesPayload & {
+  scale: DisplayScale;
+};
 
 type TransactionTypeFormState = {
   id: number | null;
@@ -84,6 +91,24 @@ const THRESHOLD_OPTIONS = [
   { label: "A partir de diez millones (10,000,000)", value: 10_000_000 },
 ];
 
+const SCALE_OPTIONS: { value: DisplayScale; label: string; description: string }[] = [
+  {
+    value: "normal",
+    label: "Normal",
+    description: "Vista predeterminada equilibrada para la mayoría de pantallas.",
+  },
+  {
+    value: "mini",
+    label: "Mini",
+    description: "Reduce elementos y tipografías para ganar espacio adicional.",
+  },
+  {
+    value: "super-mini",
+    label: "Súper mini",
+    description: "La opción más compacta para tableros con mucha información.",
+  },
+];
+
 const resolveErrorMessage = (error: unknown): string => {
   if (!error) {
     return "Ocurrió un error inesperado.";
@@ -119,8 +144,11 @@ export function Settings() {
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [displayPreferences, setDisplayPreferences] = useState<DisplayPreferences | null>(null);
   const [displayInitial, setDisplayInitial] = useState<DisplayPreferences | null>(null);
-  const { refresh: refreshDisplayContext, preferences: displayContextPreferences } =
-    useDisplayPreferences();
+  const {
+    refresh: refreshDisplayContext,
+    preferences: displayContextPreferences,
+    setPreferences: setDisplayContextPreferences,
+  } = useDisplayPreferences();
 
   const [transactionForm, setTransactionForm] = useState<TransactionTypeFormState>({
     id: null,
@@ -243,6 +271,7 @@ export function Settings() {
     const nextDisplay = {
       abbreviate_numbers: displayContextPreferences.abbreviateNumbers,
       threshold: displayContextPreferences.threshold,
+      scale: displayContextPreferences.scale,
     };
     setDisplayPreferences(nextDisplay);
     setDisplayInitial(nextDisplay);
@@ -558,7 +587,8 @@ export function Settings() {
     if (displayInitial) {
       const unchanged =
         displayInitial.abbreviate_numbers === displayPreferences.abbreviate_numbers &&
-        displayInitial.threshold === displayPreferences.threshold;
+        displayInitial.threshold === displayPreferences.threshold &&
+        displayInitial.scale === displayPreferences.scale;
       if (unchanged) {
         showFeedback(
           setVisualFeedback,
@@ -569,10 +599,23 @@ export function Settings() {
       }
     }
     try {
-      const response = await axios.put<DisplayPreferences>(`${API_BASE_URL}/config/display`, displayPreferences);
-      setDisplayPreferences(response.data);
+      const payload: DisplayPreferencesPayload = {
+        abbreviate_numbers: displayPreferences.abbreviate_numbers,
+        threshold: displayPreferences.threshold,
+      };
+      const response = await axios.put<DisplayPreferencesPayload>(`${API_BASE_URL}/config/display`, payload);
+      const nextPreferences: DisplayPreferences = {
+        ...response.data,
+        scale: displayPreferences.scale,
+      };
+      setDisplayPreferences(nextPreferences);
+      setDisplayInitial(nextPreferences);
+      setDisplayContextPreferences({
+        abbreviateNumbers: Boolean(nextPreferences.abbreviate_numbers),
+        threshold: nextPreferences.threshold,
+        scale: nextPreferences.scale,
+      });
       await refreshDisplayContext();
-      setDisplayInitial(response.data);
       showFeedback(setVisualFeedback, "success", "Preferencias guardadas correctamente.");
     } catch (error) {
       showFeedback(setVisualFeedback, "error", resolveErrorMessage(error));
@@ -598,7 +641,7 @@ export function Settings() {
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold text-[var(--app-text)]">Configuración de Parámetros</h1>
+        <h1 className="section-title">Configuración de Parámetros</h1>
         <p className="text-sm text-muted">
           Administra los catálogos que alimentan el dashboard, las transacciones y los reportes financieros.
         </p>
@@ -1198,6 +1241,51 @@ export function Settings() {
                           </option>
                         ))}
                       </select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold text-[var(--app-text)]">Escala de la interfaz</p>
+                      <p className="text-xs text-muted">
+                        Ajusta el tamaño de textos, tarjetas y controles para adaptarse a tu espacio disponible.
+                      </p>
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        {SCALE_OPTIONS.map((option) => {
+                          const isActive = displayPreferences.scale === option.value;
+                          return (
+                            <label
+                              key={option.value}
+                              className={`group relative flex cursor-pointer flex-col gap-2 rounded-xl border px-4 py-3 text-left transition ${
+                                isActive
+                                  ? "border-sky-500 bg-sky-500/10 shadow-sm shadow-sky-500/30"
+                                  : "border-[var(--app-border)] bg-[var(--app-surface-muted)] hover:border-sky-400/60"
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                name="display-scale"
+                                value={option.value}
+                                checked={isActive}
+                                onChange={() =>
+                                  setDisplayPreferences((prev) =>
+                                    prev ? { ...prev, scale: option.value } : prev
+                                  )
+                                }
+                                className="sr-only"
+                              />
+                              <span className="text-sm font-semibold text-[var(--app-text)]">
+                                {option.label}
+                              </span>
+                              <span className="text-xs text-muted leading-relaxed">{option.description}</span>
+                              <span
+                                aria-hidden="true"
+                                className={`pointer-events-none absolute inset-x-0 -bottom-px h-0.5 rounded-full transition-opacity ${
+                                  isActive ? "bg-sky-500 opacity-100" : "opacity-0"
+                                }`}
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
                     </div>
 
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
