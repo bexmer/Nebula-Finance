@@ -30,8 +30,8 @@ interface BudgetEntry {
   due_date?: string | null;
   start_date?: string | null;
   end_date?: string | null;
-  month?: number;
-  year?: number;
+  month?: number | null;
+  year?: number | null;
   goal_id?: number | null;
   goal_name?: string | null;
   debt_id?: number | null;
@@ -384,6 +384,37 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
 
   const handleDebtChange = (event: ChangeEvent<HTMLSelectElement>) => {
     setFormData((prev) => ({ ...prev, debtId: event.target.value }));
+  };
+
+  const handleFrequencyChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const nextFrequency = event.target.value;
+    setFormData((prev) => {
+      const shouldForceRecurring = prev.frequency === "Única vez";
+      const nextIsRecurring =
+        nextFrequency === "Única vez"
+          ? false
+          : shouldForceRecurring
+          ? true
+          : prev.is_recurring;
+
+      return {
+        ...prev,
+        frequency: nextFrequency,
+        due_date:
+          nextFrequency === "Única vez" && prev.start_date
+            ? prev.start_date
+            : prev.due_date,
+        is_recurring: nextIsRecurring,
+      };
+    });
+  };
+
+  const handleCheckboxChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const { checked } = event.target;
+    setFormData((prev) => ({
+      ...prev,
+      is_recurring: prev.frequency === "Única vez" ? false : checked,
+    }));
   };
 
   const handleSubmit = async (event: FormEvent) => {
