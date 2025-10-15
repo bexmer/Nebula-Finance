@@ -16,13 +16,15 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useStore } from "../store/useStore";
-import nebulaLogoFull from "../assets/logo-nb.png";
-import nebulaLogoMark from "../assets/logo-mini-nb.png";
+import nebulaLogoFull from "../assets/logo-nb-ligth.png";
+import nebulaLogoMark from "../assets/logo-mini-nb-ligth.png";
+import nebulaLogoFullD from "../assets/logo-nb.png";
+import nebulaLogoMarkD from "../assets/logo-mini-nb.png";
 
 const themeLogos = {
   light: {
-    full: nebulaLogoFull,
-    mark: nebulaLogoMark,
+    full: nebulaLogoFullD,
+    mark: nebulaLogoMarkD,
   },
   dark: {
     full: nebulaLogoFull,

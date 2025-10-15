@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, field_validator, constr
 import datetime
 from typing import Optional, List, Dict, Any, Literal
 
-MAX_DIGITS = 10
+MAX_DIGITS = 7
 
 
 def enforce_digit_limit(value: Optional[float], field_name: str) -> Optional[float]:
