@@ -423,10 +423,8 @@ export function Dashboard() {
     <div className="space-y-5 text-slate-900 dark:text-slate-100">
       <div className="app-card flex flex-col gap-6 p-6 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h1 className="section-title">Dashboard</h1>
-          <p className="mt-1 text-sm text-muted">
-            Controla tus finanzas personales con una vista integral de tu patrimonio.
-          </p>
+          <h1 className="section-title">Panel general</h1>
+          <p className="mt-1 text-sm text-muted">Un resumen claro de tu salud financiera.</p>
         </div>
         <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-end sm:justify-end">
           <div className="flex min-w-[180px] flex-col gap-2">
@@ -473,10 +471,10 @@ export function Dashboard() {
       )}
 
       {!isLoading && !error && data && (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,2.6fr)_minmax(0,1fr)] 2xl:gap-6">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,2.25fr)_minmax(0,1fr)] 2xl:gap-6">
           <div className="grid gap-4">
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]">
-              <div className="grid gap-4 xl:auto-rows-[minmax(0,auto)]">
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] xl:items-stretch">
+              <div className="grid gap-4 xl:grid-rows-[auto,1fr]">
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   <KpiCard
                     title="Ganancias"
@@ -501,13 +499,13 @@ export function Dashboard() {
                     variant="indigo"
                   />
                 </div>
-                <div className="app-card flex h-full flex-col p-5">
+                <div className="app-card flex h-full min-h-[18rem] flex-col p-5">
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
                       <h2 className="text-lg font-semibold">
                         {activeChart === "netWorth"
-                          ? "Evolución de Patrimonio Neto"
-                          : "Flujo de Efectivo Mensual"}
+                          ? "Patrimonio Neto"
+                          : "Flujo de Efectivo"}
                       </h2>
                       <p className="text-sm text-muted">
                         Visualiza tendencias y anticipa tus necesidades de efectivo.
@@ -536,7 +534,7 @@ export function Dashboard() {
                       </button>
                     </div>
                   </div>
-                  <div className="mt-4 flex-1" style={{ minHeight: "16rem" }}>
+                  <div className="mt-4 flex-1 min-h-[16rem]">
                     {activeChart === "netWorth" ? (
                       netWorthChartData && netWorthChartData.labels.length > 0 ? (
                         <Line
@@ -559,7 +557,7 @@ export function Dashboard() {
                   </div>
                 </div>
               </div>
-              <div className="h-full">
+              <div className="flex h-full w-full">
                 <BudgetRuleCard
                   rules={data.budget_rule_control}
                   incomeTotal={data.kpis.income.amount}
@@ -567,8 +565,8 @@ export function Dashboard() {
               </div>
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
-              <div className="grid gap-4">
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] xl:items-stretch">
+              <div className="grid gap-4 xl:grid-rows-[auto,1fr]">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <BudgetSummaryCard
                     title="Ingresos PPTO"
@@ -581,7 +579,7 @@ export function Dashboard() {
                     accentClass="from-rose-500/80 to-orange-500/80"
                   />
                 </div>
-                <div className="app-card flex h-full flex-col p-5">
+                <div className="app-card flex h-full min-h-[18rem] flex-col p-5">
                   <div className="flex items-center justify-between">
                     <h2 className="text-lg font-semibold">Metas activas</h2>
                     <Target className="h-5 w-5 text-sky-500" />
@@ -600,7 +598,7 @@ export function Dashboard() {
                   </div>
                 </div>
               </div>
-              <div className="app-card flex h-full flex-col p-5">
+              <div className="app-card flex h-full min-h-[18rem] flex-col p-5">
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-semibold">Distribución de gastos</h2>
                   <PieChart className="h-5 w-5 text-sky-500" />
@@ -608,7 +606,7 @@ export function Dashboard() {
                 <p className="mt-1 text-sm text-muted">
                   Identifica en qué categorías se concentra tu gasto.
                 </p>
-                <div className="mt-4 flex-1" style={{ minHeight: "15rem" }}>
+                <div className="mt-4 flex-1 min-h-[15rem]">
                   {expenseDistributionChartData ? (
                     <Bar
                       key={`expense-distribution-${viewportWidth}`}
@@ -623,7 +621,7 @@ export function Dashboard() {
             </div>
           </div>
 
-          <div className="grid gap-4 xl:grid-rows-[minmax(0,1.05fr)_minmax(0,1fr)]">
+          <div className="grid gap-4 xl:grid-rows-[minmax(0,1fr)_minmax(0,1fr)]">
             <AccountsCard
               accounts={accounts}
               activeIndex={activeAccountIndex}
@@ -639,7 +637,7 @@ export function Dashboard() {
               }
               activeAccount={activeAccount}
             />
-            <div className="app-card flex h-full flex-col p-5">
+            <div className="app-card flex h-full min-h-[17rem] flex-col p-5">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Gastos por tipo</h2>
                 <PieChart className="h-5 w-5 text-sky-500" />
@@ -647,7 +645,7 @@ export function Dashboard() {
               <p className="mt-1 text-sm text-muted">
                 Compara gastos fijos, variables y otros compromisos.
               </p>
-              <div className="mt-4 flex-1" style={{ minHeight: "14rem" }}>
+              <div className="mt-4 flex-1 min-h-[14rem]">
                 {expenseTypeChartData ? (
                   <Doughnut
                     key={`expense-type-${viewportWidth}`}
@@ -778,7 +776,7 @@ function BudgetSummaryCard({
   const progress = Math.max(0, Math.min(100, execution));
 
   return (
-    <div className="app-card flex h-full flex-col p-5">
+    <div className="app-card flex h-full w-full flex-col p-5">
       <div className="flex items-center justify-between">
         <h3 className="text-base font-semibold">{title}</h3>
         <span className="text-xs font-medium text-muted">
@@ -840,7 +838,7 @@ function BudgetRuleCard({
   };
 
   return (
-    <div className="app-card flex h-full flex-col p-5">
+    <div className="app-card flex h-full w-full flex-col p-5">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Control de gastos</h2>
         <span className="text-xs text-muted">Basado en {formatCurrency(incomeTotal)} de ingresos</span>
@@ -906,7 +904,7 @@ function AccountsCard({
     : "••••";
 
   return (
-    <div className="app-card flex h-full flex-col p-5">
+    <div className="app-card flex h-full w-full flex-col p-5">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold">Cuentas</h2>
         <div className="flex items-center gap-2">
