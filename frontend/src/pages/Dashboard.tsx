@@ -423,10 +423,8 @@ export function Dashboard() {
     <div className="space-y-5 text-slate-900 dark:text-slate-100">
       <div className="app-card flex flex-col gap-6 p-6 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h1 className="section-title">Dashboard</h1>
-          <p className="mt-1 text-sm text-muted">
-            Controla tus finanzas personales con una vista integral de tu patrimonio.
-          </p>
+          <h1 className="section-title">Panel general</h1>
+          <p className="mt-1 text-sm text-muted">Un resumen claro de tu salud financiera.</p>
         </div>
         <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-end sm:justify-end">
           <div className="flex min-w-[180px] flex-col gap-2">
@@ -473,117 +471,157 @@ export function Dashboard() {
       )}
 
       {!isLoading && !error && data && (
-        <div className="grid auto-rows-max gap-4 xl:grid-cols-12 2xl:gap-5">
-          <div className="xl:col-span-12">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <KpiCard
-                title="Ganancias"
-                value={formatCurrency(data.kpis.income.amount)}
-                comparison={data.kpis.income.comparison}
-                icon={<TrendingUp className="h-5 w-5" />}
-                variant="emerald"
-              />
-              <KpiCard
-                title="Gastos"
-                value={formatCurrency(data.kpis.expense.amount)}
-                comparison={data.kpis.expense.comparison}
-                inverse
-                icon={<TrendingDown className="h-5 w-5" />}
-                variant="rose"
-              />
-              <KpiCard
-                title="Ahorro Neto"
-                value={formatCurrency(data.kpis.net.amount)}
-                comparison={data.kpis.net.comparison}
-                icon={<Wallet className="h-5 w-5" />}
-                variant="indigo"
-              />
-            </div>
-          </div>
-
-          <div className="xl:col-span-7 2xl:col-span-8">
-            <div className="app-card flex h-full flex-col p-5">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <h2 className="text-lg font-semibold">
-                    {activeChart === "netWorth"
-                      ? "Evolución de Patrimonio Neto"
-                      : "Flujo de Efectivo Mensual"}
-                  </h2>
-                  <p className="text-sm text-muted">
-                    Visualiza tendencias y anticipa tus necesidades de efectivo.
-                  </p>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.9fr)_minmax(0,1.1fr)] 2xl:gap-6">
+          <div className="grid gap-4">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)] lg:items-stretch">
+              <div className="flex flex-col gap-4">
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  <KpiCard
+                    title="Ganancias"
+                    value={formatCurrency(data.kpis.income.amount)}
+                    comparison={data.kpis.income.comparison}
+                    icon={<TrendingUp className="h-5 w-5" />}
+                    variant="emerald"
+                  />
+                  <KpiCard
+                    title="Gastos"
+                    value={formatCurrency(data.kpis.expense.amount)}
+                    comparison={data.kpis.expense.comparison}
+                    inverse
+                    icon={<TrendingDown className="h-5 w-5" />}
+                    variant="rose"
+                  />
+                  <KpiCard
+                    title="Ahorro Neto"
+                    value={formatCurrency(data.kpis.net.amount)}
+                    comparison={data.kpis.net.comparison}
+                    icon={<Wallet className="h-5 w-5" />}
+                    variant="indigo"
+                  />
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setActiveChart("netWorth")}
-                    className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                      activeChart === "netWorth"
-                        ? "bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow"
-                        : "border border-[var(--app-border)] bg-transparent text-muted hover:border-sky-400 hover:text-slate-700 dark:hover:text-slate-200"
-                    }`}
-                  >
-                    Patrimonio
-                  </button>
-                  <button
-                    onClick={() => setActiveChart("cashFlow")}
-                    className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                      activeChart === "cashFlow"
-                        ? "bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow"
-                        : "border border-[var(--app-border)] bg-transparent text-muted hover:border-sky-400 hover:text-slate-700 dark:hover:text-slate-200"
-                    }`}
-                  >
-                    Flujo
-                  </button>
+                <div className="app-card flex h-full min-h-[18rem] flex-col p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <h2 className="text-lg font-semibold">
+                        {activeChart === "netWorth"
+                          ? "Patrimonio Neto"
+                          : "Flujo de Efectivo"}
+                      </h2>
+                      <p className="text-sm text-muted">
+                        Visualiza tendencias y anticipa tus necesidades de efectivo.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setActiveChart("netWorth")}
+                        className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                          activeChart === "netWorth"
+                            ? "bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow"
+                            : "border border-[var(--app-border)] bg-transparent text-muted hover:border-sky-400 hover:text-slate-700 dark:hover:text-slate-200"
+                        }`}
+                      >
+                        Patrimonio
+                      </button>
+                      <button
+                        onClick={() => setActiveChart("cashFlow")}
+                        className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                          activeChart === "cashFlow"
+                            ? "bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow"
+                            : "border border-[var(--app-border)] bg-transparent text-muted hover:border-sky-400 hover:text-slate-700 dark:hover:text-slate-200"
+                        }`}
+                      >
+                        Flujo
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex-1 min-h-[16rem]">
+                    {activeChart === "netWorth" ? (
+                      netWorthChartData && netWorthChartData.labels.length > 0 ? (
+                        <Line
+                          key={`net-worth-${viewportWidth}`}
+                          data={netWorthChartData}
+                          options={netWorthOptions}
+                        />
+                      ) : (
+                        <EmptyState message="Sin movimientos suficientes para mostrar la evolución." />
+                      )
+                    ) : cashFlowChartData && cashFlowChartData.labels.length > 0 ? (
+                      <Bar
+                        key={`cash-flow-${viewportWidth}`}
+                        data={cashFlowChartData}
+                        options={barOptions}
+                      />
+                    ) : (
+                      <EmptyState message="Aún no hay flujo de efectivo registrado." />
+                    )}
+                  </div>
                 </div>
               </div>
-              <div className="mt-4 flex-1" style={{ minHeight: "16rem" }}>
-                {activeChart === "netWorth" ? (
-                  netWorthChartData && netWorthChartData.labels.length > 0 ? (
-                    <Line
-                      key={`net-worth-${viewportWidth}`}
-                      data={netWorthChartData}
-                      options={netWorthOptions}
+              <div className="flex h-full w-full">
+                <BudgetRuleCard
+                  rules={data.budget_rule_control}
+                  incomeTotal={data.kpis.income.amount}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] lg:items-stretch">
+              <div className="flex flex-col gap-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <BudgetSummaryCard
+                    title="Ingresos PPTO"
+                    summary={data.budget_vs_actual.income}
+                    accentClass="from-emerald-500/80 to-sky-500/80"
+                  />
+                  <BudgetSummaryCard
+                    title="Gastos PPTO"
+                    summary={data.budget_vs_actual.expense}
+                    accentClass="from-rose-500/80 to-orange-500/80"
+                  />
+                </div>
+                <div className="app-card flex h-full min-h-[18rem] flex-col p-5">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-lg font-semibold">Metas activas</h2>
+                    <Target className="h-5 w-5 text-sky-500" />
+                  </div>
+                  <p className="mt-1 text-sm text-muted">
+                    Da seguimiento a tus objetivos financieros y mantén la motivación.
+                  </p>
+                  <div className="mt-4 grid flex-1 content-start gap-3 auto-rows-fr sm:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3">
+                    {data.goals.length > 0 ? (
+                      data.goals.map((goal) => (
+                        <GoalProgressCard key={goal.id} goal={goal} />
+                      ))
+                    ) : (
+                      <EmptyState message="No has definido metas todavía." />
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="app-card flex h-full min-h-[18rem] flex-col p-5">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">Distribución de gastos</h2>
+                  <PieChart className="h-5 w-5 text-sky-500" />
+                </div>
+                <p className="mt-1 text-sm text-muted">
+                  Identifica en qué categorías se concentra tu gasto.
+                </p>
+                <div className="mt-4 flex-1 min-h-[15rem]">
+                  {expenseDistributionChartData ? (
+                    <Bar
+                      key={`expense-distribution-${viewportWidth}`}
+                      data={expenseDistributionChartData}
+                      options={barOptions}
                     />
                   ) : (
-                    <EmptyState message="Sin movimientos suficientes para mostrar la evolución." />
-                  )
-                ) : cashFlowChartData && cashFlowChartData.labels.length > 0 ? (
-                  <Bar
-                    key={`cash-flow-${viewportWidth}`}
-                    data={cashFlowChartData}
-                    options={barOptions}
-                  />
-                ) : (
-                  <EmptyState message="Aún no hay flujo de efectivo registrado." />
-                )}
+                    <EmptyState message="Aún no registras gastos para este periodo." />
+                  )}
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="xl:col-span-5 2xl:col-span-4">
-            <BudgetRuleCard
-              rules={data.budget_rule_control}
-              incomeTotal={data.kpis.income.amount}
-            />
-          </div>
-
-          <div className="xl:col-span-7 2xl:col-span-8">
-            <div className="grid gap-4 md:grid-cols-2">
-              <BudgetSummaryCard
-                title="Ingresos PPTO"
-                summary={data.budget_vs_actual.income}
-                accentClass="from-emerald-500/80 to-sky-500/80"
-              />
-              <BudgetSummaryCard
-                title="Gastos PPTO"
-                summary={data.budget_vs_actual.expense}
-                accentClass="from-rose-500/80 to-orange-500/80"
-              />
-            </div>
-          </div>
-
-          <div className="xl:col-span-5 2xl:col-span-4">
+          <div className="flex flex-col gap-4">
             <AccountsCard
               accounts={accounts}
               activeIndex={activeAccountIndex}
@@ -599,34 +637,7 @@ export function Dashboard() {
               }
               activeAccount={activeAccount}
             />
-          </div>
-
-          <div className="xl:col-span-7 2xl:col-span-8">
-            <div className="app-card flex h-full flex-col p-5">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold">Metas activas</h2>
-                <Target className="h-5 w-5 text-sky-500" />
-              </div>
-              <p className="mt-1 text-sm text-muted">
-                Da seguimiento a tus objetivos financieros y mantén la motivación.
-              </p>
-              <div className="mt-4 grid flex-1 content-start gap-3 sm:grid-cols-2 2xl:grid-cols-3">
-                {data.goals.length > 0 ? (
-                  data.goals.map((goal) => (
-                    <GoalProgressCard
-                      key={goal.id}
-                      goal={goal}
-                    />
-                  ))
-                ) : (
-                  <EmptyState message="No has definido metas todavía." />
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="xl:col-span-5 2xl:col-span-4">
-            <div className="app-card flex h-full flex-col p-5">
+            <div className="app-card flex h-full min-h-[17rem] flex-col p-5">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Gastos por tipo</h2>
                 <PieChart className="h-5 w-5 text-sky-500" />
@@ -634,7 +645,7 @@ export function Dashboard() {
               <p className="mt-1 text-sm text-muted">
                 Compara gastos fijos, variables y otros compromisos.
               </p>
-              <div className="mt-4 flex-1" style={{ minHeight: "15rem" }}>
+              <div className="mt-4 flex-1 min-h-[14rem]">
                 {expenseTypeChartData ? (
                   <Doughnut
                     key={`expense-type-${viewportWidth}`}
@@ -643,29 +654,6 @@ export function Dashboard() {
                   />
                 ) : (
                   <EmptyState message="No hay datos de gastos para comparar." />
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="xl:col-span-7 2xl:col-span-8">
-            <div className="app-card flex h-full flex-col p-5">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold">Distribución de gastos</h2>
-                <PieChart className="h-5 w-5 text-sky-500" />
-              </div>
-              <p className="mt-1 text-sm text-muted">
-                Identifica en qué categorías se concentra tu gasto.
-              </p>
-              <div className="mt-4 flex-1" style={{ minHeight: "15rem" }}>
-                {expenseDistributionChartData ? (
-                  <Bar
-                    key={`expense-distribution-${viewportWidth}`}
-                    data={expenseDistributionChartData}
-                    options={barOptions}
-                  />
-                ) : (
-                  <EmptyState message="Aún no registras gastos para este periodo." />
                 )}
               </div>
             </div>
@@ -788,7 +776,7 @@ function BudgetSummaryCard({
   const progress = Math.max(0, Math.min(100, execution));
 
   return (
-    <div className="app-card flex h-full flex-col p-5">
+    <div className="app-card flex h-full w-full flex-col p-5">
       <div className="flex items-center justify-between">
         <h3 className="text-base font-semibold">{title}</h3>
         <span className="text-xs font-medium text-muted">
@@ -850,7 +838,7 @@ function BudgetRuleCard({
   };
 
   return (
-    <div className="app-card flex h-full flex-col p-5">
+    <div className="app-card flex h-full w-full flex-col p-5">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Control de gastos</h2>
         <span className="text-xs text-muted">Basado en {formatCurrency(incomeTotal)} de ingresos</span>
@@ -916,7 +904,7 @@ function AccountsCard({
     : "••••";
 
   return (
-    <div className="app-card flex h-full flex-col p-5">
+    <div className="app-card flex h-full w-full flex-col p-5">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold">Cuentas</h2>
         <div className="flex items-center gap-2">
