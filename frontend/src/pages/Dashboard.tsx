@@ -471,11 +471,11 @@ export function Dashboard() {
       )}
 
       {!isLoading && !error && data && (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,2.25fr)_minmax(0,1fr)] 2xl:gap-6">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.9fr)_minmax(0,1.1fr)] 2xl:gap-6">
           <div className="grid gap-4">
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] xl:items-stretch">
-              <div className="grid gap-4 xl:grid-rows-[auto,1fr]">
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)] lg:items-stretch">
+              <div className="flex flex-col gap-4">
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                   <KpiCard
                     title="Ganancias"
                     value={formatCurrency(data.kpis.income.amount)}
@@ -565,8 +565,8 @@ export function Dashboard() {
               </div>
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] xl:items-stretch">
-              <div className="grid gap-4 xl:grid-rows-[auto,1fr]">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] lg:items-stretch">
+              <div className="flex flex-col gap-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <BudgetSummaryCard
                     title="Ingresos PPTO"
@@ -621,7 +621,7 @@ export function Dashboard() {
             </div>
           </div>
 
-          <div className="grid gap-4 xl:grid-rows-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div className="flex flex-col gap-4">
             <AccountsCard
               accounts={accounts}
               activeIndex={activeAccountIndex}
