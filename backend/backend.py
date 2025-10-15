@@ -57,6 +57,7 @@ class AccountModel(BaseModel):
     account_type: str
     initial_balance: float
     current_balance: float
+    is_virtual: bool = False
 
 
 class AccountCreateModel(BaseModel):
@@ -91,6 +92,7 @@ class TransactionModel(BaseModel):
     account_id: int
     goal_id: Optional[int] = None
     debt_id: Optional[int] = None
+    budget_entry_id: Optional[int] = None
     is_transfer: bool = False
     transfer_account_id: Optional[int] = None
     splits: Optional[List[TransactionSplitModel]] = None
@@ -108,15 +110,22 @@ class BudgetEntryModel(BaseModel):
     description: Optional[str] = None
     category: str
     type: str
+    frequency: str
     budgeted_amount: float
+    start_date: Optional[datetime.date] = None
+    end_date: Optional[datetime.date] = None
     due_date: Optional[datetime.date] = None
     month: Optional[int] = None
     year: Optional[int] = None
-    amount: Optional[float] = None
+    actual_amount: float = 0.0
+    remaining_amount: float = 0.0
+    over_budget_amount: float = 0.0
+    execution: Optional[float] = None
     goal_id: Optional[int] = None
     goal_name: Optional[str] = None
     debt_id: Optional[int] = None
     debt_name: Optional[str] = None
+    is_recurring: bool = False
 
 
 class BudgetEntryCreateModel(BaseModel):
@@ -125,11 +134,15 @@ class BudgetEntryCreateModel(BaseModel):
     amount: Optional[float] = None
     type: Optional[str] = "Gasto"
     description: Optional[constr(max_length=100)] = None
+    start_date: Optional[datetime.date] = None
+    end_date: Optional[datetime.date] = None
     due_date: Optional[datetime.date] = None
     month: Optional[int] = None
     year: Optional[int] = None
     goal_id: Optional[int] = None
     debt_id: Optional[int] = None
+    frequency: Literal["Única vez", "Semanal", "Quincenal", "Mensual", "Anual"] = "Mensual"
+    is_recurring: Optional[bool] = None
 
     @field_validator("budgeted_amount", "amount")
     @classmethod
@@ -143,11 +156,15 @@ class BudgetEntryUpdateModel(BaseModel):
     amount: Optional[float] = None
     type: Optional[str] = None
     description: Optional[constr(max_length=100)] = None
+    start_date: Optional[datetime.date] = None
+    end_date: Optional[datetime.date] = None
     due_date: Optional[datetime.date] = None
     month: Optional[int] = None
     year: Optional[int] = None
     goal_id: Optional[int] = None
     debt_id: Optional[int] = None
+    frequency: Optional[Literal["Única vez", "Semanal", "Quincenal", "Mensual", "Anual"]] = None
+    is_recurring: Optional[bool] = None
 
     @field_validator("budgeted_amount", "amount")
     @classmethod
@@ -518,8 +535,17 @@ def delete_debt(debt_id: int):
 
 
 @app.get("/api/budget", response_model=List[BudgetEntryModel])
-def list_budget_entries():
-    return controller.get_budget_entries()
+def list_budget_entries(
+    status: Optional[str] = Query(default=None),
+    reference_date: Optional[datetime.date] = Query(default=None),
+):
+    filters: Dict[str, Any] = {}
+    if status:
+        filters["status"] = status
+    if reference_date:
+        filters["reference_date"] = reference_date
+
+    return controller.get_budget_entries(filters if filters else None)
 
 
 @app.post("/api/budget", response_model=BudgetEntryModel, status_code=201)

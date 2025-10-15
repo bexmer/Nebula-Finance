@@ -12,6 +12,7 @@ interface Account {
   account_type: string;
   initial_balance: number;
   current_balance: number;
+  is_virtual: boolean;
 }
 
 interface AccountFormState {
@@ -138,6 +139,13 @@ export function Accounts() {
   };
 
   const startEditing = (account: Account) => {
+    if (account.is_virtual) {
+      setFeedback(
+        "La cuenta virtual de presupuesto se calcula automáticamente y no puede editarse."
+      );
+      setSelectedAccountId(null);
+      return;
+    }
     setSelectedAccountId(account.id);
     setFormState({
       name: account.name,
@@ -222,6 +230,15 @@ export function Accounts() {
   const handleDelete = async () => {
     if (selectedAccountId === null) {
       setFeedback("Selecciona una cuenta para eliminar.");
+      return;
+    }
+
+    const accountToDelete = accounts.find(
+      (account) => account.id === selectedAccountId,
+    );
+
+    if (accountToDelete?.is_virtual) {
+      setFeedback("La cuenta virtual no puede eliminarse.");
       return;
     }
 
@@ -411,21 +428,41 @@ export function Accounts() {
                 ) : (
                   accounts.map((account) => {
                     const isSelected = account.id === selectedAccountId;
+                    const rowClass = account.is_virtual
+                      ? "cursor-not-allowed bg-indigo-50/70 text-slate-700 dark:bg-slate-800/80 dark:text-slate-200"
+                      : `cursor-pointer transition hover:bg-sky-50 dark:hover:bg-slate-800/70 ${
+                          isSelected
+                            ? "bg-sky-100/70 dark:bg-blue-500/20"
+                            : "bg-[var(--app-surface)]"
+                        }`;
+                    const accountTypeLabel = account.is_virtual
+                      ? "Virtual"
+                      : account.account_type;
                     return (
                       <tr
                         key={account.id}
                         onClick={() => startEditing(account)}
-                        className={`cursor-pointer transition hover:bg-sky-50 dark:hover:bg-slate-800/70 ${
-                          isSelected
-                            ? "bg-sky-100/70 dark:bg-blue-500/20"
-                            : "bg-[var(--app-surface)]"
-                        }`}
+                        className={rowClass}
                       >
                         <td className="px-4 py-3">
-                          {account.name}
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-slate-900 dark:text-slate-100">
+                              {account.name}
+                            </span>
+                            {account.is_virtual && (
+                              <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-xs font-semibold text-sky-600 dark:text-sky-300">
+                                Virtual
+                              </span>
+                            )}
+                          </div>
+                          {account.is_virtual && (
+                            <p className="mt-1 text-xs text-muted">
+                              Saldo disponible según tus presupuestos activos.
+                            </p>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-muted">
-                          {account.account_type}
+                          {accountTypeLabel}
                         </td>
                         <td className="px-4 py-3 text-right font-semibold">
                           {formatCurrency(account.current_balance)}

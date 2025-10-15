@@ -74,6 +74,48 @@ def ensure_budget_entry_links() -> None:
         db.execute_sql(f'ALTER TABLE "{table_name}" ADD COLUMN debt_id INTEGER')
 
 
+def ensure_budget_entry_enhancements() -> None:
+    """Add extended budgeting fields when missing on existing databases."""
+
+    table_name = BudgetEntry._meta.table_name
+    existing_columns = _existing_columns(table_name)
+
+    if "frequency" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN frequency TEXT DEFAULT "Mensual"'
+        )
+
+    if "start_date" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN start_date DATE DEFAULT CURRENT_DATE'
+        )
+
+    if "end_date" not in existing_columns:
+        db.execute_sql(f'ALTER TABLE "{table_name}" ADD COLUMN end_date DATE')
+
+    if "is_recurring" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN is_recurring INTEGER DEFAULT 0'
+        )
+
+    if "actual_amount" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN actual_amount REAL DEFAULT 0'
+        )
+
+
+def ensure_transaction_budget_link() -> None:
+    """Guarantee transactions can reference a budget entry when required."""
+
+    table_name = Transaction._meta.table_name
+    existing_columns = _existing_columns(table_name)
+
+    if "budget_entry_id" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN budget_entry_id INTEGER'
+        )
+
+
 def seed_initial_budget_rules() -> None:
     """Create the default budget rules if the table is empty."""
 
@@ -180,6 +222,8 @@ def initialize_database() -> None:
 
         ensure_transaction_enhancements()
         ensure_budget_entry_links()
+        ensure_budget_entry_enhancements()
+        ensure_transaction_budget_link()
         seed_initial_budget_rules()
         seed_initial_parameters()
         ensure_transfer_transaction_type()

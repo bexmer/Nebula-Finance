@@ -5,6 +5,7 @@ import axios from "axios";
 import {
   AlertCircle,
   CalendarDays,
+  Clock,
   FileText,
   Loader2,
   Tag,
@@ -22,15 +23,20 @@ Modal.setAppElement("#root");
 interface BudgetEntry {
   id?: number;
   category: string;
-  amount: number;
-  budgeted_amount?: number;
+  budgeted_amount: number;
   type: string;
+  frequency: string;
   description?: string;
   due_date?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
   month?: number;
   year?: number;
   goal_id?: number | null;
+  goal_name?: string | null;
   debt_id?: number | null;
+  debt_name?: string | null;
+  is_recurring: boolean;
 }
 
 interface ParameterOption {
@@ -53,24 +59,36 @@ interface ModalProps {
 interface BudgetFormState {
   description: string;
   amount: string;
+  start_date: string;
   due_date: string;
   typeId: string;
   typeValue: string;
   categoryValue: string;
   goalId: string;
   debtId: string;
+  frequency: string;
+  is_recurring: boolean;
 }
 
 const createEmptyForm = (): BudgetFormState => ({
   description: "",
   amount: "",
+  start_date: getTodayDateInputValue(),
   due_date: getTodayDateInputValue(),
   typeId: "",
   typeValue: "",
   categoryValue: "",
   goalId: "",
   debtId: "",
+  frequency: "Mensual",
+  is_recurring: true,
 });
+
+const normalizeTypeLabel = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 
 export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
   const [formData, setFormData] = useState<BudgetFormState>(createEmptyForm());
@@ -104,10 +122,7 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
     if (!activeType) {
       return "";
     }
-    return activeType.value
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase();
+    return normalizeTypeLabel(activeType.value);
   }, [activeType]);
 
   const requiresGoal = normalizedTypeName.includes("ahorro");
@@ -130,9 +145,12 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
     }
   }, []);
 
-  const resolveDueDate = (record: BudgetEntry | null) => {
+  const resolveStartDate = (record: BudgetEntry | null) => {
     if (!record) {
       return getTodayDateInputValue();
+    }
+    if (record.start_date) {
+      return normalizeDateInputValue(record.start_date);
     }
     if (record.due_date) {
       return normalizeDateInputValue(record.due_date);
@@ -142,6 +160,23 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
       return normalizeDateInputValue(normalized);
     }
     return getTodayDateInputValue();
+  };
+
+  const resolveDueDate = (record: BudgetEntry | null) => {
+    if (!record) {
+      return getTodayDateInputValue();
+    }
+    if (record.due_date) {
+      return normalizeDateInputValue(record.due_date);
+    }
+    if (record.end_date) {
+      return normalizeDateInputValue(record.end_date);
+    }
+    if (record.year && record.month) {
+      const normalized = new Date(record.year, record.month - 1, 1);
+      return normalizeDateInputValue(normalized);
+    }
+    return resolveStartDate(record);
   };
 
   const loadModalData = useCallback(async () => {
@@ -192,35 +227,43 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
       setDebts(debtOptions);
       setCategories(nextCategories);
 
-      const amountValue = entry
-        ? String(entry.amount ?? entry.budgeted_amount ?? "")
-        : "";
+      const amountValue = entry ? String(entry.budgeted_amount ?? 0) : "";
+      const startDateValue = resolveStartDate(entry);
+      const dueDateValue = resolveDueDate(entry);
+      const frequencyValue = entry?.frequency ?? "Mensual";
+      const isRecurringValue =
+        frequencyValue === "Única vez"
+          ? false
+          : entry?.is_recurring ?? true;
 
       setFormData({
         description: entry?.description ?? "",
         amount: amountValue,
-        due_date: resolveDueDate(entry),
+        start_date: startDateValue,
+        due_date: dueDateValue,
         typeId: String(fallbackType.id),
         typeValue: fallbackType.value,
         categoryValue: entry?.category ?? (nextCategories[0]?.value ?? ""),
         goalId: entry?.goal_id ? String(entry.goal_id) : "",
         debtId: entry?.debt_id ? String(entry.debt_id) : "",
+        frequency: frequencyValue,
+        is_recurring: isRecurringValue,
       });
       setInitialSnapshot({
         description: entry?.description ?? "",
         amount: amountValue,
-        due_date: resolveDueDate(entry),
+        start_date: startDateValue,
+        due_date: dueDateValue,
         typeId: String(fallbackType.id),
         typeValue: fallbackType.value,
         categoryValue: entry?.category ?? (nextCategories[0]?.value ?? ""),
         goalId: entry?.goal_id ? String(entry.goal_id) : "",
         debtId: entry?.debt_id ? String(entry.debt_id) : "",
+        frequency: frequencyValue,
+        is_recurring: isRecurringValue,
       });
 
-      const normalizedDefault = fallbackType.value
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase();
+      const normalizedDefault = normalizeTypeLabel(fallbackType.value);
       if (normalizedDefault.includes("ahorro") && goalOptions.length === 0) {
         setCatalogNotice(
           "Para planear un ahorro necesitas crear una meta desde la sección Metas y deudas."
@@ -289,10 +332,7 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
     }
 
     if (typeOption) {
-      const normalized = typeOption.value
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase();
+      const normalized = normalizeTypeLabel(typeOption.value);
       if (normalized.includes("ahorro") && goals.length === 0) {
         setCatalogNotice(
           "Para planear un ahorro necesitas crear una meta desde la sección Metas y deudas."
@@ -378,6 +418,29 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
       return;
     }
 
+    if (!formData.start_date) {
+      setError("Selecciona la fecha de inicio del presupuesto.");
+      return;
+    }
+
+    if (!formData.due_date) {
+      setError("Selecciona la fecha de vencimiento del presupuesto.");
+      return;
+    }
+
+    const parsedStart = new Date(formData.start_date);
+    const parsedDue = new Date(formData.due_date);
+
+    if (Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedDue.getTime())) {
+      setError("Las fechas proporcionadas no son válidas.");
+      return;
+    }
+
+    if (parsedDue < parsedStart) {
+      setError("La fecha de vencimiento debe ser posterior o igual a la fecha de inicio.");
+      return;
+    }
+
     if (entry?.id && initialSnapshot) {
       const initialDescription = initialSnapshot.description.trim();
       const initialAmount = parseFloat(initialSnapshot.amount || "0");
@@ -390,11 +453,14 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
         initialDescription === trimmedDescription &&
         Number.isFinite(initialAmount) &&
         initialAmount === parsedAmount &&
+        initialSnapshot.start_date === formData.start_date &&
         initialSnapshot.due_date === formData.due_date &&
         initialSnapshot.typeId === formData.typeId &&
         initialSnapshot.categoryValue === formData.categoryValue &&
         initialGoal === currentGoal &&
-        initialDebt === currentDebt;
+        initialDebt === currentDebt &&
+        initialSnapshot.frequency === formData.frequency &&
+        initialSnapshot.is_recurring === formData.is_recurring;
 
       if (unchanged) {
         setError("No has realizado cambios en este presupuesto.");
@@ -407,7 +473,11 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
       type: formData.typeValue,
       category: formData.categoryValue,
       budgeted_amount: parsedAmount,
+      start_date: formData.start_date,
       due_date: formData.due_date,
+      frequency: formData.frequency,
+      is_recurring:
+        formData.frequency === "Única vez" ? false : formData.is_recurring,
       goal_id: formData.goalId ? Number(formData.goalId) : null,
       debt_id: formData.debtId ? Number(formData.debtId) : null,
     };
@@ -598,6 +668,20 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
               <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
+                <CalendarDays className="h-3.5 w-3.5" /> Fecha de inicio
+              </span>
+              <input
+                type="date"
+                name="start_date"
+                value={formData.start_date}
+                onChange={handleInputChange}
+                required
+                className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+              />
+            </label>
+
+            <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
+              <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
                 <CalendarDays className="h-3.5 w-3.5" /> Fecha comprometida
               </span>
               <input
@@ -608,6 +692,26 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
                 required
                 className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
               />
+            </label>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
+              <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
+                <Clock className="h-3.5 w-3.5" /> Frecuencia
+              </span>
+              <select
+                name="frequency"
+                value={formData.frequency}
+                onChange={handleFrequencyChange}
+                className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+              >
+                <option value="Única vez">Única vez</option>
+                <option value="Semanal">Semanal</option>
+                <option value="Quincenal">Quincenal</option>
+                <option value="Mensual">Mensual</option>
+                <option value="Anual">Anual</option>
+              </select>
             </label>
 
             <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
@@ -627,6 +731,25 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
               />
             </label>
           </div>
+
+          <label className="flex items-center gap-3 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-3 text-sm text-slate-700 dark:text-slate-200">
+            <input
+              type="checkbox"
+              name="is_recurring"
+              checked={formData.is_recurring && formData.frequency !== "Única vez"}
+              onChange={handleCheckboxChange}
+              disabled={formData.frequency === "Única vez"}
+              className="h-5 w-5 rounded border-slate-400 text-sky-500 focus:ring-sky-400"
+            />
+            <span className="flex-1">
+              Repetir automáticamente este presupuesto para el siguiente periodo
+              <span className="mt-1 block text-xs text-muted">
+                {formData.frequency === "Única vez"
+                  ? "Los presupuestos de una sola vez no se repiten."
+                  : "Duplicaremos la entrada al cerrar el periodo para que no tengas que recrearla."}
+              </span>
+            </span>
+          </label>
 
           <div className="flex flex-col-reverse gap-3 pt-4 sm:flex-row sm:items-center sm:justify-end">
             <button

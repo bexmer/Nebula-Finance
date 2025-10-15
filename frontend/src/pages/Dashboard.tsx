@@ -89,6 +89,7 @@ interface AccountSummary {
   account_type: string;
   initial_balance: number;
   current_balance: number;
+  is_virtual: boolean;
 }
 
 interface DashboardData {
@@ -947,13 +948,17 @@ function AccountsCard({
       {activeAccount ? (
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-sky-500 via-blue-500 to-indigo-500 p-6 text-white">
           <div className="text-sm uppercase tracking-wide text-white/70">
-            {activeAccount.account_type}
+            {activeAccount.is_virtual ? "Cuenta virtual" : activeAccount.account_type}
           </div>
           <div className="mt-3 text-3xl font-semibold">{displayBalance}</div>
           <div className="mt-8 text-sm">
             <p className="font-medium">{activeAccount.name}</p>
             <p className="text-xs text-white/70">
-              Variación {formatSigned(activeAccount.current_balance - activeAccount.initial_balance)}
+              {activeAccount.is_virtual
+                ? "Refleja el dinero aún disponible dentro de tu presupuesto."
+                : `Variación ${formatSigned(
+                    activeAccount.current_balance - activeAccount.initial_balance,
+                  )}`}
             </p>
           </div>
           {accounts.length > 1 && (

@@ -3,6 +3,7 @@ import calendar
 import calendar
 import datetime
 import json
+import unicodedata
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -60,6 +61,126 @@ class AppController:
         self.view = view
         self.current_pages = {}
 
+    # -----------------------------------------------------------------
+    # --- Helpers for recurring budget calculations ---
+    # -----------------------------------------------------------------
+    _DEFAULT_FREQUENCY = "Mensual"
+
+    def _normalize_frequency(self, raw_value: Optional[str]) -> str:
+        """Return a normalized frequency label with title casing."""
+
+        if not raw_value:
+            return self._DEFAULT_FREQUENCY
+
+        normalized = (
+            unicodedata.normalize("NFD", str(raw_value))
+            .encode("ascii", "ignore")
+            .decode("ascii")
+            .strip()
+            .lower()
+        )
+
+        mapping = {
+            "unica vez": "Única vez",
+            "una vez": "Única vez",
+            "semanal": "Semanal",
+            "quincenal": "Quincenal",
+            "mensual": "Mensual",
+            "anual": "Anual",
+        }
+
+        return mapping.get(normalized, self._DEFAULT_FREQUENCY)
+
+    def _frequency_delta(self, frequency: str):
+        """Return a timedelta/relativedelta representing the frequency."""
+
+        normalized = self._normalize_frequency(frequency)
+        if normalized == "Única vez":
+            return None
+        if normalized == "Semanal":
+            return datetime.timedelta(weeks=1)
+        if normalized == "Quincenal":
+            return datetime.timedelta(weeks=2)
+        if normalized == "Anual":
+            return relativedelta(years=1)
+        return relativedelta(months=1)
+
+    @staticmethod
+    def _coerce_date(value: Optional[Any]) -> Optional[datetime.date]:
+        """Try to convert a value into a date, returning None on failure."""
+
+        if value in (None, "", 0):
+            return None
+        if isinstance(value, datetime.datetime):
+            return value.date()
+        if isinstance(value, datetime.date):
+            return value
+        try:
+            return datetime.date.fromisoformat(str(value))
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _parse_date(value: Optional[Any]) -> Optional[datetime.date]:
+        """Parse user-provided dates and raise a ValueError when invalid."""
+
+        if value in (None, "", 0):
+            return None
+
+        parsed = AppController._coerce_date(value)
+        if parsed is None:
+            raise ValueError(f"Fecha inválida: {value}")
+        return parsed
+
+    def _compute_period_bounds(
+        self,
+        start_date: Optional[datetime.date],
+        frequency: str,
+        due_date: Optional[datetime.date],
+        end_date: Optional[datetime.date],
+    ) -> Tuple[datetime.date, datetime.date]:
+        """Given partial information, determine the active period for a budget."""
+
+        normalized = self._normalize_frequency(frequency)
+        start = start_date or due_date or end_date or datetime.date.today()
+
+        if normalized == "Única vez":
+            final_end = end_date or due_date or start
+            return start, final_end
+
+        delta = self._frequency_delta(normalized)
+        if isinstance(delta, datetime.timedelta):
+            tentative_end = start + delta - datetime.timedelta(days=1)
+        else:
+            tentative_end = (start + delta) - datetime.timedelta(days=1)
+
+        final_end = end_date or due_date or tentative_end
+        if final_end < start:
+            final_end = start
+        return start, final_end
+
+    def _resolve_entry_bounds(self, entry: Any) -> Tuple[datetime.date, datetime.date]:
+        """Resolve the cached period for a budget entry or dict representation."""
+
+        if isinstance(entry, dict):
+            frequency = entry.get("frequency")
+            start_raw = entry.get("start_date")
+            due_raw = entry.get("due_date")
+            end_raw = entry.get("end_date")
+        else:
+            frequency = getattr(entry, "frequency", None)
+            start_raw = getattr(entry, "start_date", None)
+            due_raw = getattr(entry, "due_date", None)
+            end_raw = getattr(entry, "end_date", None)
+
+        normalized = self._normalize_frequency(frequency)
+        start_date = self._coerce_date(start_raw)
+        due_date = self._coerce_date(due_raw)
+        end_date = self._coerce_date(end_raw)
+
+        start, final_end = self._compute_period_bounds(start_date, normalized, due_date, end_date)
+        return start, final_end
+
     # =================================================================
     # --- SECCIÓN: LÓGICA GENERAL Y DE UTILIDAD ---
     # =================================================================
@@ -73,6 +194,7 @@ class AppController:
             prefetch(
                 query,
                 Account,
+                BudgetEntry,
                 TransactionSplit,
                 tag_links,
             )
@@ -234,9 +356,11 @@ class AppController:
                 "account_type": account.account_type,
                 "initial_balance": float(account.initial_balance or 0),
                 "current_balance": float(account.current_balance or 0),
+                "is_virtual": False,
             }
             for account in Account.select().order_by(Account.name)
         ]
+        accounts_summary.append(self._build_virtual_budget_account())
 
         budget_vs_actual = self._get_budget_vs_actual_summary(year, month_list, transactions)
         budget_rule_control = self._get_budget_rule_control(transactions, kpis["income"]["amount"])
@@ -450,22 +574,25 @@ class AppController:
         """Construye el resumen de presupuesto vs. gasto real para ingresos y gastos."""
 
         start_date, end_date = self._get_date_range(year, months)
-        entries = list(BudgetEntry.select().where(BudgetEntry.due_date.between(start_date, end_date)))
-
         budgeted_income = 0.0
         budgeted_expense = 0.0
-        for entry in entries:
-            amount = float(getattr(entry, 'budgeted_amount', 0) or 0)
-            if entry.type == 'Ingreso':
-                budgeted_income += amount
-            else:
-                budgeted_expense += amount
+        actual_income = 0.0
+        actual_expense = 0.0
 
-        relevant = [t for t in transactions if not getattr(t, "is_transfer", False)]
-        actual_income = sum(float(t.amount or 0) for t in relevant if t.type == 'Ingreso')
-        actual_expense = sum(
-            abs(float(t.amount or 0)) for t in relevant if t.type != 'Ingreso'
-        )
+        for entry in BudgetEntry.select():
+            period_start, period_end = self._resolve_entry_bounds(entry)
+            if period_start > end_date or period_end < start_date:
+                continue
+
+            planned = float(getattr(entry, "budgeted_amount", 0) or 0)
+            actual = float(getattr(entry, "actual_amount", 0) or 0)
+
+            if (entry.type or "").strip().lower() == "ingreso":
+                budgeted_income += planned
+                actual_income += actual
+            else:
+                budgeted_expense += planned
+                actual_expense += actual
 
         def _build_summary(budgeted: float, actual: float) -> Dict[str, Optional[float]]:
             execution = (actual / budgeted * 100) if budgeted else None
@@ -704,25 +831,22 @@ class AppController:
         for param in parameters:
             type_to_rule[param.value] = param.budget_rule if param.budget_rule_id else None
 
-        budget_entries = BudgetEntry.select().where(
-            BudgetEntry.due_date.between(start_date, end_date)
-        )
-
         budget_totals: Dict[str, float] = defaultdict(float)
-        for entry in budget_entries:
-            key = type_to_rule.get(entry.type)
-            rule_name = key.name if key else (entry.type or 'Sin Regla')
-            budget_totals[rule_name] += float(getattr(entry, 'budgeted_amount', 0) or 0)
-
         actual_totals: Dict[str, float] = defaultdict(float)
-        for transaction in transactions:
-            if getattr(transaction, 'is_transfer', False):
+
+        for entry in BudgetEntry.select():
+            period_start, period_end = self._resolve_entry_bounds(entry)
+            if period_start > end_date or period_end < start_date:
                 continue
-            if transaction.type == 'Ingreso':
-                continue
-            rule = type_to_rule.get(transaction.type)
-            rule_name = rule.name if rule else (transaction.type or 'Sin Regla')
-            actual_totals[rule_name] += abs(float(transaction.amount or 0))
+
+            rule = type_to_rule.get(entry.type)
+            rule_name = rule.name if rule else (entry.type or 'Sin Regla')
+
+            planned = float(getattr(entry, 'budgeted_amount', 0) or 0)
+            actual = float(getattr(entry, 'actual_amount', 0) or 0)
+
+            budget_totals[rule_name] += planned
+            actual_totals[rule_name] += actual
 
         rows = []
         total_budgeted = 0.0
@@ -847,7 +971,20 @@ class AppController:
 
     def get_accounts_data_for_view(self):
         """Devuelve una lista de todas las cuentas."""
-        return list(Account.select().dicts())
+        accounts = [
+            {
+                "id": account.id,
+                "name": account.name,
+                "account_type": account.account_type,
+                "initial_balance": float(account.initial_balance or 0),
+                "current_balance": float(account.current_balance or 0),
+                "is_virtual": False,
+            }
+            for account in Account.select().order_by(Account.name)
+        ]
+
+        accounts.append(self._build_virtual_budget_account())
+        return accounts
 
     def add_account(self, data):
         """Crea una nueva cuenta."""
@@ -1051,6 +1188,12 @@ class AppController:
                 "goal_name": transaction.goal.name if transaction.goal else None,
                 "debt_id": transaction.debt.id if transaction.debt else None,
                 "debt_name": transaction.debt.name if transaction.debt else None,
+                "budget_entry_id": transaction.budget_entry.id
+                if getattr(transaction, "budget_entry", None)
+                else None,
+                "budget_entry_name": transaction.budget_entry.description
+                if getattr(transaction, "budget_entry", None)
+                else None,
                 "is_transfer": bool(transaction.is_transfer),
                 "transfer_account_id": getattr(transfer_account, 'id', None),
                 "transfer_account_name": getattr(transfer_account, 'name', None),
@@ -1180,6 +1323,22 @@ class AppController:
         debt.current_balance = max(0.0, current - payment_delta)
         debt.save()
 
+    def _adjust_budget_allocation(self, budget_entry_id: Optional[int], amount_delta: float) -> None:
+        """Actualiza el monto ejecutado de una entrada de presupuesto."""
+
+        if not budget_entry_id or amount_delta == 0:
+            return
+
+        entry = BudgetEntry.get_or_none(BudgetEntry.id == budget_entry_id)
+        if not entry:
+            return
+
+        current = float(entry.actual_amount or 0)
+        new_value = current + amount_delta
+        if new_value < 0:
+            new_value = 0.0
+        entry.actual_amount = new_value
+        entry.save()
 
     def add_transaction(self, data):
         try:
@@ -1212,6 +1371,7 @@ class AppController:
                 data['category'] = data.get('category') or 'Transferencia interna'
                 data['goal_id'] = None
                 data['debt_id'] = None
+                data['budget_entry_id'] = None
             else:
                 data['is_transfer'] = False
                 data['transfer_account_id'] = None
@@ -1222,6 +1382,10 @@ class AppController:
             debt_id = int(debt_value) if debt_value not in (None, "", 0) else None
             data['goal_id'] = goal_id
             data['debt_id'] = debt_id
+
+            budget_value = data.get('budget_entry_id')
+            budget_entry_id = int(budget_value) if budget_value not in (None, "", 0) else None
+            data['budget_entry_id'] = None if is_transfer else budget_entry_id
 
             with db.atomic():
                 account = Account.get_by_id(data['account_id'])
@@ -1249,6 +1413,8 @@ class AppController:
                         self._adjust_goal_progress(goal_id, amount)
                     if debt_id:
                         self._adjust_debt_balance(debt_id, amount)
+                    if budget_entry_id:
+                        self._adjust_budget_allocation(budget_entry_id, amount)
 
                 self._sync_transaction_splits(transaction, splits_payload)
                 self._sync_transaction_tags(transaction, tags_payload)
@@ -1295,6 +1461,7 @@ class AppController:
                 data['category'] = data.get('category') or 'Transferencia interna'
                 data['goal_id'] = None
                 data['debt_id'] = None
+                data['budget_entry_id'] = None
             else:
                 data['is_transfer'] = False
                 data['transfer_account_id'] = None
@@ -1306,9 +1473,14 @@ class AppController:
             data['goal_id'] = goal_id
             data['debt_id'] = debt_id
 
+            budget_value = data.get('budget_entry_id')
+            budget_entry_id = int(budget_value) if budget_value not in (None, "", 0) else None
+            data['budget_entry_id'] = None if is_transfer else budget_entry_id
+
             with db.atomic():
                 original_transaction = Transaction.get_by_id(transaction_id)
                 original_amount = float(original_transaction.amount or 0)
+                original_budget_entry_id = getattr(original_transaction, 'budget_entry_id', None)
 
                 if original_transaction.is_transfer:
                     source_account = original_transaction.account
@@ -1365,6 +1537,11 @@ class AppController:
                         self._adjust_goal_progress(goal_id, amount)
                     if debt_id:
                         self._adjust_debt_balance(debt_id, amount)
+                    if budget_entry_id:
+                        self._adjust_budget_allocation(budget_entry_id, amount)
+
+                if not original_transaction.is_transfer and original_budget_entry_id:
+                    self._adjust_budget_allocation(original_budget_entry_id, -original_amount)
 
             return updated.__data__
         except Exception as e:  # pylint: disable=broad-except
@@ -1395,6 +1572,10 @@ class AppController:
             if not transaction.is_transfer:
                 self._adjust_goal_progress(transaction.goal_id, -float(transaction.amount or 0))
                 self._adjust_debt_balance(transaction.debt_id, -float(transaction.amount or 0))
+                self._adjust_budget_allocation(
+                    getattr(transaction, 'budget_entry_id', None),
+                    -float(transaction.amount or 0),
+                )
             transaction.delete_instance()
             return {"success": True}
         except Transaction.DoesNotExist:
@@ -2268,16 +2449,25 @@ class AppController:
 
     def _serialize_budget_entry(self, entry):
         """Convierte una entrada de presupuesto en un diccionario apto para la API."""
-        due_date = entry.due_date if hasattr(entry, "due_date") else None
-        if due_date is not None and not isinstance(due_date, datetime.date):
-            # Peewee puede devolver strings si se utilizan .dicts()
-            if isinstance(due_date, str):
-                due_date = datetime.date.fromisoformat(due_date)
+        is_dict = isinstance(entry, dict)
 
+        raw_frequency = entry.get("frequency") if is_dict else getattr(entry, "frequency", None)
+        frequency = self._normalize_frequency(raw_frequency)
+
+        raw_start = entry.get("start_date") if is_dict else getattr(entry, "start_date", None)
+        raw_due = entry.get("due_date") if is_dict else getattr(entry, "due_date", None)
+        raw_end = entry.get("end_date") if is_dict else getattr(entry, "end_date", None)
+
+        start_date, period_end = self._compute_period_bounds(
+            self._coerce_date(raw_start),
+            frequency,
+            self._coerce_date(raw_due),
+            self._coerce_date(raw_end),
+        )
+
+        due_date = period_end
         month = due_date.month if due_date else None
         year = due_date.year if due_date else None
-
-        is_dict = isinstance(entry, dict)
 
         goal = None
         debt = None
@@ -2285,8 +2475,8 @@ class AppController:
             goal = entry.get("goal") or entry.get("goal_id")
             debt = entry.get("debt") or entry.get("debt_id")
         else:
-            goal = entry.goal
-            debt = entry.debt
+            goal = getattr(entry, "goal", None)
+            debt = getattr(entry, "debt", None)
 
         goal_obj = None
         debt_obj = None
@@ -2300,15 +2490,37 @@ class AppController:
         elif debt:
             debt_obj = Debt.get_or_none(Debt.id == debt)
 
+        planned_amount = float(
+            (entry.get("budgeted_amount") if is_dict else getattr(entry, "budgeted_amount", 0))
+            or 0
+        )
+        actual_amount = float(
+            (entry.get("actual_amount") if is_dict else getattr(entry, "actual_amount", 0))
+            or 0
+        )
+        remaining_amount = planned_amount - actual_amount
+        over_budget_amount = actual_amount - planned_amount if actual_amount > planned_amount else 0.0
+        execution = (actual_amount / planned_amount * 100) if planned_amount else None
+
+        is_recurring = bool(
+            entry.get("is_recurring") if is_dict else getattr(entry, "is_recurring", False)
+        )
+        if frequency == "Única vez":
+            is_recurring = False
+
         return {
             "id": entry["id"] if is_dict else entry.id,
             "description": entry.get("description") if is_dict else entry.description,
             "category": entry.get("category") if is_dict else entry.category,
             "type": entry.get("type") if is_dict else entry.type,
-            "amount": entry.get("budgeted_amount") if is_dict else entry.budgeted_amount,
-            "budgeted_amount": entry.get("budgeted_amount")
-            if is_dict
-            else entry.budgeted_amount,
+            "frequency": frequency,
+            "budgeted_amount": planned_amount,
+            "actual_amount": actual_amount,
+            "remaining_amount": remaining_amount,
+            "over_budget_amount": over_budget_amount if over_budget_amount > 0 else 0.0,
+            "execution": execution,
+            "start_date": start_date.isoformat() if start_date else None,
+            "end_date": due_date.isoformat() if due_date else None,
             "due_date": due_date.isoformat() if due_date else None,
             "month": month,
             "year": year,
@@ -2316,6 +2528,7 @@ class AppController:
             "goal_name": goal_obj.name if goal_obj else None,
             "debt_id": debt_obj.id if debt_obj else None,
             "debt_name": debt_obj.name if debt_obj else None,
+            "is_recurring": is_recurring,
         }
 
     def _prepare_budget_payload(self, data, existing_entry=None):
@@ -2338,25 +2551,45 @@ class AppController:
                 raise KeyError("budgeted_amount")
             amount = float(raw_amount)
 
-            raw_due_date = data.get("due_date")
-            if raw_due_date:
-                if isinstance(raw_due_date, datetime.datetime):
-                    due_date = raw_due_date.date()
-                elif isinstance(raw_due_date, datetime.date):
-                    due_date = raw_due_date
-                else:
-                    due_date = datetime.date.fromisoformat(str(raw_due_date))
+            frequency = self._normalize_frequency(
+                data.get("frequency")
+                or (existing_entry.frequency if existing_entry else None)
+            )
+
+            if "month" in data or "year" in data:
+                base_date = existing_entry.due_date if existing_entry and existing_entry.due_date else datetime.date.today()
+                month_value = int(data.get("month") or base_date.month)
+                year_value = int(data.get("year") or base_date.year)
+                month_based_date = datetime.date(year_value, month_value, 1)
             else:
-                if existing_entry and existing_entry.due_date:
-                    default_month = existing_entry.due_date.month
-                    default_year = existing_entry.due_date.year
+                month_based_date = None
+
+            start_date = self._parse_date(data.get("start_date"))
+            due_date = self._parse_date(data.get("due_date")) or month_based_date
+            end_date = self._parse_date(data.get("end_date"))
+
+            if existing_entry is not None:
+                if start_date is None:
+                    start_date = self._coerce_date(existing_entry.start_date)
+                if due_date is None:
+                    due_date = self._coerce_date(existing_entry.due_date)
+                if end_date is None:
+                    end_date = self._coerce_date(existing_entry.end_date)
+
+            start_date, computed_end = self._compute_period_bounds(start_date, frequency, due_date, end_date)
+            due_date = computed_end
+            end_date = computed_end
+
+            is_recurring_flag = data.get("is_recurring")
+            if is_recurring_flag is None:
+                if existing_entry is not None:
+                    is_recurring = bool(existing_entry.is_recurring)
                 else:
-                    today = datetime.date.today()
-                    default_month = today.month
-                    default_year = today.year
-                month = int(data.get("month", default_month))
-                year = int(data.get("year", default_year))
-                due_date = datetime.date(year, month, 1)
+                    is_recurring = frequency != "Única vez"
+            else:
+                is_recurring = bool(is_recurring_flag)
+            if frequency == "Única vez":
+                is_recurring = False
 
             goal_marker = data.get("goal_id", MISSING)
             debt_marker = data.get("debt_id", MISSING)
@@ -2388,24 +2621,116 @@ class AppController:
                 "category": category,
                 "type": entry_type,
                 "budgeted_amount": amount,
+                "frequency": frequency,
+                "start_date": start_date,
+                "end_date": end_date,
                 "due_date": due_date,
+                "is_recurring": is_recurring,
                 "goal": goal,
                 "debt": debt,
             }
         except (ValueError, KeyError) as e:
             raise ValueError(f"Datos de presupuesto inválidos: {e}")
 
+    def _build_virtual_budget_account(
+        self, reference_date: Optional[datetime.date] = None
+    ) -> Dict[str, Any]:
+        """Calculate the remaining planned funds as a virtual account."""
+
+        reference = reference_date or datetime.date.today()
+        remaining_total = 0.0
+
+        for entry in BudgetEntry.select():
+            start, end = self._resolve_entry_bounds(entry)
+            if start > reference or end < reference:
+                continue
+
+            entry_type = (getattr(entry, "type", "") or "").strip().lower()
+            if entry_type == "ingreso":
+                continue
+
+            planned = float(getattr(entry, "budgeted_amount", 0) or 0)
+            actual = float(getattr(entry, "actual_amount", 0) or 0)
+            remaining = planned - actual
+            if remaining > 0:
+                remaining_total += remaining
+
+        return {
+            "id": -1,
+            "name": "Saldo de Presupuesto",
+            "account_type": "Virtual",
+            "initial_balance": 0.0,
+            "current_balance": remaining_total,
+            "is_virtual": True,
+        }
+
     def get_budget_entries(self, filters=None):
         """Obtiene las entradas del presupuesto."""
-        entries = (
+
+        query = (
             BudgetEntry
             .select(BudgetEntry, Goal, Debt)
             .join(Goal, JOIN.LEFT_OUTER)
             .switch(BudgetEntry)
             .join(Debt, JOIN.LEFT_OUTER)
-            .order_by(BudgetEntry.due_date.desc())
         )
-        return [self._serialize_budget_entry(entry) for entry in entries]
+
+        reference = datetime.date.today()
+
+        if filters:
+            status = (filters.get("status") or "").strip().lower()
+            reference_value = filters.get("reference_date")
+
+            if reference_value:
+                if isinstance(reference_value, datetime.date):
+                    reference = reference_value
+                else:
+                    try:
+                        reference = datetime.date.fromisoformat(str(reference_value))
+                    except (TypeError, ValueError):
+                        reference = datetime.date.today()
+
+            start_active = (
+                (BudgetEntry.start_date <= reference)
+                | BudgetEntry.start_date.is_null(True)
+            )
+            end_active = (
+                (BudgetEntry.due_date >= reference)
+                | BudgetEntry.due_date.is_null(True)
+            )
+
+            if status == "active":
+                query = query.where(start_active & end_active)
+            elif status == "upcoming":
+                upcoming_condition = (
+                    (BudgetEntry.start_date > reference)
+                    | (
+                        BudgetEntry.start_date.is_null(True)
+                        & (BudgetEntry.due_date > reference)
+                    )
+                )
+                query = query.where(upcoming_condition)
+            elif status == "archived":
+                query = query.where(BudgetEntry.due_date < reference)
+
+        entries = [self._serialize_budget_entry(entry) for entry in query]
+
+        def _sort_key(item: Dict[str, Any]):
+            raw_due = item.get("due_date") or item.get("end_date")
+            raw_start = item.get("start_date")
+            try:
+                return (
+                    datetime.date.fromisoformat(raw_due)
+                    if raw_due
+                    else datetime.date.fromisoformat(raw_start)
+                    if raw_start
+                    else datetime.date.max
+                )
+            except (TypeError, ValueError):
+                return datetime.date.max
+
+        entries.sort(key=_sort_key)
+        return entries
 
     def add_budget_entry(self, data):
         try:
@@ -2429,6 +2754,9 @@ class AppController:
 
     def delete_budget_entry(self, entry_id):
         try:
+            Transaction.update(budget_entry=None).where(
+                Transaction.budget_entry == entry_id
+            ).execute()
             BudgetEntry.get_by_id(entry_id).delete_instance()
             return {"success": True}
         except BudgetEntry.DoesNotExist:
