@@ -299,25 +299,24 @@ def initialize_database() -> None:
     """Connect to the database, create tables, and seed initial data."""
 
     try:
-        if db.is_closed():
-            db.connect()
+        with db.connection_context():
             print("Database connection opened.")
 
-        db.create_tables(MODELS, safe=True)
-        print("Tables created successfully (if they didn't exist).")
+            db.create_tables(MODELS, safe=True)
+            print("Tables created successfully (if they didn't exist).")
 
-        ensure_transaction_enhancements()
-        ensure_budget_entry_links()
-        ensure_budget_entry_enhancements()
-        ensure_account_interest_columns()
-        ensure_portfolio_asset_enhancements()
-        ensure_transaction_budget_link()
-        ensure_savings_category_inheritance()
-        seed_initial_budget_rules()
-        seed_initial_parameters()
-        ensure_transfer_transaction_type()
+            ensure_transaction_enhancements()
+            ensure_budget_entry_links()
+            ensure_budget_entry_enhancements()
+            ensure_account_interest_columns()
+            ensure_portfolio_asset_enhancements()
+            ensure_transaction_budget_link()
+            ensure_savings_category_inheritance()
+            seed_initial_budget_rules()
+            seed_initial_parameters()
+            ensure_transfer_transaction_type()
 
-        print("Database initialization complete.")
+            print("Database initialization complete.")
     except OperationalError as exc:
         print(f"Database operational error during initialization: {exc}")
     except Exception as exc:  # pylint: disable=broad-except

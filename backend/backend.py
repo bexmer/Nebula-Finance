@@ -30,13 +30,15 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # --- IMPORTACIONES ---
 from app.controller.app_controller import AppController
 from app.database.db_manager import initialize_database, close_db
+from app.model.base_model import db
 
 # --- MANEJO DE LA VIDA DEL SERVIDOR (LIFESPAN) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("INFO:     Server startup: Initializing database...")
     initialize_database()
-    controller.process_recurring_transactions()
+    with db.connection_context():
+        controller.process_recurring_transactions()
     yield
     print("INFO:     Server shutdown: Closing database connection...")
     close_db()
@@ -48,6 +50,15 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def peewee_connection_middleware(request, call_next):
+    """Provide an isolated database connection per request."""
+
+    with db.connection_context():
+        response = await call_next(request)
+    return response
 
 # --- MODELOS DE DATOS PARA LA API (PYDANTIC V2) ---
 class AccountModel(BaseModel):
