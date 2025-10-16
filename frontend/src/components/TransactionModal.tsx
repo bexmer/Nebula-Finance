@@ -30,6 +30,10 @@ interface BudgetEntryOption {
   remaining_amount: number;
   over_budget_amount?: number;
   is_recurring?: boolean;
+  goal_id?: number | null;
+  goal_name?: string | null;
+  debt_id?: number | null;
+  debt_name?: string | null;
 }
 
 interface ParameterOption {
@@ -62,6 +66,14 @@ const normalizeTypeLabel = (value: string) =>
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
+
+interface TypeChangeOptions {
+  categoryOverride?: string;
+  keepBudget?: boolean;
+  preserveCategory?: boolean;
+  goalOverride?: string | null;
+  debtOverride?: string | null;
+}
 
 export const TransactionModal = () => {
   const {
@@ -284,6 +296,141 @@ export const TransactionModal = () => {
     }
   }, [setCatalogNotice]);
 
+  const applyTypeChange = useCallback(
+    (typeId: string, options: TypeChangeOptions = {}) => {
+      const { categoryOverride, keepBudget = false, preserveCategory = false } =
+        options;
+
+      const numericType = typeId ? Number(typeId) : null;
+      const selectedType = numericType
+        ? transactionTypes.find((item) => item.id === numericType)
+        : undefined;
+
+      let isTransferSelection = false;
+      let requiresGoal = false;
+      let requiresDebt = false;
+
+      if (selectedType) {
+        const normalized = normalizeTypeLabel(selectedType.value);
+        isTransferSelection = normalized.includes("transferencia");
+        requiresGoal = normalized.includes("ahorro");
+        requiresDebt = normalized.includes("deuda");
+
+        if (requiresGoal && goals.length === 0) {
+          setCatalogNotice(
+            "Para registrar un ahorro necesitas crear una meta desde la sección Metas y deudas."
+          );
+        } else if (requiresDebt && debts.length === 0) {
+          setCatalogNotice(
+            "Para registrar un pago de deuda necesitas crear una deuda desde la sección Metas y deudas."
+          );
+        } else {
+          setCatalogNotice(null);
+        }
+      } else {
+        setCatalogNotice(null);
+      }
+
+      setFormData((prev) => {
+        const resolvedGoal =
+          options.goalOverride !== undefined
+            ? options.goalOverride ?? ""
+            : requiresGoal
+            ? prev.goal_id
+            : "";
+        const resolvedDebt =
+          options.debtOverride !== undefined
+            ? options.debtOverride ?? ""
+            : requiresDebt
+            ? prev.debt_id
+            : "";
+
+        const next = {
+          ...prev,
+          typeId,
+          budget_entry_id: keepBudget ? prev.budget_entry_id : "",
+          is_transfer: isTransferSelection,
+          transfer_account_id: isTransferSelection
+            ? prev.transfer_account_id
+            : "",
+          goal_id: resolvedGoal,
+          debt_id: resolvedDebt,
+        };
+
+        if (isTransferSelection) {
+          next.goal_id = "";
+          next.debt_id = "";
+        }
+
+        if (categoryOverride) {
+          next.categoryValue = categoryOverride;
+        } else if (preserveCategory) {
+          next.categoryValue = prev.categoryValue;
+        } else {
+          next.categoryValue = isTransferSelection
+            ? "Transferencia interna"
+            : "";
+        }
+
+        return next;
+      });
+
+      if (isTransferSelection) {
+        setSplitMode(false);
+        setSplitItems([]);
+        setCategories([]);
+        return;
+      }
+
+      if (numericType) {
+        fetchCategoriesByType(numericType).then((data) => {
+          const enriched = categoryOverride
+            ? data.some((item) => item.value === categoryOverride)
+              ? data
+              : [
+                  ...data,
+                  { id: -1, value: categoryOverride } as ParameterOption,
+                ]
+            : data;
+          setCategories(enriched);
+          setFormData((prev) => {
+            if (categoryOverride) {
+              return prev.categoryValue === categoryOverride
+                ? prev
+                : { ...prev, categoryValue: categoryOverride };
+            }
+            if (preserveCategory && prev.categoryValue) {
+              const exists = enriched.some(
+                (item) => item.value === prev.categoryValue
+              );
+              if (exists) {
+                return prev;
+              }
+            }
+            const fallback = enriched[0]?.value ?? prev.categoryValue;
+            if (!fallback || fallback === prev.categoryValue) {
+              return prev;
+            }
+            return { ...prev, categoryValue: fallback };
+          });
+        });
+      } else {
+        setCategories([]);
+      }
+    },
+    [
+      debts.length,
+      fetchCategoriesByType,
+      goals.length,
+      setCatalogNotice,
+      setCategories,
+      setFormData,
+      setSplitItems,
+      setSplitMode,
+      transactionTypes,
+    ]
+  );
+
   const createSplitRow = useCallback((): SplitRow => {
     return {
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -402,8 +549,40 @@ export const TransactionModal = () => {
     setFormData((prev) => ({
       ...prev,
       budget_entry_id: value,
-      categoryValue: matchedBudget?.category ?? prev.categoryValue,
+      goal_id: matchedBudget?.goal_id ? String(matchedBudget.goal_id) : "",
+      debt_id: matchedBudget?.debt_id ? String(matchedBudget.debt_id) : "",
     }));
+
+    if (matchedBudget) {
+      const normalizedType = normalizeTypeLabel(matchedBudget.type ?? "");
+      const matchedType = transactionTypes.find(
+        (type) => normalizeTypeLabel(type.value) === normalizedType
+      );
+
+      if (matchedType) {
+        applyTypeChange(String(matchedType.id), {
+          categoryOverride: matchedBudget.category,
+          keepBudget: true,
+          preserveCategory: true,
+          goalOverride: matchedBudget.goal_id
+            ? String(matchedBudget.goal_id)
+            : "",
+          debtOverride: matchedBudget.debt_id
+            ? String(matchedBudget.debt_id)
+            : "",
+        });
+      } else if (matchedBudget.category) {
+        setFormData((prev) => ({
+          ...prev,
+          categoryValue: matchedBudget.category,
+        }));
+      }
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        categoryValue: prev.categoryValue,
+      }));
+    }
   };
 
   const loadModalData = useCallback(async () => {
@@ -679,51 +858,7 @@ export const TransactionModal = () => {
   }, [isTransactionModalOpen, loadModalData]);
 
   const handleTypeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const typeId = event.target.value;
-    const numericType = typeId ? Number(typeId) : null;
-    let isTransferSelection = false;
-
-    if (numericType) {
-      const selectedType = transactionTypes.find((item) => item.id === numericType);
-      if (selectedType) {
-        const normalized = normalizeTypeLabel(selectedType.value);
-        isTransferSelection = normalized.includes("transferencia");
-        if (normalized.includes("ahorro") && goals.length === 0) {
-          setCatalogNotice(
-            "Para registrar un ahorro necesitas crear una meta desde la sección Metas y deudas."
-          );
-        } else if (normalized.includes("deuda") && debts.length === 0) {
-          setCatalogNotice(
-            "Para registrar un pago de deuda necesitas crear una deuda desde la sección Metas y deudas."
-          );
-        } else {
-          setCatalogNotice(null);
-        }
-      }
-    } else {
-      setCatalogNotice(null);
-    }
-
-    setFormData((prev) => ({
-      ...prev,
-      typeId,
-      categoryValue: isTransferSelection ? "Transferencia interna" : "",
-      goal_id: "",
-      debt_id: "",
-      budget_entry_id: "",
-      is_transfer: isTransferSelection,
-      transfer_account_id: "",
-    }));
-
-    if (isTransferSelection) {
-      setSplitMode(false);
-      setSplitItems([]);
-      setCategories([]);
-    } else if (numericType) {
-      fetchCategoriesByType(numericType).then((data) => setCategories(data));
-    } else {
-      setCategories([]);
-    }
+    applyTypeChange(event.target.value);
   };
 
   const LIMITED_NUMERIC_FIELDS = new Set(["amount"]);

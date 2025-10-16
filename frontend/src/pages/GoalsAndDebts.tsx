@@ -63,15 +63,30 @@ export function GoalsAndDebts() {
         }))
       );
       setDebts(
-        debtsRes.data.map((debt: any) => ({
-          ...debt,
-          minimum_payment: debt.minimum_payment ?? 0,
-          interest_rate: debt.interest_rate ?? 0,
-          current_balance: debt.current_balance ?? 0,
-          total_amount: debt.total_amount ?? 0,
-          percentage:
-            debt.percentage ?? debt.completion_percentage ?? debt.progress ?? 0,
-        }))
+        debtsRes.data.map((debt: any) => {
+          const total = Number(debt.total_amount ?? 0) || 0;
+          const balance = Number(debt.current_balance ?? 0) || 0;
+          const computedPercentage =
+            total > 0 ? ((total - balance) / total) * 100 : 0;
+          const fallbackPercentage =
+            debt.percentage ?? debt.completion_percentage ?? debt.progress ?? 0;
+
+          const finalPercentage = Number.isFinite(computedPercentage)
+            ? computedPercentage
+            : fallbackPercentage;
+
+          return {
+            ...debt,
+            minimum_payment: debt.minimum_payment ?? 0,
+            interest_rate: debt.interest_rate ?? 0,
+            current_balance: balance,
+            total_amount: total,
+            percentage: Math.max(
+              0,
+              Math.min(finalPercentage, 100)
+            ),
+          };
+        })
       );
     } catch (error) {
       console.error("Error al obtener datos:", error);
@@ -139,6 +154,11 @@ export function GoalsAndDebts() {
     ) {
       try {
         await axios.delete(apiPath(`/${endpoint}/${id}`));
+        if (type === "goal") {
+          setGoals((prev) => prev.filter((goal) => goal.id !== id));
+        } else {
+          setDebts((prev) => prev.filter((debt) => debt.id !== id));
+        }
         fetchData().then(() => {
           window.dispatchEvent(new CustomEvent("nebula:goals-refresh"));
         });
@@ -291,7 +311,7 @@ export function GoalsAndDebts() {
               </div>
             ) : activeTab === "goals" ? (
               goals.length > 0 ? (
-                <div className="grid gap-4 card-animate">
+                <div className="grid grid-cols-1 gap-4 card-animate">
                   {goals.map((g) => (
                     <GoalProgressCard
                       key={g.id}
@@ -307,7 +327,7 @@ export function GoalsAndDebts() {
                 </div>
               )
             ) : debts.length > 0 ? (
-              <div className="grid gap-4 card-animate">
+              <div className="grid grid-cols-1 gap-4 card-animate">
                 {debts.map((d) => (
                   <DebtProgressCard
                     key={d.id}
