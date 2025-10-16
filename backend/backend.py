@@ -126,6 +126,7 @@ class BudgetEntryModel(BaseModel):
     debt_id: Optional[int] = None
     debt_name: Optional[str] = None
     is_recurring: bool = False
+    use_custom_schedule: bool = False
 
 
 class BudgetEntryCreateModel(BaseModel):
@@ -143,6 +144,7 @@ class BudgetEntryCreateModel(BaseModel):
     debt_id: Optional[int] = None
     frequency: Literal["Única vez", "Semanal", "Quincenal", "Mensual", "Anual"] = "Mensual"
     is_recurring: Optional[bool] = None
+    use_custom_schedule: Optional[bool] = None
 
     @field_validator("budgeted_amount", "amount")
     @classmethod
@@ -165,6 +167,7 @@ class BudgetEntryUpdateModel(BaseModel):
     debt_id: Optional[int] = None
     frequency: Optional[Literal["Única vez", "Semanal", "Quincenal", "Mensual", "Anual"]] = None
     is_recurring: Optional[bool] = None
+    use_custom_schedule: Optional[bool] = None
 
     @field_validator("budgeted_amount", "amount")
     @classmethod
@@ -282,6 +285,20 @@ class CategoryUpdateModel(BaseModel):
     parent_id: Optional[int] = None
 
 
+class AssetTypeItem(BaseModel):
+    id: int
+    name: str
+    is_deletable: bool
+
+
+class AssetTypeCreateModel(BaseModel):
+    name: str
+
+
+class AssetTypeUpdateModel(BaseModel):
+    name: str
+
+
 class RecurringTransactionModel(BaseModel):
     id: int
     description: str
@@ -309,6 +326,12 @@ class PortfolioSummaryModel(BaseModel):
     avg_cost: float
     market_value: float
     unrealized_pnl: float
+    annual_yield_rate: float
+    monthly_yield: float
+    linked_account_id: Optional[int] = None
+    linked_account_name: Optional[str] = None
+    linked_goal_id: Optional[int] = None
+    linked_goal_name: Optional[str] = None
 
 
 class TradeResponseModel(BaseModel):
@@ -319,6 +342,9 @@ class TradeResponseModel(BaseModel):
     type: Literal["buy", "sell"]
     quantity: float
     price: float
+    annual_yield_rate: float
+    linked_account_id: Optional[int] = None
+    linked_goal_id: Optional[int] = None
 
 
 class TradeCreateModel(BaseModel):
@@ -328,11 +354,21 @@ class TradeCreateModel(BaseModel):
     quantity: float
     price: float
     date: datetime.date
+    annual_yield_rate: Optional[float] = 0.0
+    linked_account_id: Optional[int] = None
+    linked_goal_id: Optional[int] = None
 
     @field_validator("quantity", "price")
     @classmethod
     def validate_trade_numbers(cls, value: float, info):
         return enforce_digit_limit(value, info.field_name)
+
+    @field_validator("annual_yield_rate")
+    @classmethod
+    def validate_trade_yield(cls, value: Optional[float]):
+        if value is None:
+            return 0.0
+        return enforce_digit_limit(float(value), "annual_yield_rate")
 
 
 class TradeUpdateModel(TradeCreateModel):
@@ -614,6 +650,11 @@ def get_transaction_types():
 def get_account_types():
     return controller.get_account_types()
 
+
+@app.get("/api/parameters/asset-types", response_model=List[str])
+def get_asset_types():
+    return controller.get_asset_types()
+
 @app.get("/api/parameters/categories/{parent_id}")
 def get_categories_by_type(parent_id: int):
     return controller.get_child_parameters(parent_id)
@@ -708,6 +749,35 @@ def update_account_type_parameter(type_id: int, account_type: AccountTypeUpdateM
 @app.delete("/api/config/account-types/{type_id}")
 def delete_account_type_parameter(type_id: int):
     result = controller.delete_account_type_parameter(type_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.get("/api/config/asset-types", response_model=List[AssetTypeItem])
+def list_asset_types_config():
+    return controller.get_asset_type_parameters()
+
+
+@app.post("/api/config/asset-types", response_model=AssetTypeItem, status_code=201)
+def create_asset_type_parameter(asset_type: AssetTypeCreateModel):
+    result = controller.add_asset_type(asset_type.name)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.put("/api/config/asset-types/{type_id}", response_model=AssetTypeItem)
+def update_asset_type_parameter(type_id: int, asset_type: AssetTypeUpdateModel):
+    result = controller.update_asset_type_parameter(type_id, asset_type.name)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.delete("/api/config/asset-types/{type_id}")
+def delete_asset_type_parameter(type_id: int):
+    result = controller.delete_asset_type_parameter(type_id)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result

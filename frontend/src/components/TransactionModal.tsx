@@ -5,8 +5,10 @@ import { useStore, TransactionSplit as TransactionSplitData } from "../store/use
 import { apiPath } from "../utils/api";
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 import {
+  formatDateForDisplay,
   getTodayDateInputValue,
   normalizeDateInputValue,
+  parseDateOnly,
 } from "../utils/date";
 
 interface SelectOption {
@@ -41,7 +43,7 @@ interface SplitRow {
   amount: string;
 }
 
-const initialState = {
+const createInitialState = () => ({
   description: "",
   amount: "",
   date: getTodayDateInputValue(),
@@ -51,12 +53,9 @@ const initialState = {
   goal_id: "",
   debt_id: "",
   budget_entry_id: "",
-  is_recurring: false,
-  frequency: "Mensual",
-  day_of_month: 1,
   is_transfer: false,
   transfer_account_id: "",
-};
+});
 
 const normalizeTypeLabel = (value: string) =>
   value
@@ -75,7 +74,7 @@ export const TransactionModal = () => {
   } = useStore();
 
   const { formatCurrency } = useNumberFormatter();
-  const [formData, setFormData] = useState(initialState);
+  const [formData, setFormData] = useState(createInitialState);
   const [accounts, setAccounts] = useState<SelectOption[]>([]);
   const [transactionTypes, setTransactionTypes] = useState<ParameterOption[]>([]);
   const [categories, setCategories] = useState<ParameterOption[]>([]);
@@ -85,7 +84,9 @@ export const TransactionModal = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [catalogNotice, setCatalogNotice] = useState<string | null>(null);
-  const [initialSnapshot, setInitialSnapshot] = useState<typeof initialState | null>(
+  const [initialSnapshot, setInitialSnapshot] = useState<
+    ReturnType<typeof createInitialState> | null
+  >(
     null
   );
   const [splitMode, setSplitMode] = useState(false);
@@ -95,6 +96,7 @@ export const TransactionModal = () => {
   const [initialTags, setInitialTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [availableTags, setAvailableTags] = useState<string[]>([]);
+  const todayInputValue = useMemo(() => getTodayDateInputValue(), []);
 
   const activeType = useMemo(() => {
     if (!formData.typeId) {
@@ -193,11 +195,8 @@ export const TransactionModal = () => {
 
     const parseDate = (entry: BudgetEntryOption) => {
       const dateValue = entry.due_date || entry.end_date || entry.start_date;
-      if (!dateValue) {
-        return Number.MAX_SAFE_INTEGER;
-      }
-      const parsed = new Date(dateValue);
-      return Number.isNaN(parsed.getTime()) ? Number.MAX_SAFE_INTEGER : parsed.getTime();
+      const parsed = parseDateOnly(dateValue);
+      return parsed ? parsed.getTime() : Number.MAX_SAFE_INTEGER;
     };
 
     return budgetEntries
@@ -393,7 +392,18 @@ export const TransactionModal = () => {
   }, [normalizeTagValue]);
 
   const handleBudgetEntryChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    setFormData((prev) => ({ ...prev, budget_entry_id: event.target.value }));
+    const value = event.target.value;
+    const numericId = value ? Number(value) : null;
+    const matchedBudget =
+      numericId && !Number.isNaN(numericId)
+        ? budgetEntries.find((entry) => entry.id === numericId)
+        : undefined;
+
+    setFormData((prev) => ({
+      ...prev,
+      budget_entry_id: value,
+      categoryValue: matchedBudget?.category ?? prev.categoryValue,
+    }));
   };
 
   const loadModalData = useCallback(async () => {
@@ -496,10 +506,7 @@ export const TransactionModal = () => {
       setBudgetEntries(fetchedBudgets);
 
       let nextCategories: ParameterOption[] = [];
-      let nextFormState = {
-        ...initialState,
-        date: getTodayDateInputValue(),
-      };
+      let nextFormState = createInitialState();
       let transactionTags: string[] = [];
 
       if (editingTransaction) {
@@ -657,7 +664,7 @@ export const TransactionModal = () => {
     if (isTransactionModalOpen) {
       loadModalData();
     } else {
-      setFormData(initialState);
+      setFormData(createInitialState());
       setCatalogNotice(null);
       setError("");
       setInitialSnapshot(null);
@@ -719,7 +726,7 @@ export const TransactionModal = () => {
     }
   };
 
-  const LIMITED_NUMERIC_FIELDS = new Set(["amount", "day_of_month"]);
+  const LIMITED_NUMERIC_FIELDS = new Set(["amount"]);
 
   const handleChange = (
     event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
@@ -770,6 +777,32 @@ export const TransactionModal = () => {
       return;
     }
 
+    const [yearStr, monthStr, dayStr] = formData.date.split("-");
+    if (!yearStr || !monthStr || !dayStr) {
+      setError("Selecciona una fecha válida.");
+      return;
+    }
+
+    const parsedTransactionDate = new Date(
+      Number(yearStr),
+      Number(monthStr) - 1,
+      Number(dayStr)
+    );
+
+    if (Number.isNaN(parsedTransactionDate.getTime())) {
+      setError("La fecha proporcionada no es válida.");
+      return;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    parsedTransactionDate.setHours(0, 0, 0, 0);
+
+    if (parsedTransactionDate > today) {
+      setError("La fecha no puede ser posterior al día de hoy.");
+      return;
+    }
+
     if (Number.isNaN(accountIdNumber)) {
       setError("Selecciona una cuenta para registrar la transacción.");
       return;
@@ -791,7 +824,12 @@ export const TransactionModal = () => {
       return;
     }
 
-    if (!isTransfer && !splitMode && !formData.categoryValue) {
+    if (
+      !isTransfer &&
+      !splitMode &&
+      !formData.categoryValue &&
+      !budgetEntryIdNumber
+    ) {
       setError("Selecciona una categoría para la transacción.");
       return;
     }
@@ -844,7 +882,9 @@ export const TransactionModal = () => {
       ? "Transferencia interna"
       : splitMode
         ? "Múltiples categorías"
-        : formData.categoryValue;
+        : budgetEntryIdNumber && selectedBudget
+          ? selectedBudget.category
+          : formData.categoryValue;
 
     const submissionData = {
       description: trimmedDescription,
@@ -855,10 +895,7 @@ export const TransactionModal = () => {
       category: submissionCategory,
       goal_id: goalIdNumber,
       debt_id: debtIdNumber,
-      budget_entry_id: budgetEntryIdNumber,
-      is_recurring: formData.is_recurring,
-      frequency: formData.frequency,
-      day_of_month: formData.day_of_month,
+      budget_entry_id: isTransfer ? null : budgetEntryIdNumber,
       is_transfer: isTransfer,
       transfer_account_id: transferAccountNumber,
       splits: splitPayload,
@@ -899,8 +936,6 @@ export const TransactionModal = () => {
       const currentGoal = formData.goal_id || "";
       const currentDebt = formData.debt_id || "";
       const currentBudget = formData.budget_entry_id || "";
-      const initialDay = String(initialSnapshot.day_of_month);
-
       const unchanged =
         initialSnapshot.description.trim() === trimmedDescription &&
         Number.isFinite(initialAmount) &&
@@ -912,9 +947,6 @@ export const TransactionModal = () => {
         initialGoal === currentGoal &&
         initialDebt === currentDebt &&
         initialBudget === currentBudget &&
-        initialSnapshot.is_recurring === formData.is_recurring &&
-        initialSnapshot.frequency === formData.frequency &&
-        initialDay === String(submissionData.day_of_month) &&
         initialSnapshot.is_transfer === submissionData.is_transfer &&
         (initialSnapshot.transfer_account_id || "") ===
           (formData.transfer_account_id || "") &&
@@ -967,19 +999,23 @@ export const TransactionModal = () => {
         {isLoading ? (
           <p className="mt-6 text-center text-muted">Cargando catálogos...</p>
         ) : (
-          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+          <form
+            onSubmit={handleSubmit}
+            className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)]"
+          >
             {error && (
-              <p className="rounded-xl border border-rose-300/60 bg-rose-50 px-4 py-2 text-sm text-rose-600 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-200">
+              <p className="rounded-xl border border-rose-300/60 bg-rose-50 px-4 py-2 text-sm text-rose-600 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-200 lg:col-span-2">
                 {error}
               </p>
             )}
             {catalogNotice && !error && (
-              <p className="rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-2 text-sm text-amber-600 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
+              <p className="rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-2 text-sm text-amber-600 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200 lg:col-span-2">
                 {catalogNotice}
               </p>
             )}
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-4 lg:col-start-1">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <input
                 type="text"
                 name="description"
@@ -988,7 +1024,7 @@ export const TransactionModal = () => {
                 placeholder="Descripción"
                 required
                 maxLength={100}
-                className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100 sm:col-span-2"
+                className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100 sm:col-span-3"
               />
               <input
                 type="number"
@@ -1007,26 +1043,26 @@ export const TransactionModal = () => {
                 value={formData.date}
                 onChange={handleChange}
                 required
+                max={todayInputValue}
                 className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
               />
-            </div>
+              <select
+                name="account_id"
+                value={formData.account_id}
+                onChange={handleChange}
+                required
+                className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+              >
+                <option value="">-- Selecciona una Cuenta --</option>
+                {accounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name}
+                  </option>
+                ))}
+              </select>
+              </div>
 
-            <select
-              name="account_id"
-              value={formData.account_id}
-              onChange={handleChange}
-              required
-              className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
-            >
-              <option value="">-- Selecciona una Cuenta --</option>
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name}
-                </option>
-              ))}
-            </select>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
                   Tipo de movimiento
@@ -1177,26 +1213,41 @@ export const TransactionModal = () => {
                     </div>
                   )
                 ) : (
-                  <select
-                    name="categoryValue"
-                    value={formData.categoryValue}
-                    onChange={handleChange}
-                    required
-                    disabled={!formData.typeId || categories.length === 0}
-                    className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100"
-                  >
-                    <option value="">-- Selecciona una Categoría --</option>
-                    {categories.map((category) => (
-                      <option key={category.id} value={category.value}>
-                        {category.value}
-                      </option>
-                    ))}
-                  </select>
+                  <>
+                    <select
+                      name="categoryValue"
+                      value={formData.categoryValue}
+                      onChange={handleChange}
+                      required={!formData.budget_entry_id && !splitMode && !isTransfer}
+                      disabled={
+                        !formData.typeId ||
+                        categories.length === 0 ||
+                        Boolean(formData.budget_entry_id) ||
+                        isTransfer
+                      }
+                      className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100"
+                    >
+                      <option value="">-- Selecciona una Categoría --</option>
+                      {categories.map((category) => (
+                        <option key={category.id} value={category.value}>
+                          {category.value}
+                        </option>
+                      ))}
+                    </select>
+                    {Boolean(formData.budget_entry_id) && !splitMode && !isTransfer ? (
+                      <p className="mt-1 text-xs text-muted">
+                        La categoría se ajustará automáticamente según el presupuesto
+                        seleccionado.
+                      </p>
+                    ) : null}
+                  </>
                 )}
+              </div>
               </div>
             </div>
 
-            <div className="space-y-3 rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface-muted)]/60 px-4 py-4">
+            <div className="space-y-4 lg:col-start-2">
+              <div className="space-y-3 rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface-muted)]/60 px-4 py-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-[var(--app-text)]">Etiquetas personalizadas</p>
@@ -1342,8 +1393,9 @@ export const TransactionModal = () => {
                         ? "Completado"
                         : `${formatCurrency(Math.max(remaining, 0))} disponibles`;
                     const deadline = entry.due_date || entry.end_date || entry.start_date;
-                    const deadlineText = deadline
-                      ? new Date(deadline).toLocaleDateString()
+                    const deadlineDate = parseDateOnly(deadline);
+                    const deadlineText = deadlineDate
+                      ? formatDateForDisplay(deadlineDate)
                       : "sin fecha límite";
                     return (
                       <option key={entry.id} value={String(entry.id)}>
@@ -1414,46 +1466,9 @@ export const TransactionModal = () => {
                 ) : null}
               </div>
             )}
-
-            <div className="rounded-2xl border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)]/70 px-4 py-4">
-              <label className="flex cursor-pointer items-center gap-3">
-                <input
-                  type="checkbox"
-                  name="is_recurring"
-                  checked={formData.is_recurring}
-                  onChange={handleChange}
-                  className="h-5 w-5 rounded border-slate-400 text-sky-500 focus:ring-sky-400"
-                />
-                <span className="text-sm text-muted">Es una transacción recurrente</span>
-              </label>
-              {formData.is_recurring && (
-                <div className="grid grid-cols-1 gap-4 pt-4 sm:grid-cols-2">
-                  <select
-                    name="frequency"
-                    value={formData.frequency}
-                    onChange={handleChange}
-                    className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
-                  >
-                    <option>Mensual</option>
-                    <option>Quincenal</option>
-                    <option>Semanal</option>
-                    <option>Anual</option>
-                  </select>
-                  <input
-                    type="number"
-                    name="day_of_month"
-                    value={formData.day_of_month}
-                    onChange={handleChange}
-                    placeholder="Día del mes"
-                    min="1"
-                    max="31"
-                    className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
-                  />
-                </div>
-              )}
             </div>
 
-            <div className="flex flex-col-reverse gap-3 pt-6 sm:flex-row sm:justify-end">
+            <div className="flex flex-col-reverse gap-3 pt-6 sm:flex-row sm:justify-end lg:col-span-2">
               <button
                 type="button"
                 onClick={closeTransactionModal}

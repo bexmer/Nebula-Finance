@@ -18,6 +18,7 @@ class BudgetEntry(BaseModel):
     start_date = DateField(default=datetime.date.today)
     end_date = DateField(null=True)
     due_date = DateField(default=datetime.date.today)
+    use_custom_schedule = BooleanField(default=False)
     is_recurring = BooleanField(default=False)
     actual_amount = FloatField(default=0.0)
     goal = ForeignKeyField(Goal, backref="budget_entries", null=True)

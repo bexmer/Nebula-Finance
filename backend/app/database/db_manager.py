@@ -103,6 +103,33 @@ def ensure_budget_entry_enhancements() -> None:
             f'ALTER TABLE "{table_name}" ADD COLUMN actual_amount REAL DEFAULT 0'
         )
 
+    if "use_custom_schedule" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN use_custom_schedule INTEGER DEFAULT 0'
+        )
+
+
+def ensure_portfolio_asset_enhancements() -> None:
+    """Add optional savings tracking fields to portfolio assets."""
+
+    table_name = PortfolioAsset._meta.table_name
+    existing_columns = _existing_columns(table_name)
+
+    if "annual_yield_rate" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN annual_yield_rate REAL DEFAULT 0'
+        )
+
+    if "linked_account_id" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN linked_account_id INTEGER'
+        )
+
+    if "linked_goal_id" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN linked_goal_id INTEGER'
+        )
+
 
 def ensure_transaction_budget_link() -> None:
     """Guarantee transactions can reference a budget entry when required."""
@@ -190,6 +217,11 @@ def seed_initial_parameters() -> None:
     Parameter.create(group="Tipo de Cuenta", value="Tarjeta de Crédito")
     Parameter.create(group="Tipo de Cuenta", value="Efectivo")
 
+    Parameter.create(group="Tipo de Activo", value="Acción")
+    Parameter.create(group="Tipo de Activo", value="Fondo de Inversión")
+    Parameter.create(group="Tipo de Activo", value="Criptomoneda")
+    Parameter.create(group="Tipo de Activo", value="Cuenta de Ahorro")
+
     print("Initial parameters seeded with parent-child relationships.")
 
 
@@ -223,6 +255,7 @@ def initialize_database() -> None:
         ensure_transaction_enhancements()
         ensure_budget_entry_links()
         ensure_budget_entry_enhancements()
+        ensure_portfolio_asset_enhancements()
         ensure_transaction_budget_link()
         seed_initial_budget_rules()
         seed_initial_parameters()

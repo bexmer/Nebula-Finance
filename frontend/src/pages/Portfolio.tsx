@@ -6,6 +6,7 @@ import { Pencil, RefreshCcw, Trash2 } from "lucide-react";
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 import { apiPath } from "../utils/api";
 import {
+  formatDateForDisplay,
   getTodayDateInputValue,
   normalizeDateInputValue,
 } from "../utils/date";
@@ -18,6 +19,12 @@ interface PortfolioSummary {
   avg_cost: number;
   market_value: number;
   unrealized_pnl: number;
+  annual_yield_rate?: number;
+  monthly_yield?: number;
+  linked_account_id?: number | null;
+  linked_account_name?: string | null;
+  linked_goal_id?: number | null;
+  linked_goal_name?: string | null;
 }
 
 interface TradeHistory {
@@ -28,6 +35,9 @@ interface TradeHistory {
   type: "buy" | "sell";
   quantity: number;
   price: number;
+  annual_yield_rate?: number;
+  linked_account_id?: number | null;
+  linked_goal_id?: number | null;
 }
 
 interface TradeFormState {
@@ -38,6 +48,14 @@ interface TradeFormState {
   quantity: string;
   price: string;
   date: string;
+  annual_yield_rate: string;
+  linked_account_id: string;
+  linked_goal_id: string;
+}
+
+interface SelectOption {
+  id: number;
+  name: string;
 }
 
 export function Portfolio() {
@@ -49,6 +67,9 @@ export function Portfolio() {
     quantity: "",
     price: "",
     date: getTodayDateInputValue(),
+    annual_yield_rate: "",
+    linked_account_id: "",
+    linked_goal_id: "",
   });
 
   const [summary, setSummary] = useState<PortfolioSummary[]>([]);
@@ -63,6 +84,9 @@ export function Portfolio() {
   );
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [assetTypes, setAssetTypes] = useState<string[]>([]);
+  const [accountOptions, setAccountOptions] = useState<SelectOption[]>([]);
+  const [goalOptions, setGoalOptions] = useState<SelectOption[]>([]);
   const formRef = useRef<HTMLFormElement | null>(null);
   const symbolInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -79,6 +103,22 @@ export function Portfolio() {
   const holdingSymbols = useMemo(
     () => Array.from(holdingsBySymbol.keys()).sort(),
     [holdingsBySymbol]
+  );
+
+  const assetTypeSelection = useMemo(() => {
+    if (!formState.asset_type) {
+      return "";
+    }
+    return assetTypes.includes(formState.asset_type)
+      ? formState.asset_type
+      : "__custom";
+  }, [assetTypes, formState.asset_type]);
+
+  const showCustomAssetInput = assetTypeSelection === "__custom";
+
+  const sortedAssetTypes = useMemo(
+    () => assetTypes.slice().sort((a, b) => a.localeCompare(b, "es")),
+    [assetTypes]
   );
 
   const fetchPortfolio = useCallback(async () => {
@@ -125,6 +165,45 @@ export function Portfolio() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+
+    const loadCatalogs = async () => {
+      try {
+        const [typesRes, accountsRes, goalsRes] = await Promise.all([
+          axios.get<string[]>(apiPath("/parameters/asset-types")),
+          axios.get(apiPath("/accounts")),
+          axios.get<SelectOption[]>(apiPath("/goals")),
+        ]);
+
+        if (!active) {
+          return;
+        }
+
+        setAssetTypes(typesRes.data);
+
+        const accountItems = (accountsRes.data as { id: number; name: string; is_virtual: boolean }[])
+          .filter((account) => !account.is_virtual)
+          .map((account) => ({ id: account.id, name: account.name }));
+        setAccountOptions(accountItems);
+
+        const goalItems = (goalsRes.data as SelectOption[]).map((goal) => ({
+          id: goal.id,
+          name: goal.name,
+        }));
+        setGoalOptions(goalItems);
+      } catch (error) {
+        console.error("Error al cargar catálogos del portafolio:", error);
+      }
+    };
+
+    loadCatalogs();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const resetForm = () => {
     setFormState(createDefaultFormState());
     setFormError(null);
@@ -149,6 +228,15 @@ export function Portfolio() {
             const holding = holdingsBySymbol.get(normalized);
             if (holding) {
               nextState.asset_type = holding.asset_type;
+              nextState.annual_yield_rate = holding.annual_yield_rate
+                ? String(holding.annual_yield_rate)
+                : "";
+              nextState.linked_account_id = holding.linked_account_id
+                ? String(holding.linked_account_id)
+                : "";
+              nextState.linked_goal_id = holding.linked_goal_id
+                ? String(holding.linked_goal_id)
+                : "";
             }
           }
           return nextState;
@@ -169,10 +257,33 @@ export function Portfolio() {
               type: nextType,
               symbol: fallbackSymbol,
               asset_type: holding?.asset_type ?? prev.asset_type,
+              annual_yield_rate: holding?.annual_yield_rate
+                ? String(holding.annual_yield_rate)
+                : prev.annual_yield_rate,
+              linked_account_id: holding?.linked_account_id
+                ? String(holding.linked_account_id)
+                : "",
+              linked_goal_id: holding?.linked_goal_id
+                ? String(holding.linked_goal_id)
+                : "",
             };
           }
 
-          return { ...prev, type: nextType };
+          return {
+            ...prev,
+            type: nextType,
+          };
+        }
+
+        if (field === "annual_yield_rate") {
+          const cleaned = value.replace(/[^0-9.]/g, "");
+          const parts = cleaned.split(".");
+          const normalized =
+            parts.length > 2 ? `${parts[0]}.${parts.slice(1).join("")}` : cleaned;
+          if (normalized.length > 6) {
+            return prev;
+          }
+          return { ...prev, annual_yield_rate: normalized };
         }
 
         return { ...prev, [field]: value };
@@ -188,6 +299,15 @@ export function Portfolio() {
       quantity: trade.quantity.toString(),
       price: trade.price.toString(),
       date: normalizeDateInputValue(trade.date),
+      annual_yield_rate: trade.annual_yield_rate
+        ? String(trade.annual_yield_rate)
+        : "",
+      linked_account_id: trade.linked_account_id
+        ? String(trade.linked_account_id)
+        : "",
+      linked_goal_id: trade.linked_goal_id
+        ? String(trade.linked_goal_id)
+        : "",
     };
     setFormState(nextState);
     setInitialSnapshot(nextState);
@@ -204,12 +324,24 @@ export function Portfolio() {
       const holding = holdingsBySymbol.get(normalized)!;
       if (
         formState.asset_type !== holding.asset_type ||
-        formState.symbol !== normalized
+        formState.symbol !== normalized ||
+        formState.annual_yield_rate !== String(holding.annual_yield_rate ?? "") ||
+        formState.linked_account_id !== String(holding.linked_account_id ?? "") ||
+        formState.linked_goal_id !== String(holding.linked_goal_id ?? "")
       ) {
         setFormState((prev) => ({
           ...prev,
           symbol: normalized,
           asset_type: holding.asset_type,
+          annual_yield_rate: holding.annual_yield_rate
+            ? String(holding.annual_yield_rate)
+            : "",
+          linked_account_id: holding.linked_account_id
+            ? String(holding.linked_account_id)
+            : "",
+          linked_goal_id: holding.linked_goal_id
+            ? String(holding.linked_goal_id)
+            : "",
         }));
       }
     } else if (!normalized && holdingSymbols.length > 0) {
@@ -219,12 +351,24 @@ export function Portfolio() {
         ...prev,
         symbol: fallbackSymbol,
         asset_type: holding?.asset_type ?? prev.asset_type,
+        annual_yield_rate: holding?.annual_yield_rate
+          ? String(holding.annual_yield_rate)
+          : prev.annual_yield_rate,
+        linked_account_id: holding?.linked_account_id
+          ? String(holding.linked_account_id)
+          : "",
+        linked_goal_id: holding?.linked_goal_id
+          ? String(holding.linked_goal_id)
+          : "",
       }));
     }
   }, [
     formState.type,
     formState.symbol,
     formState.asset_type,
+    formState.annual_yield_rate,
+    formState.linked_account_id,
+    formState.linked_goal_id,
     holdingSymbols,
     holdingsBySymbol,
   ]);
@@ -300,6 +444,19 @@ export function Portfolio() {
       return;
     }
 
+    const annualYieldRate = parseFloat(formState.annual_yield_rate || "0");
+    if (!Number.isFinite(annualYieldRate) || annualYieldRate < 0) {
+      setFormError("La tasa anual debe ser un número mayor o igual a cero.");
+      return;
+    }
+
+    const linkedAccountId = formState.linked_account_id
+      ? Number.parseInt(formState.linked_account_id, 10)
+      : null;
+    const linkedGoalId = formState.linked_goal_id
+      ? Number.parseInt(formState.linked_goal_id, 10)
+      : null;
+
     const payload = {
       symbol: normalizedSymbol,
       asset_type: resolvedAssetType,
@@ -307,6 +464,9 @@ export function Portfolio() {
       quantity,
       price,
       date: formState.date,
+      annual_yield_rate: annualYieldRate,
+      linked_account_id: linkedAccountId,
+      linked_goal_id: linkedGoalId,
     };
 
     if (formState.id && initialSnapshot && initialSnapshot.id === formState.id) {
@@ -316,6 +476,9 @@ export function Portfolio() {
       const initialAssetType = initialSnapshot.asset_type.trim();
       const initialType = initialSnapshot.type;
       const initialDate = initialSnapshot.date;
+      const initialYield = parseFloat(initialSnapshot.annual_yield_rate || "0");
+      const initialAccount = initialSnapshot.linked_account_id || "";
+      const initialGoal = initialSnapshot.linked_goal_id || "";
 
       const unchanged =
         initialSymbol === normalizedSymbol &&
@@ -325,7 +488,10 @@ export function Portfolio() {
         Number.isFinite(initialQuantity) &&
         Number.isFinite(initialPrice) &&
         initialQuantity === quantity &&
-        initialPrice === price;
+        initialPrice === price &&
+        initialYield === annualYieldRate &&
+        initialAccount === (formState.linked_account_id || "") &&
+        initialGoal === (formState.linked_goal_id || "");
 
       if (unchanged) {
         setFormError("No has realizado cambios en esta operación.");
@@ -369,9 +535,10 @@ export function Portfolio() {
           acc.market += asset.market_value;
           acc.cost += cost;
           acc.pnl += asset.unrealized_pnl;
+          acc.yield += asset.monthly_yield ?? 0;
           return acc;
         },
-        { market: 0, cost: 0, pnl: 0 }
+        { market: 0, cost: 0, pnl: 0, yield: 0 }
       ),
     [summary]
   );
@@ -421,15 +588,8 @@ export function Portfolio() {
   }, [enrichedSummary]);
 
   const formatDate = (value: string) => {
-    try {
-      return new Date(value).toLocaleDateString("es-MX", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      });
-    } catch (error) {
-      return value;
-    }
+    const formatted = formatDateForDisplay(value);
+    return formatted || value;
   };
 
   const isEditing = formState.id !== null;
@@ -459,7 +619,7 @@ export function Portfolio() {
         </button>
       </div>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <article className="glow-card glow-card--sky sm:p-6">
           <p className="text-xs uppercase tracking-wide text-sky-600 dark:text-sky-300">Valor actual</p>
           <p className="mt-2 text-3xl font-semibold text-slate-900 dark:text-white">
@@ -502,6 +662,13 @@ export function Portfolio() {
           </p>
           <p className="mt-1 text-xs text-muted">Sobre el capital invertido</p>
         </article>
+        <article className="glow-card glow-card--amber sm:p-6">
+          <p className="text-xs uppercase tracking-wide text-amber-600 dark:text-amber-300">Ingreso mensual</p>
+          <p className="mt-2 text-3xl font-semibold text-amber-600 dark:text-amber-200">
+            {formatCurrency(totals.yield)}
+          </p>
+          <p className="mt-1 text-xs text-muted">Basado en las tasas anuales registradas.</p>
+        </article>
       </section>
 
       {fetchError && (
@@ -527,7 +694,9 @@ export function Portfolio() {
                       <th className="py-2 pr-4 text-right">Costo prom.</th>
                       <th className="py-2 pr-4 text-right">Valor mercado</th>
                       <th className="py-2 pr-4 text-right">G/P</th>
-                      <th className="py-2 text-right">ROI</th>
+                      <th className="py-2 pr-4 text-right">ROI</th>
+                      <th className="py-2 pr-4 text-right">Rend. mensual</th>
+                      <th className="py-2 text-right">Vinculado</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -561,13 +730,36 @@ export function Portfolio() {
                           {formatCurrency(asset.unrealized_pnl)}
                         </td>
                         <td
-                          className={`py-3 text-right font-semibold ${
+                          className={`py-3 pr-4 text-right font-semibold ${
                             asset.roi >= 0
                               ? "text-emerald-600 dark:text-emerald-300"
                               : "text-rose-600 dark:text-rose-300"
                           }`}
                         >
                           {formatPercent(asset.roi)}
+                        </td>
+                        <td className="py-3 pr-4 text-right font-mono text-amber-600 dark:text-amber-300">
+                          {formatCurrency(asset.monthly_yield ?? 0)}
+                        </td>
+                        <td className="py-3 text-right text-xs text-muted">
+                          {asset.linked_account_name || asset.linked_goal_name
+                            ? (
+                                <div className="space-y-1 text-right">
+                                  {asset.linked_account_name && (
+                                    <div className="font-medium text-slate-700 dark:text-slate-200">
+                                      Cuenta: {asset.linked_account_name}
+                                    </div>
+                                  )}
+                                  {asset.linked_goal_name && (
+                                    <div className="text-slate-600 dark:text-slate-300">
+                                      Meta: {asset.linked_goal_name}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            : (
+                                <span>—</span>
+                              )}
                         </td>
                       </tr>
                     ))}
@@ -623,6 +815,7 @@ export function Portfolio() {
                       <th className="py-2 pr-4">Tipo</th>
                       <th className="py-2 pr-4 text-right">Cantidad</th>
                       <th className="py-2 pr-4 text-right">Precio</th>
+                      <th className="py-2 pr-4">Vinculado</th>
                       <th className="py-2 text-right">Acciones</th>
                     </tr>
                   </thead>
@@ -659,6 +852,24 @@ export function Portfolio() {
                         </td>
                         <td className="py-3 pr-4 text-right font-mono text-slate-600 dark:text-slate-200">
                           {formatCurrency(trade.price)}
+                        </td>
+                        <td className="py-3 pr-4 text-xs text-muted">
+                          {trade.linked_account_id || trade.linked_goal_id ? (
+                            <div className="space-y-1">
+                              {trade.linked_account_id && (
+                                <div className="font-medium text-slate-700 dark:text-slate-200">
+                                  Cuenta #{trade.linked_account_id}
+                                </div>
+                              )}
+                              {trade.linked_goal_id && (
+                                <div className="text-slate-600 dark:text-slate-300">
+                                  Meta #{trade.linked_goal_id}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span>—</span>
+                          )}
                         </td>
                         <td className="py-3 text-right">
                           <div className="flex justify-end gap-2">
@@ -731,14 +942,41 @@ export function Portfolio() {
                 <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
                   Tipo de activo
                 </label>
-                <input
-                  type="text"
-                  value={formState.asset_type}
-                  onChange={handleFieldChange("asset_type")}
+                <select
+                  value={symbolMatchesHolding ? formState.asset_type : assetTypeSelection}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (value === "__custom") {
+                      setFormState((prev) => ({ ...prev, asset_type: "" }));
+                    } else {
+                      setFormState((prev) => ({ ...prev, asset_type: value }));
+                    }
+                  }}
                   disabled={symbolMatchesHolding}
                   className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100"
-                  placeholder="Acción, ETF, Cripto..."
-                />
+                >
+                  <option value="">Selecciona un tipo</option>
+                  {sortedAssetTypes.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                  <option value="__custom">Otro / Personalizado</option>
+                </select>
+                {showCustomAssetInput && !symbolMatchesHolding && (
+                  <input
+                    type="text"
+                    value={formState.asset_type}
+                    onChange={handleFieldChange("asset_type")}
+                    className="w-full rounded-lg border border-dashed border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                    placeholder="Ej. Cuenta de Ahorro"
+                  />
+                )}
+                {assetTypes.length === 0 && (
+                  <p className="text-xs text-muted">
+                    Configura los tipos de activo desde la sección de Configuración.
+                  </p>
+                )}
                 {symbolMatchesHolding && (
                   <p className="text-xs text-muted">
                     Tipo asignado automáticamente según tu posición actual.
@@ -798,6 +1036,61 @@ export function Portfolio() {
                     className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                    Tasa anual estimada (%)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formState.annual_yield_rate}
+                    onChange={handleFieldChange("annual_yield_rate")}
+                    className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                    placeholder="0.00"
+                  />
+                  <p className="text-xs text-muted">
+                    Calcularemos el rendimiento mensual automáticamente a partir de esta tasa.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                    Cuenta vinculada (opcional)
+                  </label>
+                  <select
+                    value={formState.linked_account_id}
+                    onChange={handleFieldChange("linked_account_id")}
+                    className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                  >
+                    <option value="">Sin vincular</option>
+                    {accountOptions.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                  Meta vinculada (opcional)
+                </label>
+                <select
+                  value={formState.linked_goal_id}
+                  onChange={handleFieldChange("linked_goal_id")}
+                  className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                >
+                  <option value="">Sin vincular</option>
+                  {goalOptions.map((goal) => (
+                    <option key={goal.id} value={goal.id}>
+                      {goal.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {formError && (

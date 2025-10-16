@@ -33,6 +33,12 @@ interface AccountTypeItem {
   is_deletable: boolean;
 }
 
+interface AssetTypeItem {
+  id: number;
+  name: string;
+  is_deletable: boolean;
+}
+
 interface CategoryItem {
   id: number;
   name: string;
@@ -68,6 +74,11 @@ type AccountTypeFormState = {
   name: string;
 };
 
+type AssetTypeFormState = {
+  id: number | null;
+  name: string;
+};
+
 type CategoryFormState = {
   id: number | null;
   name: string;
@@ -77,6 +88,7 @@ type CategoryFormState = {
 const TABS = [
   { id: "transaction-types", label: "Tipos de Transacción y Reglas" },
   { id: "account-types", label: "Tipos de Cuenta" },
+  { id: "asset-types", label: "Tipos de Activo" },
   { id: "categories", label: "Categorías" },
   { id: "visualization", label: "Visualización" },
 ] as const;
@@ -141,6 +153,7 @@ export function Settings() {
   const [transactionTypes, setTransactionTypes] = useState<TransactionTypeItem[]>([]);
   const [budgetRules, setBudgetRules] = useState<BudgetRuleItem[]>([]);
   const [accountTypes, setAccountTypes] = useState<AccountTypeItem[]>([]);
+  const [assetTypesConfig, setAssetTypesConfig] = useState<AssetTypeItem[]>([]);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [displayPreferences, setDisplayPreferences] = useState<DisplayPreferences | null>(null);
   const [displayInitial, setDisplayInitial] = useState<DisplayPreferences | null>(null);
@@ -165,6 +178,10 @@ export function Settings() {
     id: null,
     name: "",
   });
+  const [assetTypeForm, setAssetTypeForm] = useState<AssetTypeFormState>({
+    id: null,
+    name: "",
+  });
   const [categoryForm, setCategoryForm] = useState<CategoryFormState>({
     id: null,
     name: "",
@@ -174,6 +191,7 @@ export function Settings() {
   const [transactionFeedback, setTransactionFeedback] = useState<Feedback>(null);
   const [budgetRuleFeedback, setBudgetRuleFeedback] = useState<Feedback>(null);
   const [accountFeedback, setAccountFeedback] = useState<Feedback>(null);
+  const [assetTypeFeedback, setAssetTypeFeedback] = useState<Feedback>(null);
   const [categoryFeedback, setCategoryFeedback] = useState<Feedback>(null);
   const [visualFeedback, setVisualFeedback] = useState<Feedback>(null);
 
@@ -221,6 +239,11 @@ export function Settings() {
     setAccountTypes(response.data);
   }, []);
 
+  const refreshAssetTypes = useCallback(async () => {
+    const response = await axios.get<AssetTypeItem[]>(`${API_BASE_URL}/config/asset-types`);
+    setAssetTypesConfig(response.data);
+  }, []);
+
   const refreshCategories = useCallback(async () => {
     const response = await axios.get<CategoryItem[]>(`${API_BASE_URL}/config/categories`);
     setCategories(response.data);
@@ -237,6 +260,7 @@ export function Settings() {
         await Promise.all([
           refreshTransactionConfig(),
           refreshAccountTypes(),
+          refreshAssetTypes(),
           refreshCategories(),
           refreshDisplayPreferences(),
         ]);
@@ -256,7 +280,13 @@ export function Settings() {
     return () => {
       isMounted = false;
     };
-  }, [refreshAccountTypes, refreshCategories, refreshDisplayPreferences, refreshTransactionConfig]);
+  }, [
+    refreshAccountTypes,
+    refreshAssetTypes,
+    refreshCategories,
+    refreshDisplayPreferences,
+    refreshTransactionConfig,
+  ]);
 
   useEffect(() => {
     if (transactionTypes.length > 0 && !categoryForm.id && !categoryForm.parentId) {
@@ -290,6 +320,11 @@ export function Settings() {
   const selectedAccountType = useMemo(
     () => accountTypes.find((item) => item.id === accountTypeForm.id) ?? null,
     [accountTypeForm.id, accountTypes]
+  );
+
+  const selectedAssetType = useMemo(
+    () => assetTypesConfig.find((item) => item.id === assetTypeForm.id) ?? null,
+    [assetTypeForm.id, assetTypesConfig]
   );
 
   const selectedCategory = useMemo(
@@ -334,6 +369,10 @@ export function Settings() {
 
   const resetAccountTypeForm = useCallback(() => {
     setAccountTypeForm({ id: null, name: "" });
+  }, []);
+
+  const resetAssetTypeForm = useCallback(() => {
+    setAssetTypeForm({ id: null, name: "" });
   }, []);
 
   const resetCategoryForm = useCallback(() => {
@@ -514,6 +553,60 @@ export function Settings() {
       await refreshAccountTypes();
     } catch (error) {
       showFeedback(setAccountFeedback, "error", resolveErrorMessage(error));
+    }
+  };
+
+  const handleAssetTypeSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmedName = assetTypeForm.name.trim();
+    if (!trimmedName) {
+      showFeedback(setAssetTypeFeedback, "error", "Ingresa un nombre para el tipo de activo.");
+      return;
+    }
+
+    if (assetTypeForm.id !== null && selectedAssetType) {
+      if (selectedAssetType.name === trimmedName) {
+        showFeedback(setAssetTypeFeedback, "error", "No has realizado cambios en este tipo.");
+        return;
+      }
+    }
+
+    try {
+      if (assetTypeForm.id === null) {
+        await axios.post(`${API_BASE_URL}/config/asset-types`, { name: trimmedName });
+        showFeedback(setAssetTypeFeedback, "success", "Tipo de activo añadido correctamente.");
+      } else {
+        await axios.put(`${API_BASE_URL}/config/asset-types/${assetTypeForm.id}`, { name: trimmedName });
+        showFeedback(setAssetTypeFeedback, "success", "Tipo de activo actualizado.");
+      }
+      await refreshAssetTypes();
+      resetAssetTypeForm();
+    } catch (error) {
+      showFeedback(setAssetTypeFeedback, "error", resolveErrorMessage(error));
+    }
+  };
+
+  const handleDeleteAssetType = async () => {
+    if (assetTypeForm.id === null) {
+      return;
+    }
+
+    if (selectedAssetType?.is_deletable === false) {
+      showFeedback(
+        setAssetTypeFeedback,
+        "error",
+        "Este tipo no puede eliminarse porque está en uso."
+      );
+      return;
+    }
+
+    try {
+      await axios.delete(`${API_BASE_URL}/config/asset-types/${assetTypeForm.id}`);
+      showFeedback(setAssetTypeFeedback, "success", "Tipo de activo eliminado.");
+      await refreshAssetTypes();
+      resetAssetTypeForm();
+    } catch (error) {
+      showFeedback(setAssetTypeFeedback, "error", resolveErrorMessage(error));
     }
   };
 
@@ -1041,6 +1134,99 @@ export function Settings() {
                   {accountTypes.length === 0 && (
                     <p className="rounded-lg border border-dashed border-slate-800 bg-slate-950/50 px-4 py-6 text-center text-sm text-slate-500">
                       No hay tipos configurados.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "asset-types" && (
+            <div className="grid gap-6 lg:grid-cols-[2fr,3fr]">
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold text-white">Tipos de activo</h2>
+                    <p className="text-sm text-slate-400">
+                      Define los tipos disponibles al registrar operaciones del portafolio.
+                    </p>
+                  </div>
+                  {renderFeedback(assetTypeFeedback)}
+                </div>
+                <form onSubmit={handleAssetTypeSubmit} className="mt-4 space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium text-slate-300" htmlFor="asset-type-name">
+                      Nombre del tipo
+                    </label>
+                    <input
+                      id="asset-type-name"
+                      type="text"
+                      value={assetTypeForm.name}
+                      onChange={(event) =>
+                        setAssetTypeForm((prev) => ({ ...prev, name: event.target.value }))
+                      }
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-sm text-white outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/40"
+                      placeholder="Ej. Fondo de Inversión"
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="submit"
+                      className="inline-flex items-center justify-center rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-400"
+                    >
+                      {assetTypeForm.id === null ? "Añadir tipo de activo" : "Actualizar tipo"}
+                    </button>
+                    {assetTypeForm.id !== null && (
+                      <button
+                        type="button"
+                        onClick={resetAssetTypeForm}
+                        className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-slate-400 hover:text-white"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleDeleteAssetType}
+                      disabled={assetTypeForm.id === null || selectedAssetType?.is_deletable === false}
+                      className="ml-auto inline-flex items-center justify-center rounded-lg border border-rose-500/60 px-4 py-2 text-sm font-semibold text-rose-400 transition hover:border-rose-400 hover:text-rose-300 disabled:cursor-not-allowed disabled:border-slate-700 disabled:text-slate-500"
+                    >
+                      Eliminar selección
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+                  Tipos registrados
+                </h3>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+                  {assetTypesConfig.map((item) => {
+                    const isSelected = assetTypeForm.id === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setAssetTypeForm({ id: item.id, name: item.name })}
+                        className={`w-full rounded-lg border px-3 py-3 text-left text-sm transition ${
+                          isSelected
+                            ? "border-sky-500/70 bg-sky-500/10 text-white"
+                            : "border-slate-800 bg-slate-950/60 text-slate-200 hover:border-slate-700 hover:bg-slate-900/80"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium">{item.name}</span>
+                          {!item.is_deletable && (
+                            <span className="text-xs text-slate-500">En uso</span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {assetTypesConfig.length === 0 && (
+                    <p className="rounded-lg border border-dashed border-slate-800 bg-slate-950/50 px-4 py-6 text-center text-sm text-slate-500">
+                      No hay tipos de activo registrados aún.
                     </p>
                   )}
                 </div>

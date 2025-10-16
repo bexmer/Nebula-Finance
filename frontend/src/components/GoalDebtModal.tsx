@@ -122,8 +122,8 @@ export function GoalDebtModal({
         return;
       }
 
-      if (parsedMinPayment > parsedAmount) {
-        setError("El pago mínimo no puede ser mayor que el monto total.");
+      if (parsedMinPayment >= parsedAmount) {
+        setError("El pago mínimo debe ser menor que el monto total de la deuda.");
         return;
       }
 

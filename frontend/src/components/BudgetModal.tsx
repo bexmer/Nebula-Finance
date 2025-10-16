@@ -37,6 +37,7 @@ interface BudgetEntry {
   debt_id?: number | null;
   debt_name?: string | null;
   is_recurring: boolean;
+  use_custom_schedule?: boolean;
 }
 
 interface ParameterOption {
@@ -59,6 +60,8 @@ interface ModalProps {
 interface BudgetFormState {
   description: string;
   amount: string;
+  referenceMonth: string;
+  referenceYear: string;
   start_date: string;
   due_date: string;
   typeId: string;
@@ -68,27 +71,110 @@ interface BudgetFormState {
   debtId: string;
   frequency: string;
   is_recurring: boolean;
+  use_custom_schedule: boolean;
 }
 
-const createEmptyForm = (): BudgetFormState => ({
-  description: "",
-  amount: "",
-  start_date: getTodayDateInputValue(),
-  due_date: getTodayDateInputValue(),
-  typeId: "",
-  typeValue: "",
-  categoryValue: "",
-  goalId: "",
-  debtId: "",
-  frequency: "Mensual",
-  is_recurring: true,
-});
+const createEmptyForm = (): BudgetFormState => {
+  const today = new Date();
+  const monthValue = String(today.getMonth() + 1).padStart(2, "0");
+  const yearValue = String(today.getFullYear());
+
+  return {
+    description: "",
+    amount: "",
+    referenceMonth: monthValue,
+    referenceYear: yearValue,
+    start_date: getTodayDateInputValue(),
+    due_date: getTodayDateInputValue(),
+    typeId: "",
+    typeValue: "",
+    categoryValue: "",
+    goalId: "",
+    debtId: "",
+    frequency: "Mensual",
+    is_recurring: true,
+    use_custom_schedule: false,
+  };
+};
 
 const normalizeTypeLabel = (value: string) =>
   value
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
+
+const MONTH_OPTIONS = [
+  { value: "01", label: "Enero" },
+  { value: "02", label: "Febrero" },
+  { value: "03", label: "Marzo" },
+  { value: "04", label: "Abril" },
+  { value: "05", label: "Mayo" },
+  { value: "06", label: "Junio" },
+  { value: "07", label: "Julio" },
+  { value: "08", label: "Agosto" },
+  { value: "09", label: "Septiembre" },
+  { value: "10", label: "Octubre" },
+  { value: "11", label: "Noviembre" },
+  { value: "12", label: "Diciembre" },
+];
+
+const buildYearOptions = () => {
+  const currentYear = new Date().getFullYear();
+  const startYear = currentYear - 1;
+  return Array.from({ length: 6 }, (_, index) => {
+    const value = String(startYear + index);
+    return { value, label: value };
+  });
+};
+
+const computeAutoPeriod = (
+  frequency: string,
+  monthValue: string,
+  yearValue: string
+): { start: Date; end: Date } | null => {
+  const monthNumber = Number.parseInt(monthValue, 10);
+  const yearNumber = Number.parseInt(yearValue, 10);
+
+  if (Number.isNaN(monthNumber) || Number.isNaN(yearNumber)) {
+    return null;
+  }
+
+  const monthIndex = Math.max(0, Math.min(11, monthNumber - 1));
+  const start = new Date(yearNumber, monthIndex, 1);
+  const normalizedFrequency = frequency?.toLowerCase?.() ?? "";
+
+  if (normalizedFrequency.includes("única") || normalizedFrequency.includes("unica")) {
+    return { start, end: new Date(start) };
+  }
+
+  if (normalizedFrequency.includes("semanal")) {
+    const end = new Date(start);
+    end.setDate(end.getDate() + 6);
+    return { start, end };
+  }
+
+  if (normalizedFrequency.includes("quincenal")) {
+    const end = new Date(start);
+    end.setDate(end.getDate() + 13);
+    return { start, end };
+  }
+
+  if (normalizedFrequency.includes("anual")) {
+    const end = new Date(yearNumber + 1, monthIndex, 1);
+    end.setDate(end.getDate() - 1);
+    return { start, end };
+  }
+
+  const end = new Date(yearNumber, monthIndex + 1, 0);
+  return { start, end };
+};
+
+const formatDateForDisplay = (date: Date) =>
+  date.toLocaleDateString("es-MX", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 
 export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
   const [formData, setFormData] = useState<BudgetFormState>(createEmptyForm());
@@ -103,12 +189,38 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [catalogNotice, setCatalogNotice] = useState<string | null>(null);
+  const yearOptions = useMemo(buildYearOptions, []);
 
   const sortedCategories = useMemo(
     () =>
       categories.slice().sort((a, b) => a.value.localeCompare(b.value, "es")),
     [categories]
   );
+
+  const automaticPeriodPreview = useMemo(() => {
+    if (formData.use_custom_schedule) {
+      return null;
+    }
+    const period = computeAutoPeriod(
+      formData.frequency,
+      formData.referenceMonth,
+      formData.referenceYear
+    );
+    if (!period) {
+      return null;
+    }
+    return {
+      startLabel: formatDateForDisplay(period.start),
+      endLabel: formatDateForDisplay(period.end),
+      startInput: normalizeDateInputValue(period.start),
+      endInput: normalizeDateInputValue(period.end),
+    };
+  }, [
+    formData.frequency,
+    formData.referenceMonth,
+    formData.referenceYear,
+    formData.use_custom_schedule,
+  ]);
 
   const activeType = useMemo(() => {
     if (!formData.typeId) {
@@ -235,10 +347,25 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
         frequencyValue === "Única vez"
           ? false
           : entry?.is_recurring ?? true;
+      const manualSchedule = Boolean(entry?.use_custom_schedule);
+      const defaultBlank = createEmptyForm();
+
+      let referenceMonth = defaultBlank.referenceMonth;
+      let referenceYear = defaultBlank.referenceYear;
+
+      if (entry?.month && entry?.year) {
+        referenceMonth = String(entry.month).padStart(2, "0");
+        referenceYear = String(entry.year);
+      } else if (dueDateValue) {
+        referenceMonth = dueDateValue.slice(5, 7) || defaultBlank.referenceMonth;
+        referenceYear = dueDateValue.slice(0, 4) || defaultBlank.referenceYear;
+      }
 
       setFormData({
         description: entry?.description ?? "",
         amount: amountValue,
+        referenceMonth,
+        referenceYear,
         start_date: startDateValue,
         due_date: dueDateValue,
         typeId: String(fallbackType.id),
@@ -248,10 +375,13 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
         debtId: entry?.debt_id ? String(entry.debt_id) : "",
         frequency: frequencyValue,
         is_recurring: isRecurringValue,
+        use_custom_schedule: manualSchedule,
       });
       setInitialSnapshot({
         description: entry?.description ?? "",
         amount: amountValue,
+        referenceMonth,
+        referenceYear,
         start_date: startDateValue,
         due_date: dueDateValue,
         typeId: String(fallbackType.id),
@@ -261,6 +391,7 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
         debtId: entry?.debt_id ? String(entry.debt_id) : "",
         frequency: frequencyValue,
         is_recurring: isRecurringValue,
+        use_custom_schedule: manualSchedule,
       });
 
       const normalizedDefault = normalizeTypeLabel(fallbackType.value);
@@ -386,6 +517,65 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
     setFormData((prev) => ({ ...prev, debtId: event.target.value }));
   };
 
+  const handleReferenceMonthChange = (
+    event: ChangeEvent<HTMLSelectElement>
+  ) => {
+    const nextMonth = event.target.value;
+    setFormData((prev) => {
+      const nextState = { ...prev, referenceMonth: nextMonth };
+      const autoPeriod = computeAutoPeriod(
+        prev.frequency,
+        nextMonth,
+        prev.referenceYear
+      );
+      if (autoPeriod) {
+        nextState.start_date = normalizeDateInputValue(autoPeriod.start);
+        nextState.due_date = normalizeDateInputValue(autoPeriod.end);
+      }
+      return nextState;
+    });
+  };
+
+  const handleReferenceYearChange = (
+    event: ChangeEvent<HTMLSelectElement>
+  ) => {
+    const nextYear = event.target.value;
+    setFormData((prev) => {
+      const nextState = { ...prev, referenceYear: nextYear };
+      const autoPeriod = computeAutoPeriod(
+        prev.frequency,
+        prev.referenceMonth,
+        nextYear
+      );
+      if (autoPeriod) {
+        nextState.start_date = normalizeDateInputValue(autoPeriod.start);
+        nextState.due_date = normalizeDateInputValue(autoPeriod.end);
+      }
+      return nextState;
+    });
+  };
+
+  const handleCustomScheduleToggle = (
+    event: ChangeEvent<HTMLInputElement>
+  ) => {
+    const { checked } = event.target;
+    setFormData((prev) => {
+      const nextState = { ...prev, use_custom_schedule: checked };
+      if (checked) {
+        const autoPeriod = computeAutoPeriod(
+          prev.frequency,
+          prev.referenceMonth,
+          prev.referenceYear
+        );
+        if (autoPeriod) {
+          nextState.start_date = normalizeDateInputValue(autoPeriod.start);
+          nextState.due_date = normalizeDateInputValue(autoPeriod.end);
+        }
+      }
+      return nextState;
+    });
+  };
+
   const handleFrequencyChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const nextFrequency = event.target.value;
     setFormData((prev) => {
@@ -397,7 +587,7 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
           ? true
           : prev.is_recurring;
 
-      return {
+      const updated: BudgetFormState = {
         ...prev,
         frequency: nextFrequency,
         due_date:
@@ -406,6 +596,20 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
             : prev.due_date,
         is_recurring: nextIsRecurring,
       };
+
+      if (!prev.use_custom_schedule) {
+        const autoPeriod = computeAutoPeriod(
+          nextFrequency,
+          prev.referenceMonth,
+          prev.referenceYear
+        );
+        if (autoPeriod) {
+          updated.start_date = normalizeDateInputValue(autoPeriod.start);
+          updated.due_date = normalizeDateInputValue(autoPeriod.end);
+        }
+      }
+
+      return updated;
     });
   };
 
@@ -449,27 +653,31 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
       return;
     }
 
-    if (!formData.start_date) {
-      setError("Selecciona la fecha de inicio del presupuesto.");
-      return;
-    }
+    if (formData.use_custom_schedule) {
+      if (!formData.start_date) {
+        setError("Selecciona la fecha de inicio del presupuesto.");
+        return;
+      }
 
-    if (!formData.due_date) {
-      setError("Selecciona la fecha de vencimiento del presupuesto.");
-      return;
-    }
+      if (!formData.due_date) {
+        setError("Selecciona la fecha de vencimiento del presupuesto.");
+        return;
+      }
 
-    const parsedStart = new Date(formData.start_date);
-    const parsedDue = new Date(formData.due_date);
+      const parsedStart = new Date(formData.start_date);
+      const parsedDue = new Date(formData.due_date);
 
-    if (Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedDue.getTime())) {
-      setError("Las fechas proporcionadas no son válidas.");
-      return;
-    }
+      if (Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedDue.getTime())) {
+        setError("Las fechas proporcionadas no son válidas.");
+        return;
+      }
 
-    if (parsedDue < parsedStart) {
-      setError("La fecha de vencimiento debe ser posterior o igual a la fecha de inicio.");
-      return;
+      if (parsedDue < parsedStart) {
+        setError(
+          "La fecha de vencimiento debe ser posterior o igual a la fecha de inicio."
+        );
+        return;
+      }
     }
 
     if (entry?.id && initialSnapshot) {
@@ -484,6 +692,8 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
         initialDescription === trimmedDescription &&
         Number.isFinite(initialAmount) &&
         initialAmount === parsedAmount &&
+        initialSnapshot.referenceMonth === formData.referenceMonth &&
+        initialSnapshot.referenceYear === formData.referenceYear &&
         initialSnapshot.start_date === formData.start_date &&
         initialSnapshot.due_date === formData.due_date &&
         initialSnapshot.typeId === formData.typeId &&
@@ -491,7 +701,8 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
         initialGoal === currentGoal &&
         initialDebt === currentDebt &&
         initialSnapshot.frequency === formData.frequency &&
-        initialSnapshot.is_recurring === formData.is_recurring;
+        initialSnapshot.is_recurring === formData.is_recurring &&
+        initialSnapshot.use_custom_schedule === formData.use_custom_schedule;
 
       if (unchanged) {
         setError("No has realizado cambios en este presupuesto.");
@@ -499,19 +710,26 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
       }
     }
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       description: trimmedDescription || formData.categoryValue,
       type: formData.typeValue,
       category: formData.categoryValue,
       budgeted_amount: parsedAmount,
-      start_date: formData.start_date,
-      due_date: formData.due_date,
       frequency: formData.frequency,
       is_recurring:
         formData.frequency === "Única vez" ? false : formData.is_recurring,
       goal_id: formData.goalId ? Number(formData.goalId) : null,
       debt_id: formData.debtId ? Number(formData.debtId) : null,
+      use_custom_schedule: formData.use_custom_schedule,
     };
+
+    if (formData.use_custom_schedule) {
+      payload.start_date = formData.start_date;
+      payload.due_date = formData.due_date;
+    } else {
+      payload.month = Number(formData.referenceMonth);
+      payload.year = Number(formData.referenceYear);
+    }
 
     setIsSubmitting(true);
 
@@ -699,31 +917,93 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
               <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
-                <CalendarDays className="h-3.5 w-3.5" /> Fecha de inicio
+                <CalendarDays className="h-3.5 w-3.5" /> Mes de aplicación
               </span>
-              <input
-                type="date"
-                name="start_date"
-                value={formData.start_date}
-                onChange={handleInputChange}
-                required
+              <select
+                name="referenceMonth"
+                value={formData.referenceMonth}
+                onChange={handleReferenceMonthChange}
                 className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
-              />
+              >
+                {MONTH_OPTIONS.map((month) => (
+                  <option key={month.value} value={month.value}>
+                    {month.label}
+                  </option>
+                ))}
+              </select>
             </label>
 
             <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
               <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
-                <CalendarDays className="h-3.5 w-3.5" /> Fecha comprometida
+                <CalendarDays className="h-3.5 w-3.5" /> Año
               </span>
-              <input
-                type="date"
-                name="due_date"
-                value={formData.due_date}
-                onChange={handleInputChange}
-                required
+              <select
+                name="referenceYear"
+                value={formData.referenceYear}
+                onChange={handleReferenceYearChange}
                 className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
-              />
+              >
+                {yearOptions.map((year) => (
+                  <option key={year.value} value={year.value}>
+                    {year.label}
+                  </option>
+                ))}
+              </select>
             </label>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface-muted)]/60 px-4 py-4">
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                name="use_custom_schedule"
+                checked={formData.use_custom_schedule}
+                onChange={handleCustomScheduleToggle}
+                className="h-5 w-5 rounded border-slate-400 text-sky-500 focus:ring-sky-400"
+              />
+              <span className="text-sm font-medium text-[var(--app-text)]">
+                Definir fechas manualmente
+              </span>
+            </label>
+            {formData.use_custom_schedule ? (
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
+                  <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
+                    <CalendarDays className="h-3.5 w-3.5" /> Fecha de inicio
+                  </span>
+                  <input
+                    type="date"
+                    name="start_date"
+                    value={formData.start_date}
+                    onChange={handleInputChange}
+                    className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                  />
+                </label>
+
+                <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
+                  <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
+                    <CalendarDays className="h-3.5 w-3.5" /> Fecha comprometida
+                  </span>
+                  <input
+                    type="date"
+                    name="due_date"
+                    value={formData.due_date}
+                    onChange={handleInputChange}
+                    className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                  />
+                </label>
+              </div>
+            ) : automaticPeriodPreview ? (
+              <div className="mt-4 rounded-xl border border-dashed border-[var(--app-border)] bg-[var(--app-surface)]/80 px-4 py-3 text-xs text-muted">
+                <p>
+                  El sistema aplicará automáticamente este presupuesto del
+                  <span className="font-semibold text-[var(--app-text)]"> {automaticPeriodPreview.startLabel}</span>
+                  al
+                  <span className="font-semibold text-[var(--app-text)]"> {automaticPeriodPreview.endLabel}</span>.
+                </p>
+                <p className="mt-1">Al finalizar el período se marcará como vencido.</p>
+              </div>
+            ) : null}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">

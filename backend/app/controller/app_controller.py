@@ -2027,6 +2027,104 @@ class AppController:
         return {"success": True}
 
     # -----------------------------------------------------------------
+    # --- Tipos de activo ---
+    # -----------------------------------------------------------------
+
+    def _serialize_asset_type(self, parameter: Parameter) -> Dict[str, Any]:
+        has_assets = (
+            PortfolioAsset.select()
+            .where(fn.LOWER(PortfolioAsset.asset_type) == parameter.value.lower())
+            .exists()
+        )
+        return {
+            "id": parameter.id,
+            "name": parameter.value,
+            "is_deletable": bool(parameter.is_deletable) and not has_assets,
+        }
+
+    def get_asset_types(self) -> List[str]:
+        return [
+            item["value"]
+            for item in Parameter.select()
+            .where(Parameter.group == "Tipo de Activo")
+            .order_by(Parameter.id)
+            .dicts()
+        ]
+
+    def get_asset_type_parameters(self) -> List[Dict[str, Any]]:
+        query = (
+            Parameter.select()
+            .where(Parameter.group == "Tipo de Activo")
+            .order_by(Parameter.id)
+        )
+        return [self._serialize_asset_type(param) for param in query]
+
+    def add_asset_type(self, name: str) -> Dict[str, Any]:
+        name = (name or "").strip()
+        if not name:
+            return {"error": "El nombre del tipo de activo es obligatorio."}
+
+        duplicate = Parameter.select().where(
+            (Parameter.group == "Tipo de Activo")
+            & (fn.LOWER(Parameter.value) == name.lower())
+        ).exists()
+        if duplicate:
+            return {"error": "Ya existe un tipo de activo con ese nombre."}
+
+        parameter = Parameter.create(group="Tipo de Activo", value=name)
+        return self._serialize_asset_type(parameter)
+
+    def update_asset_type_parameter(self, parameter_id: int, name: str) -> Dict[str, Any]:
+        try:
+            parameter = Parameter.get_by_id(parameter_id)
+        except Parameter.DoesNotExist:
+            return {"error": "El tipo de activo no existe."}
+
+        if parameter.group != "Tipo de Activo":
+            return {"error": "El parámetro seleccionado no es un tipo de activo."}
+
+        name = (name or "").strip()
+        if not name:
+            return {"error": "El nombre del tipo de activo es obligatorio."}
+
+        duplicate = Parameter.select().where(
+            (Parameter.group == "Tipo de Activo")
+            & (fn.LOWER(Parameter.value) == name.lower())
+            & (Parameter.id != parameter.id)
+        ).exists()
+        if duplicate:
+            return {"error": "Ya existe un tipo de activo con ese nombre."}
+
+        old_name = parameter.value
+        Parameter.update(value=name).where(Parameter.id == parameter.id).execute()
+        PortfolioAsset.update(asset_type=name).where(
+            fn.LOWER(PortfolioAsset.asset_type) == old_name.lower()
+        ).execute()
+
+        parameter = Parameter.get_by_id(parameter.id)
+        return self._serialize_asset_type(parameter)
+
+    def delete_asset_type_parameter(self, parameter_id: int) -> Dict[str, Any]:
+        try:
+            parameter = Parameter.get_by_id(parameter_id)
+        except Parameter.DoesNotExist:
+            return {"error": "El tipo de activo no existe."}
+
+        if parameter.group != "Tipo de Activo":
+            return {"error": "El parámetro seleccionado no es un tipo de activo."}
+
+        if not parameter.is_deletable:
+            return {"error": "Este tipo de activo no puede eliminarse."}
+
+        if PortfolioAsset.select().where(
+            fn.LOWER(PortfolioAsset.asset_type) == parameter.value.lower()
+        ).exists():
+            return {"error": "No se puede eliminar un tipo con activos registrados."}
+
+        parameter.delete_instance()
+        return {"success": True}
+
+    # -----------------------------------------------------------------
     # --- Categorías ---
     # -----------------------------------------------------------------
 
@@ -2508,6 +2606,12 @@ class AppController:
         if frequency == "Única vez":
             is_recurring = False
 
+        use_custom_schedule = bool(
+            entry.get("use_custom_schedule")
+            if is_dict
+            else getattr(entry, "use_custom_schedule", False)
+        )
+
         return {
             "id": entry["id"] if is_dict else entry.id,
             "description": entry.get("description") if is_dict else entry.description,
@@ -2529,6 +2633,7 @@ class AppController:
             "debt_id": debt_obj.id if debt_obj else None,
             "debt_name": debt_obj.name if debt_obj else None,
             "is_recurring": is_recurring,
+            "use_custom_schedule": use_custom_schedule,
         }
 
     def _prepare_budget_payload(self, data, existing_entry=None):
@@ -2557,28 +2662,49 @@ class AppController:
             )
 
             if "month" in data or "year" in data:
-                base_date = existing_entry.due_date if existing_entry and existing_entry.due_date else datetime.date.today()
+                base_date = (
+                    existing_entry.due_date
+                    if existing_entry and existing_entry.due_date
+                    else datetime.date.today()
+                )
                 month_value = int(data.get("month") or base_date.month)
                 year_value = int(data.get("year") or base_date.year)
                 month_based_date = datetime.date(year_value, month_value, 1)
             else:
                 month_based_date = None
 
-            start_date = self._parse_date(data.get("start_date"))
-            due_date = self._parse_date(data.get("due_date")) or month_based_date
-            end_date = self._parse_date(data.get("end_date"))
+            custom_schedule_flag = data.get("use_custom_schedule")
+            if custom_schedule_flag is None and existing_entry is not None:
+                use_custom_schedule = bool(existing_entry.use_custom_schedule)
+            else:
+                use_custom_schedule = bool(custom_schedule_flag)
 
-            if existing_entry is not None:
-                if start_date is None:
-                    start_date = self._coerce_date(existing_entry.start_date)
-                if due_date is None:
-                    due_date = self._coerce_date(existing_entry.due_date)
-                if end_date is None:
-                    end_date = self._coerce_date(existing_entry.end_date)
+            if use_custom_schedule:
+                start_date = self._parse_date(data.get("start_date"))
+                due_date = self._parse_date(data.get("due_date")) or month_based_date
+                end_date = self._parse_date(data.get("end_date"))
 
-            start_date, computed_end = self._compute_period_bounds(start_date, frequency, due_date, end_date)
-            due_date = computed_end
-            end_date = computed_end
+                if existing_entry is not None:
+                    if start_date is None:
+                        start_date = self._coerce_date(existing_entry.start_date)
+                    if due_date is None:
+                        due_date = self._coerce_date(existing_entry.due_date)
+                    if end_date is None:
+                        end_date = self._coerce_date(existing_entry.end_date)
+
+                start_date, computed_end = self._compute_period_bounds(
+                    start_date, frequency, due_date, end_date
+                )
+                due_date = computed_end
+                end_date = computed_end
+            else:
+                reference_seed = month_based_date or datetime.date.today()
+                start_seed = datetime.date(reference_seed.year, reference_seed.month, 1)
+                start_date, computed_end = self._compute_period_bounds(
+                    start_seed, frequency, None, None
+                )
+                due_date = computed_end
+                end_date = computed_end
 
             is_recurring_flag = data.get("is_recurring")
             if is_recurring_flag is None:
@@ -2625,6 +2751,7 @@ class AppController:
                 "start_date": start_date,
                 "end_date": end_date,
                 "due_date": due_date,
+                "use_custom_schedule": use_custom_schedule,
                 "is_recurring": is_recurring,
                 "goal": goal,
                 "debt": debt,
@@ -2770,7 +2897,10 @@ class AppController:
         """Obtiene todos los activos del portafolio listos para la vista del frontend."""
         assets = (
             PortfolioAsset
-            .select()
+            .select(PortfolioAsset, Account, Goal)
+            .join(Account, JOIN.LEFT_OUTER)
+            .switch(PortfolioAsset)
+            .join(Goal, JOIN.LEFT_OUTER)
             .where(PortfolioAsset.total_quantity > 0)
             .order_by(PortfolioAsset.symbol)
         )
@@ -2784,6 +2914,11 @@ class AppController:
             cost_basis = quantity * avg_cost
             unrealized_pnl = market_value - cost_basis
 
+            annual_rate = float(asset.annual_yield_rate or 0)
+            monthly_yield = market_value * (annual_rate / 1200) if annual_rate else 0.0
+            linked_account = getattr(asset, "linked_account", None)
+            linked_goal = getattr(asset, "linked_goal", None)
+
             summary.append(
                 {
                     "symbol": asset.symbol,
@@ -2793,6 +2928,12 @@ class AppController:
                     "avg_cost": avg_cost,
                     "market_value": market_value,
                     "unrealized_pnl": unrealized_pnl,
+                    "annual_yield_rate": annual_rate,
+                    "monthly_yield": monthly_yield,
+                    "linked_account_id": getattr(linked_account, "id", None),
+                    "linked_account_name": getattr(linked_account, "name", None),
+                    "linked_goal_id": getattr(linked_goal, "id", None),
+                    "linked_goal_name": getattr(linked_goal, "name", None),
                 }
             )
 
@@ -2822,8 +2963,24 @@ class AppController:
         asset, created = PortfolioAsset.get_or_create(
             symbol=payload["symbol"], defaults={"asset_type": payload["asset_type"]}
         )
+        metadata_dirty = False
         if payload["asset_type"] and asset.asset_type != payload["asset_type"]:
             asset.asset_type = payload["asset_type"]
+            metadata_dirty = True
+
+        if abs(float(asset.annual_yield_rate or 0) - payload["annual_yield_rate"]) > 1e-6:
+            asset.annual_yield_rate = payload["annual_yield_rate"]
+            metadata_dirty = True
+
+        if asset.linked_account != payload["linked_account"]:
+            asset.linked_account = payload["linked_account"]
+            metadata_dirty = True
+
+        if asset.linked_goal != payload["linked_goal"]:
+            asset.linked_goal = payload["linked_goal"]
+            metadata_dirty = True
+
+        if metadata_dirty:
             asset.save()
 
         projected_entries = self._build_trade_entries(asset)
@@ -2870,8 +3027,24 @@ class AppController:
         target_asset, created = PortfolioAsset.get_or_create(
             symbol=payload["symbol"], defaults={"asset_type": payload["asset_type"]}
         )
+        metadata_dirty = False
         if payload["asset_type"] and target_asset.asset_type != payload["asset_type"]:
             target_asset.asset_type = payload["asset_type"]
+            metadata_dirty = True
+
+        if abs(float(target_asset.annual_yield_rate or 0) - payload["annual_yield_rate"]) > 1e-6:
+            target_asset.annual_yield_rate = payload["annual_yield_rate"]
+            metadata_dirty = True
+
+        if target_asset.linked_account != payload["linked_account"]:
+            target_asset.linked_account = payload["linked_account"]
+            metadata_dirty = True
+
+        if target_asset.linked_goal != payload["linked_goal"]:
+            target_asset.linked_goal = payload["linked_goal"]
+            metadata_dirty = True
+
+        if metadata_dirty:
             target_asset.save()
 
         # Construimos la proyección para el activo destino
@@ -2965,6 +3138,39 @@ class AppController:
         if not symbol:
             raise ValueError("El símbolo del activo es obligatorio.")
 
+        raw_yield = data.get("annual_yield_rate", 0)
+        try:
+            annual_yield_rate = float(raw_yield or 0)
+        except (TypeError, ValueError):
+            raise ValueError("La tasa anual debe ser un número válido.")
+
+        if annual_yield_rate < 0:
+            raise ValueError("La tasa anual no puede ser negativa.")
+
+        account_marker = data.get("linked_account_id")
+        goal_marker = data.get("linked_goal_id")
+
+        linked_account = None
+        linked_goal = None
+
+        if account_marker not in (None, "", 0, "0"):
+            try:
+                account_id = int(account_marker)
+            except (TypeError, ValueError):
+                raise ValueError("La cuenta vinculada no es válida.")
+            linked_account = Account.get_or_none(Account.id == account_id)
+            if linked_account is None:
+                raise ValueError("La cuenta vinculada no existe.")
+
+        if goal_marker not in (None, "", 0, "0"):
+            try:
+                goal_id = int(goal_marker)
+            except (TypeError, ValueError):
+                raise ValueError("La meta vinculada no es válida.")
+            linked_goal = Goal.get_or_none(Goal.id == goal_id)
+            if linked_goal is None:
+                raise ValueError("La meta vinculada no existe.")
+
         return {
             "symbol": symbol,
             "asset_type": asset_type or "Activo",
@@ -2972,6 +3178,9 @@ class AppController:
             "quantity": quantity,
             "price": price,
             "date": trade_date,
+            "annual_yield_rate": annual_yield_rate,
+            "linked_account": linked_account,
+            "linked_goal": linked_goal,
         }
 
     def _normalize_trade_type(self, raw_type):
@@ -2996,6 +3205,9 @@ class AppController:
             "type": response_type,
             "quantity": float(trade.quantity or 0),
             "price": float(trade.price_per_unit or 0),
+            "annual_yield_rate": float(getattr(trade.asset, "annual_yield_rate", 0) or 0),
+            "linked_account_id": getattr(getattr(trade.asset, "linked_account", None), "id", None),
+            "linked_goal_id": getattr(getattr(trade.asset, "linked_goal", None), "id", None),
         }
 
     def _build_trade_entries(self, asset, exclude_id=None):

@@ -17,6 +17,7 @@ import type { KeyboardEvent } from "react";
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 import { useStore, TransactionFilters } from "../store/useStore";
 import { apiPath } from "../utils/api";
+import { formatDateForDisplay } from "../utils/date";
 
 // Interfaces para los selects de los filtros
 interface ParameterOption {
@@ -499,15 +500,8 @@ export function Transactions() {
     if (!value) {
       return "Sin fecha";
     }
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-      return value;
-    }
-    return date.toLocaleDateString("es-MX", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
+    const formatted = formatDateForDisplay(value);
+    return formatted || value;
   };
 
   const handleResetFilters = () => {
@@ -766,7 +760,7 @@ export function Transactions() {
           <div>
             <h2 className="text-lg font-semibold">Movimientos registrados</h2>
             <p className="text-sm text-muted">
-              Selecciona filas para editarlas o eliminarlas rápidamente.
+              Selecciona filas para editarlas o eliminarlas rápidamente o haz doble clic para abrir una transacción al instante.
             </p>
           </div>
           <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center">
@@ -906,7 +900,7 @@ export function Transactions() {
                             />
                           </td>
                           <td className="px-4 py-3 text-sm text-muted">
-                            {new Date(t.date).toLocaleDateString()}
+                            {formatDateForDisplay(t.date) || t.date}
                           </td>
                           <td className="px-4 py-3 text-sm font-medium text-[var(--app-text)]">
                             <div className="flex flex-col gap-1">

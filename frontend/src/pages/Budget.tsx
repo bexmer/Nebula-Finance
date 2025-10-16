@@ -13,7 +13,11 @@ import { BudgetModal } from "../components/BudgetModal";
 import { useStore } from "../store/useStore";
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 import { apiPath } from "../utils/api";
-import { getTodayDateInputValue, normalizeDateInputValue } from "../utils/date";
+import {
+  formatDateForDisplay,
+  getTodayDateInputValue,
+  parseDateOnly,
+} from "../utils/date";
 
 interface BudgetEntry {
   id: number;
@@ -36,6 +40,7 @@ interface BudgetEntry {
   debt_id?: number | null;
   debt_name?: string | null;
   is_recurring: boolean;
+  use_custom_schedule?: boolean;
 }
 
 interface ParameterOption {
@@ -155,8 +160,9 @@ export function Budget() {
 
   const parseEntryDate = useCallback((entry: BudgetEntry) => {
     const reference = entry.due_date || entry.end_date || entry.start_date;
-    if (reference) {
-      return new Date(reference);
+    const parsed = parseDateOnly(reference);
+    if (parsed) {
+      return parsed;
     }
     if (entry.year && entry.month) {
       return new Date(entry.year, (entry.month || 1) - 1, 1);
@@ -190,8 +196,8 @@ export function Budget() {
   const totals = useMemo<BudgetSummary>(() => {
     let today = new Date();
     if (referenceDate) {
-      const parsed = new Date(referenceDate);
-      if (!Number.isNaN(parsed.getTime())) {
+      const parsed = parseDateOnly(referenceDate);
+      if (parsed) {
         today = parsed;
       }
     }
@@ -312,42 +318,6 @@ export function Budget() {
 
     fetchBudgetEntries();
     setSelectedEntryIds([]);
-  };
-
-  const handleRegisterPayment = (entry: BudgetEntry) => {
-    const entryDate = parseEntryDate(entry);
-    const remaining = Math.max(
-      entry.remaining_amount ?? entry.budgeted_amount - entry.actual_amount,
-      0,
-    );
-    const shouldDelete = window.confirm(
-      "¿Deseas eliminar esta entrada de presupuesto después de registrar el pago?"
-    );
-
-    openTransactionModal(
-      null,
-      {
-        description: entry.description || `Pago de ${entry.category}`,
-        amount: remaining > 0 ? remaining : entry.budgeted_amount,
-        date: normalizeDateInputValue(entryDate),
-        type: entry.type || "Gasto",
-        category: entry.category,
-        goal_id: entry.goal_id ?? undefined,
-        debt_id: entry.debt_id ?? undefined,
-        budget_entry_id: entry.id,
-      },
-      async () => {
-        try {
-          if (shouldDelete) {
-            await axios.delete(apiPath(`/budget/${entry.id}`));
-          }
-        } catch (error) {
-          console.error("Error al eliminar la entrada de presupuesto:", error);
-        } finally {
-          await fetchBudgetEntries();
-        }
-      }
-    );
   };
 
   const resetFilters = () => {
@@ -530,7 +500,7 @@ export function Budget() {
                 } pendientes.`
               : "Sin pagos atrasados en el periodo analizado."}
             {totals.nextEntry
-              ? ` Próxima referencia: ${totals.nextEntry.description} (${totals.nextEntry.date.toLocaleDateString()}).`
+              ? ` Próxima referencia: ${totals.nextEntry.description} (${formatDateForDisplay(totals.nextEntry.date)}).`
               : ""}
           </p>
         </div>
@@ -671,6 +641,9 @@ export function Budget() {
             </div>
           </div>
         </div>
+        <p className="mb-3 text-xs text-muted">
+          Haz doble clic en cualquier fila para editar el presupuesto al instante.
+        </p>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-[var(--app-border)] table-animate">
             <thead className="bg-[var(--app-surface-muted)]">
@@ -721,13 +694,13 @@ export function Budget() {
                   const entryDate = parseEntryDate(entry);
                   const status = getStatusPill(entry);
                   const isSelected = selectedEntryIds.includes(entry.id);
-                  const startDate = entry.start_date ? new Date(entry.start_date) : null;
-                  const dueDate = entry.due_date ? new Date(entry.due_date) : null;
+                  const startDate = parseDateOnly(entry.start_date);
+                  const dueDate = parseDateOnly(entry.due_date);
                   const periodLabel = startDate && dueDate
-                    ? `${startDate.toLocaleDateString()} – ${dueDate.toLocaleDateString()}`
+                    ? `${formatDateForDisplay(startDate)} – ${formatDateForDisplay(dueDate)}`
                     : dueDate
-                      ? dueDate.toLocaleDateString()
-                      : entryDate.toLocaleDateString();
+                      ? formatDateForDisplay(dueDate)
+                      : formatDateForDisplay(entryDate);
                   const remainingAmount = entry.remaining_amount ?? entry.budgeted_amount - entry.actual_amount;
                   return (
                     <tr
@@ -795,12 +768,6 @@ export function Budget() {
                       </td>
                       <td className="px-4 py-4 text-right text-sm">
                         <div className="flex flex-wrap justify-end gap-2">
-                          <button
-                            onClick={() => handleRegisterPayment(entry)}
-                            className="inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-600 transition hover:bg-emerald-500/15 dark:text-emerald-300"
-                          >
-                            Registrar pago
-                          </button>
                           <button
                             onClick={() => handleOpenModal(entry)}
                             className="inline-flex items-center gap-1 rounded-full border border-sky-300 px-3 py-1.5 text-xs font-semibold text-sky-600 transition hover:border-sky-400 hover:text-sky-700 dark:border-sky-500/60 dark:text-sky-200"
