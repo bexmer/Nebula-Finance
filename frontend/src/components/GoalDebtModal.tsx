@@ -23,10 +23,16 @@ const resolveDetailMessage = (detail: unknown): string | null => {
   return String(detail);
 };
 
+interface SavePayload {
+  mode: "goal" | "debt";
+  data: any;
+  isNew: boolean;
+}
+
 interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: () => void;
+  onSave: (payload: SavePayload) => void;
   mode: "goal" | "debt";
   item: any | null;
 }
@@ -186,12 +192,15 @@ export function GoalDebtModal({
     }
 
     try {
-      if (item) {
-        await axios.put(url, data);
-      } else {
-        await axios.post(url, data);
-      }
-      onSave();
+      const response = item
+        ? await axios.put(url, data)
+        : await axios.post(url, data);
+
+      onSave({
+        mode,
+        data: response.data,
+        isNew: !item,
+      });
       onClose();
     } catch (error) {
       console.error(`Error al guardar ${mode}:`, error);

@@ -197,10 +197,15 @@ export function Portfolio() {
           return;
         }
 
+        const disallowedTypes = new Set([
+          "cuenta de ahorro",
+          "cuenta de ahorros",
+        ]);
         setAssetTypes(
-          typesRes.data.filter(
-            (type) => type.trim().toLowerCase() !== "cuenta de ahorros"
-          )
+          typesRes.data.filter((type) => {
+            const normalized = type.trim().toLowerCase();
+            return !disallowedTypes.has(normalized);
+          })
         );
 
         const accountItems = (accountsRes.data as { id: number; name: string; is_virtual: boolean }[])
@@ -443,11 +448,38 @@ export function Portfolio() {
       return;
     }
 
-    if (formState.type === "sell" && !holdingsBySymbol.has(normalizedSymbol)) {
-      setFormError(
-        "Selecciona un activo existente de tu portafolio para registrar una venta."
-      );
-      return;
+    if (formState.type === "sell") {
+      const holding = holdingsBySymbol.get(normalizedSymbol);
+      if (!holding) {
+        setFormError(
+          "Selecciona un activo existente de tu portafolio para registrar una venta."
+        );
+        return;
+      }
+
+      let availableQuantity = Number(holding.quantity || 0);
+      if (
+        formState.id &&
+        initialSnapshot &&
+        initialSnapshot.id === formState.id &&
+        initialSnapshot.type === "sell" &&
+        initialSnapshot.symbol.trim().toUpperCase() === normalizedSymbol
+      ) {
+        const initialQuantity = parseFloat(initialSnapshot.quantity);
+        if (Number.isFinite(initialQuantity)) {
+          availableQuantity += initialQuantity;
+        }
+      }
+
+      if (quantity > availableQuantity + 1e-6) {
+        const formattedAvailable = new Intl.NumberFormat("es-MX", {
+          maximumFractionDigits: 6,
+        }).format(Math.max(availableQuantity, 0));
+        setFormError(
+          `Solo puedes vender hasta ${formattedAvailable} unidades de ${normalizedSymbol}.`
+        );
+        return;
+      }
     }
 
     const resolvedAssetType =

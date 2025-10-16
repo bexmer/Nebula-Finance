@@ -45,6 +45,65 @@ export function GoalsAndDebts() {
 
   const { formatCurrency } = useNumberFormatter();
 
+  const normalizeGoal = useCallback((goal: any): GoalData => {
+    const targetAmount = Number(goal.target_amount ?? 0) || 0;
+    const currentAmount = Number(goal.current_amount ?? 0) || 0;
+    const computedPercentage =
+      targetAmount > 0 ? (currentAmount / targetAmount) * 100 : 0;
+    const rawPercentage =
+      goal.percentage ??
+      goal.completion_percentage ??
+      goal.progress ??
+      computedPercentage;
+    const numericPercentage = Number(rawPercentage);
+    const safePercentage = Number.isFinite(numericPercentage)
+      ? numericPercentage
+      : computedPercentage;
+
+    return {
+      id: goal.id,
+      name: goal.name,
+      current_amount: currentAmount,
+      target_amount: targetAmount,
+      percentage: Math.max(0, Math.min(safePercentage, 100)),
+    };
+  }, []);
+
+  const normalizeDebt = useCallback((debt: any): DebtData => {
+    const totalAmount = Number(debt.total_amount ?? 0) || 0;
+    const currentBalance = Number(debt.current_balance ?? 0) || 0;
+    const minimumPayment = Number(debt.minimum_payment ?? 0) || 0;
+    const interestRate = Number(debt.interest_rate ?? 0) || 0;
+    const paidAmount = Math.max(totalAmount - currentBalance, 0);
+    const computedPercentage =
+      totalAmount > 0 ? (paidAmount / totalAmount) * 100 : 0;
+    const rawPercentage =
+      debt.percentage ??
+      debt.completion_percentage ??
+      debt.progress ??
+      computedPercentage;
+    const numericPercentage = Number(rawPercentage);
+    const safePercentage = Number.isFinite(numericPercentage)
+      ? numericPercentage
+      : computedPercentage;
+
+    return {
+      id: debt.id,
+      name: debt.name,
+      total_amount: totalAmount,
+      current_balance: currentBalance,
+      minimum_payment: minimumPayment,
+      interest_rate: interestRate,
+      percentage: Math.max(0, Math.min(safePercentage, 100)),
+    };
+  }, []);
+
+  type ModalSavePayload = {
+    mode: "goal" | "debt";
+    data: any;
+    isNew: boolean;
+  };
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -53,48 +112,15 @@ export function GoalsAndDebts() {
         axios.get(apiPath("/goals")),
         axios.get(apiPath("/debts")),
       ]);
-      setGoals(
-        goalsRes.data.map((goal: any) => ({
-          id: goal.id,
-          name: goal.name,
-          current_amount: goal.current_amount ?? 0,
-          target_amount: goal.target_amount ?? 0,
-          percentage: goal.percentage ?? goal.completion_percentage ?? goal.progress ?? 0,
-        }))
-      );
-      setDebts(
-        debtsRes.data.map((debt: any) => {
-          const total = Number(debt.total_amount ?? 0) || 0;
-          const balance = Number(debt.current_balance ?? 0) || 0;
-          const computedPercentage =
-            total > 0 ? ((total - balance) / total) * 100 : 0;
-          const fallbackPercentage =
-            debt.percentage ?? debt.completion_percentage ?? debt.progress ?? 0;
-
-          const finalPercentage = Number.isFinite(computedPercentage)
-            ? computedPercentage
-            : fallbackPercentage;
-
-          return {
-            ...debt,
-            minimum_payment: debt.minimum_payment ?? 0,
-            interest_rate: debt.interest_rate ?? 0,
-            current_balance: balance,
-            total_amount: total,
-            percentage: Math.max(
-              0,
-              Math.min(finalPercentage, 100)
-            ),
-          };
-        })
-      );
+      setGoals(goalsRes.data.map((goal: any) => normalizeGoal(goal)));
+      setDebts(debtsRes.data.map((debt: any) => normalizeDebt(debt)));
     } catch (error) {
       console.error("Error al obtener datos:", error);
       setError("No pudimos cargar tus metas y deudas. Inténtalo nuevamente.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [normalizeDebt, normalizeGoal]);
 
   useEffect(() => {
     fetchData();
@@ -137,11 +163,34 @@ export function GoalsAndDebts() {
     setIsModalOpen(true);
   };
 
-  const handleSave = () => {
-    fetchData().then(() => {
+  const handleSave = useCallback(
+    (payload: ModalSavePayload) => {
+      if (payload.mode === "goal") {
+        const normalized = normalizeGoal(payload.data);
+        setGoals((prev) => {
+          if (payload.isNew) {
+            return [...prev, normalized];
+          }
+          return prev.map((goal) =>
+            goal.id === normalized.id ? normalized : goal
+          );
+        });
+      } else {
+        const normalized = normalizeDebt(payload.data);
+        setDebts((prev) => {
+          if (payload.isNew) {
+            return [...prev, normalized];
+          }
+          return prev.map((debt) =>
+            debt.id === normalized.id ? normalized : debt
+          );
+        });
+      }
+
       window.dispatchEvent(new CustomEvent("nebula:goals-refresh"));
-    });
-  };
+    },
+    [normalizeDebt, normalizeGoal]
+  );
 
   const handleDelete = async (type: "goal" | "debt", id: number) => {
     const endpoint = type === "goal" ? "goals" : "debts";
@@ -159,9 +208,8 @@ export function GoalsAndDebts() {
         } else {
           setDebts((prev) => prev.filter((debt) => debt.id !== id));
         }
-        fetchData().then(() => {
-          window.dispatchEvent(new CustomEvent("nebula:goals-refresh"));
-        });
+        await fetchData();
+        window.dispatchEvent(new CustomEvent("nebula:goals-refresh"));
       } catch (error) {
         console.error(`Error al eliminar ${type}:`, error);
       }
