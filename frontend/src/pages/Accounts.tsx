@@ -14,12 +14,17 @@ interface Account {
   initial_balance: number;
   current_balance: number;
   is_virtual: boolean;
+  annual_interest_rate: number;
+  compounding_frequency: string;
+  last_interest_accrual?: string | null;
 }
 
 interface AccountFormState {
   name: string;
   accountType: string;
   initialBalance: string;
+  interestRate: string;
+  compoundingFrequency: string;
 }
 
 const resolveDetailMessage = (detail: unknown): string | null => {
@@ -40,6 +45,24 @@ const resolveDetailMessage = (detail: unknown): string | null => {
   return String(detail);
 };
 
+const normalizeText = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[^a-z0-9\s]/gi, "")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+const isSavingsAccountType = (value: string) =>
+  normalizeText(value).includes("ahorro");
+
+const COMPOUNDING_OPTIONS = [
+  "Mensual",
+  "Bimestral",
+  "Trimestral",
+  "Semestral",
+  "Anual",
+];
+
 export function Accounts() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [accountTypes, setAccountTypes] = useState<string[]>([]);
@@ -49,6 +72,8 @@ export function Accounts() {
     name: "",
     accountType: "",
     initialBalance: "",
+    interestRate: "",
+    compoundingFrequency: "Mensual",
   });
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -66,12 +91,20 @@ export function Accounts() {
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const { formatCurrency } = useNumberFormatter();
 
+  const refreshAccounts = useCallback(async () => {
+    const response = await axios.get<Account[]>(apiPath("/accounts"));
+    setAccounts(response.data);
+    return response.data;
+  }, []);
+
   const resetForm = useCallback(
     (availableTypes: string[] = accountTypes) => {
       setFormState({
         name: "",
         accountType: availableTypes[0] ?? "",
         initialBalance: "",
+        interestRate: "",
+        compoundingFrequency: "Mensual",
       });
       setSelectedAccountId(null);
     },
@@ -94,8 +127,8 @@ export function Accounts() {
 
     const fetchInitialData = async () => {
       try {
-        const [accountsResponse, typesResponse] = await Promise.all([
-          axios.get<Account[]>(apiPath("/accounts")),
+        const [, typesResponse] = await Promise.all([
+          refreshAccounts(),
           axios.get<string[]>(apiPath("/parameters/account-types")),
         ]);
 
@@ -103,13 +136,14 @@ export function Accounts() {
           return;
         }
 
-        setAccounts(accountsResponse.data);
         setAccountTypes(typesResponse.data);
         setError(null);
         setFormState({
           name: "",
           accountType: typesResponse.data[0] ?? "",
           initialBalance: "",
+          interestRate: "",
+          compoundingFrequency: "Mensual",
         });
         setSelectedAccountId(null);
       } catch (err) {
@@ -156,6 +190,33 @@ export function Accounts() {
   }, [resetForm]);
 
   const handleInputChange = (field: keyof AccountFormState, value: string) => {
+    if (field === "interestRate") {
+      const cleaned = value.replace(/[^0-9.,]/g, "");
+      const normalized = cleaned.replace(/,/g, ".");
+      const [integerPart, decimalPart] = normalized.split(".");
+      if (integerPart && integerPart.length > 6) {
+        return;
+      }
+      const limitedDecimals = decimalPart ? decimalPart.slice(0, 2) : "";
+      const nextValue = decimalPart !== undefined
+        ? `${integerPart}.${limitedDecimals}`
+        : integerPart;
+      setFormState((prev) => ({ ...prev, interestRate: nextValue }));
+      return;
+    }
+
+    if (field === "accountType") {
+      setFormState((prev) => ({
+        ...prev,
+        accountType: value,
+        interestRate: isSavingsAccountType(value) ? prev.interestRate : "",
+        compoundingFrequency: isSavingsAccountType(value)
+          ? prev.compoundingFrequency || "Mensual"
+          : "Mensual",
+      }));
+      return;
+    }
+
     setFormState((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -172,6 +233,13 @@ export function Accounts() {
       name: account.name,
       accountType: account.account_type,
       initialBalance: account.initial_balance.toString(),
+      interestRate:
+        isSavingsAccountType(account.account_type) && account.annual_interest_rate
+          ? String(account.annual_interest_rate)
+          : "",
+      compoundingFrequency: isSavingsAccountType(account.account_type)
+        ? account.compounding_frequency || "Mensual"
+        : "Mensual",
     });
     setFeedback(null);
   };
@@ -187,6 +255,8 @@ export function Accounts() {
       return;
     }
 
+    const savingsSelected = isSavingsAccountType(formState.accountType);
+
     const basePayload = {
       name: formState.name.trim(),
       account_type: formState.accountType,
@@ -201,6 +271,17 @@ export function Accounts() {
       return;
     }
 
+    const interestRateValue = formState.interestRate
+      ? parseFloat(formState.interestRate.replace(/,/g, "."))
+      : 0;
+
+    if (!Number.isFinite(interestRateValue) || interestRateValue < 0) {
+      setFeedback("Ingresa una tasa anual válida.");
+      return;
+    }
+
+    const compoundingFrequency = formState.compoundingFrequency || "Mensual";
+
     if (selectedAccountId !== null) {
       const existing = accounts.find(
         (account) => account.id === selectedAccountId
@@ -208,7 +289,11 @@ export function Accounts() {
       if (existing) {
         const unchanged =
           existing.name === basePayload.name &&
-          existing.account_type === basePayload.account_type;
+          existing.account_type === basePayload.account_type &&
+          Math.abs((existing.annual_interest_rate ?? 0) - interestRateValue) <
+            0.0001 &&
+          (existing.compounding_frequency || "Mensual") ===
+            (savingsSelected ? compoundingFrequency : "Mensual");
         if (unchanged) {
           setFeedback("No has realizado cambios en esta cuenta.");
           return;
@@ -219,20 +304,23 @@ export function Accounts() {
     try {
       setSubmitting(true);
       if (selectedAccountId === null) {
-        const response = await axios.post<Account>(apiPath("/accounts"), {
+        await axios.post<Account>(apiPath("/accounts"), {
           ...basePayload,
           initial_balance: initialBalanceValue,
+          annual_interest_rate: savingsSelected ? interestRateValue : 0,
+          compounding_frequency: savingsSelected
+            ? compoundingFrequency
+            : "Mensual",
         });
-        setAccounts((prev) => [...prev, response.data]);
+        await refreshAccounts();
         setFeedback("Cuenta añadida correctamente.");
       } else {
-        const response = await axios.put<Account>(
-          apiPath(`/accounts/${selectedAccountId}`),
-          basePayload
-        );
-        setAccounts((prev) =>
-          prev.map((account) => (account.id === selectedAccountId ? response.data : account))
-        );
+        await axios.put<Account>(apiPath(`/accounts/${selectedAccountId}`), {
+          ...basePayload,
+          annual_interest_rate: interestRateValue,
+          compounding_frequency: compoundingFrequency,
+        });
+        await refreshAccounts();
         setFeedback("Cuenta actualizada correctamente.");
       }
       resetForm();
@@ -265,7 +353,7 @@ export function Accounts() {
 
     try {
       await axios.delete(apiPath(`/accounts/${selectedAccountId}`));
-      setAccounts((prev) => prev.filter((account) => account.id !== selectedAccountId));
+      await refreshAccounts();
       setFeedback("Cuenta eliminada correctamente.");
       resetForm();
     } catch (err: unknown) {
@@ -350,6 +438,12 @@ export function Accounts() {
     const toAccountId = Number.parseInt(transferState.toAccountId, 10);
     const fromAccount = accounts.find((account) => account.id === fromAccountId);
     const toAccount = accounts.find((account) => account.id === toAccountId);
+    if (fromAccount && fromAccount.current_balance + 1e-9 < parsedAmount) {
+      setTransferFeedback(
+        "La cuenta de origen no tiene fondos suficientes para completar la transferencia."
+      );
+      return;
+    }
     const description = transferState.note.trim()
       ? transferState.note.trim()
       : `Transferencia de ${fromAccount?.name ?? "Cuenta origen"} a ${
@@ -369,8 +463,7 @@ export function Accounts() {
         transfer_account_id: toAccountId,
       });
 
-      const accountsResponse = await axios.get<Account[]>(apiPath("/accounts"));
-      setAccounts(accountsResponse.data);
+      await refreshAccounts();
       resetTransferForm();
       setTransferFeedback("Transferencia registrada correctamente.");
     } catch (err) {
@@ -466,6 +559,51 @@ export function Accounts() {
                 </p>
               )}
             </div>
+
+            {isSavingsAccountType(formState.accountType) && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-muted">
+                    Tasa anual (% APR)
+                  </label>
+                  <input
+                    type="number"
+                    value={formState.interestRate}
+                    onChange={(event) =>
+                      handleInputChange("interestRate", event.target.value)
+                    }
+                    className="mt-1 w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                    step="0.01"
+                    min="0"
+                    placeholder="Ej. 5.0"
+                  />
+                  <p className="mt-1 text-xs text-muted">
+                    Calcularemos intereses automáticos según esta tasa.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-muted">
+                    Frecuencia de capitalización
+                  </label>
+                  <select
+                    value={formState.compoundingFrequency}
+                    onChange={(event) =>
+                      handleInputChange(
+                        "compoundingFrequency",
+                        event.target.value
+                      )
+                    }
+                    className="mt-1 w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                  >
+                    {COMPOUNDING_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
 
             {feedback && (
               <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-muted">

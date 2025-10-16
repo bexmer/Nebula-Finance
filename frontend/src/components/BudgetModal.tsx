@@ -16,6 +16,7 @@ import { apiPath } from "../utils/api";
 import {
   getTodayDateInputValue,
   normalizeDateInputValue,
+  parseDateOnly,
 } from "../utils/date";
 
 Modal.setAppElement("#root");
@@ -53,7 +54,7 @@ interface SelectOption {
 interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: () => void;
+  onSave: () => Promise<void> | void;
   entry: BudgetEntry | null;
 }
 
@@ -664,15 +665,15 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
         return;
       }
 
-      const parsedStart = new Date(formData.start_date);
-      const parsedDue = new Date(formData.due_date);
+      const parsedStart = parseDateOnly(formData.start_date);
+      const parsedDue = parseDateOnly(formData.due_date);
 
-      if (Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedDue.getTime())) {
+      if (!parsedStart || !parsedDue) {
         setError("Las fechas proporcionadas no son válidas.");
         return;
       }
 
-      if (parsedDue < parsedStart) {
+      if (parsedDue.getTime() < parsedStart.getTime()) {
         setError(
           "La fecha de vencimiento debe ser posterior o igual a la fecha de inicio."
         );
@@ -739,7 +740,7 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
       } else {
         await axios.post(apiPath("/budget"), payload);
       }
-      onSave();
+      await onSave();
       onClose();
     } catch (submitError) {
       console.error("Error al guardar la entrada del presupuesto:", submitError);
@@ -762,8 +763,8 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
       closeTimeoutMS={320}
     >
       <div
-        className="nebula-modal__panel app-card w-full p-6 shadow-2xl backdrop-blur"
-        style={{ "--modal-max-width": "min(95vw, 720px)" } as CSSProperties}
+        className="nebula-modal__panel app-card w-full max-h-[85vh] overflow-y-auto p-6 shadow-2xl backdrop-blur"
+        style={{ "--modal-max-width": "min(95vw, 640px)" } as CSSProperties}
       >
         <div className="mb-5 flex items-start justify-between gap-3">
           <div>
@@ -790,7 +791,7 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
               <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">

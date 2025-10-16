@@ -263,9 +263,7 @@ export function Budget() {
     setIsModalOpen(true);
   }, []);
 
-  const handleSave = () => {
-    fetchBudgetEntries();
-  };
+  const handleSave = useCallback(() => fetchBudgetEntries(), [fetchBudgetEntries]);
 
   useEffect(() => {
     const handleNewBudgetEntry = () => handleOpenModal(null);
@@ -623,13 +621,6 @@ export function Budget() {
               {filteredEntries.length} registros · {selectedEntryIds.length} seleccionados
             </span>
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => handleOpenModal(null)}
-                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold shadow-lg shadow-blue-600/20 transition hover:bg-blue-500"
-              >
-                <Plus className="h-4 w-4" />
-                Añadir entrada
-              </button>
               <button
                 onClick={handleDeleteSelected}
                 disabled={selectedEntryIds.length === 0}

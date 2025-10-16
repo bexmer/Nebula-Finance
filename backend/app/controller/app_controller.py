@@ -159,6 +159,109 @@ class AppController:
             final_end = start
         return start, final_end
 
+    @staticmethod
+    def _normalize_label(value: Optional[Any]) -> str:
+        if value in (None, ""):
+            return ""
+        return (
+            unicodedata.normalize("NFD", str(value))
+            .encode("ascii", "ignore")
+            .decode("ascii")
+            .strip()
+            .lower()
+        )
+
+    def _is_savings_account_type(self, account_type: Optional[str]) -> bool:
+        normalized = self._normalize_label(account_type)
+        return "ahorro" in normalized
+
+    def _normalize_compounding_frequency(self, value: Optional[str]) -> str:
+        normalized = self._normalize_label(value)
+        mapping = {
+            "mensual": "Mensual",
+            "trimestral": "Trimestral",
+            "semestral": "Semestral",
+            "anual": "Anual",
+            "bimestral": "Bimestral",
+        }
+        return mapping.get(normalized, "Mensual")
+
+    def _months_per_compounding_period(self, frequency: Optional[str]) -> int:
+        normalized = self._normalize_label(frequency)
+        mapping = {
+            "mensual": 1,
+            "bimestral": 2,
+            "trimestral": 3,
+            "semestral": 6,
+            "anual": 12,
+        }
+        return mapping.get(normalized, 1)
+
+    def _apply_interest_for_account(
+        self, account: Account, reference_date: Optional[datetime.date] = None
+    ) -> None:
+        """Post automatic interest transactions for savings accounts when due."""
+
+        if not self._is_savings_account_type(getattr(account, "account_type", "")):
+            return
+
+        annual_rate = float(getattr(account, "annual_interest_rate", 0) or 0)
+        if annual_rate <= 0:
+            return
+
+        today = reference_date or datetime.date.today()
+
+        last_accrual = getattr(account, "last_interest_accrual", None)
+        if last_accrual is None:
+            account.last_interest_accrual = today
+            account.save()
+            return
+
+        period_months = self._months_per_compounding_period(
+            getattr(account, "compounding_frequency", "Mensual")
+        )
+        periods_per_year = max(1, int(round(12 / max(period_months, 1))))
+
+        next_accrual = last_accrual + relativedelta(months=period_months)
+        iterations = 0
+
+        while next_accrual <= today and iterations < 36:
+            interest_amount = round(
+                float(getattr(account, "current_balance", 0) or 0)
+                * (annual_rate / 100.0)
+                / periods_per_year,
+                2,
+            )
+
+            with db.atomic():
+                if interest_amount > 0:
+                    Transaction.create(
+                        account=account,
+                        date=next_accrual,
+                        description=(
+                            f"Intereses generados ({MONTH_LABELS[next_accrual.month]} {next_accrual.year})"
+                        ),
+                        amount=interest_amount,
+                        type="Ingreso",
+                        category="Ingresos por Intereses",
+                        goal=None,
+                        debt=None,
+                        budget_entry=None,
+                        is_transfer=False,
+                        transfer_account=None,
+                    )
+                    account.current_balance = (
+                        float(getattr(account, "current_balance", 0) or 0)
+                        + interest_amount
+                    )
+
+                account.last_interest_accrual = next_accrual
+                account.save()
+
+            last_accrual = next_accrual
+            next_accrual = last_accrual + relativedelta(months=period_months)
+            iterations += 1
+
     def _resolve_entry_bounds(self, entry: Any) -> Tuple[datetime.date, datetime.date]:
         """Resolve the cached period for a budget entry or dict representation."""
 
@@ -971,20 +1074,35 @@ class AppController:
 
     def get_accounts_data_for_view(self):
         """Devuelve una lista de todas las cuentas."""
-        accounts = [
-            {
-                "id": account.id,
-                "name": account.name,
-                "account_type": account.account_type,
-                "initial_balance": float(account.initial_balance or 0),
-                "current_balance": float(account.current_balance or 0),
-                "is_virtual": False,
-            }
-            for account in Account.select().order_by(Account.name)
-        ]
+        today = datetime.date.today()
+        real_accounts: List[Dict[str, Any]] = []
 
-        accounts.append(self._build_virtual_budget_account())
-        return accounts
+        for account in Account.select().order_by(Account.name):
+            self._apply_interest_for_account(account, today)
+            real_accounts.append(
+                {
+                    "id": account.id,
+                    "name": account.name,
+                    "account_type": account.account_type,
+                    "initial_balance": float(account.initial_balance or 0),
+                    "current_balance": float(account.current_balance or 0),
+                    "annual_interest_rate": float(
+                        getattr(account, "annual_interest_rate", 0) or 0
+                    ),
+                    "compounding_frequency": getattr(
+                        account, "compounding_frequency", "Mensual"
+                    ),
+                    "last_interest_accrual": getattr(
+                        account, "last_interest_accrual", None
+                    ).isoformat()
+                    if getattr(account, "last_interest_accrual", None)
+                    else None,
+                    "is_virtual": False,
+                }
+            )
+
+        virtual = self._build_virtual_budget_account(today)
+        return [virtual, *real_accounts]
 
     def add_account(self, data):
         """Crea una nueva cuenta."""
@@ -997,11 +1115,38 @@ class AppController:
                 return {"error": "El tipo de cuenta es obligatorio."}
 
             balance = float(data.get("initial_balance", 0) or 0)
+            normalized_target = self._normalize_label(name)
+            duplicate = any(
+                self._normalize_label(existing.name) == normalized_target
+                for existing in Account.select(Account.name)
+            )
+            if duplicate:
+                return {"error": "Ya existe una cuenta con ese nombre."}
+
+            rate_value = float(data.get("annual_interest_rate", 0) or 0)
+            if rate_value < 0:
+                return {"error": "La tasa anual no puede ser negativa."}
+
+            comp_frequency = self._normalize_compounding_frequency(
+                data.get("compounding_frequency")
+            )
+
+            is_savings = self._is_savings_account_type(account_type)
+            if not is_savings:
+                rate_value = 0.0
+                comp_frequency = "Mensual"
+                last_interest = None
+            else:
+                last_interest = datetime.date.today() if rate_value > 0 else None
+
             account = Account.create(
                 name=name,
                 account_type=account_type,
                 initial_balance=balance,
                 current_balance=balance,
+                annual_interest_rate=rate_value,
+                compounding_frequency=comp_frequency,
+                last_interest_accrual=last_interest,
             )
             return account.__data__
         except (ValueError, KeyError) as e:
@@ -1020,6 +1165,14 @@ class AppController:
                 name = data["name"].strip()
                 if not name:
                     return {"error": "El nombre de la cuenta es obligatorio."}
+                normalized_target = self._normalize_label(name)
+                duplicate = any(
+                    self._normalize_label(existing.name) == normalized_target
+                    and existing.id != account_id
+                    for existing in Account.select(Account.id, Account.name)
+                )
+                if duplicate:
+                    return {"error": "Ya existe una cuenta con ese nombre."}
                 updates["name"] = name
 
             if "account_type" in data:
@@ -1033,6 +1186,57 @@ class AppController:
 
             if "current_balance" in data:
                 updates["current_balance"] = float(data["current_balance"] or 0)
+
+            target_type = updates.get("account_type", account.account_type)
+            is_savings = self._is_savings_account_type(target_type)
+
+            rate_payload = data.get("annual_interest_rate", None)
+            if rate_payload is not None:
+                rate_value = float(rate_payload or 0)
+                if rate_value < 0:
+                    return {"error": "La tasa anual no puede ser negativa."}
+            else:
+                rate_value = float(getattr(account, "annual_interest_rate", 0) or 0)
+
+            frequency_payload = data.get("compounding_frequency", None)
+            if frequency_payload is not None:
+                frequency_value = self._normalize_compounding_frequency(frequency_payload)
+            else:
+                frequency_value = getattr(account, "compounding_frequency", "Mensual") or "Mensual"
+
+            if not is_savings:
+                rate_value = 0.0
+                frequency_value = "Mensual"
+                last_interest_value = None
+            else:
+                if rate_value > 0:
+                    last_interest_value = getattr(account, "last_interest_accrual", None)
+                    if last_interest_value is None:
+                        last_interest_value = datetime.date.today()
+                else:
+                    last_interest_value = datetime.date.today()
+
+            if (
+                rate_payload is not None
+                or not is_savings
+                or rate_value != float(getattr(account, "annual_interest_rate", 0) or 0)
+            ):
+                updates["annual_interest_rate"] = rate_value
+
+            if (
+                frequency_payload is not None
+                or not is_savings
+                or frequency_value
+                != (getattr(account, "compounding_frequency", "Mensual") or "Mensual")
+            ):
+                updates["compounding_frequency"] = frequency_value
+
+            if (
+                not is_savings
+                or last_interest_value
+                != getattr(account, "last_interest_accrual", None)
+            ):
+                updates["last_interest_accrual"] = last_interest_value
 
             if updates:
                 Account.update(updates).where(Account.id == account_id).execute()
@@ -1391,6 +1595,10 @@ class AppController:
                 account = Account.get_by_id(data['account_id'])
 
                 if is_transfer:
+                    if float(account.current_balance or 0) + 1e-9 < amount:
+                        return {
+                            "error": "La cuenta de origen no tiene fondos suficientes para transferir ese monto."
+                        }
                     destination = Account.get_by_id(int(transfer_account_value))
                     account.current_balance -= amount
                     destination.current_balance += amount
@@ -1511,6 +1719,10 @@ class AppController:
                 new_account = Account.get_by_id(data['account_id'])
 
                 if is_transfer:
+                    if float(new_account.current_balance or 0) + 1e-9 < amount:
+                        return {
+                            "error": "La cuenta de origen no tiene fondos suficientes para transferir ese monto."
+                        }
                     destination = Account.get_by_id(int(transfer_account_value))
                     new_account.current_balance -= amount
                     destination.current_balance += amount
@@ -2789,6 +3001,9 @@ class AppController:
             "initial_balance": 0.0,
             "current_balance": remaining_total,
             "is_virtual": True,
+            "annual_interest_rate": 0.0,
+            "compounding_frequency": "Mensual",
+            "last_interest_accrual": None,
         }
 
     def get_budget_entries(self, filters=None):

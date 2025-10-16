@@ -291,7 +291,7 @@ export function GoalsAndDebts() {
               </div>
             ) : activeTab === "goals" ? (
               goals.length > 0 ? (
-                <div className="grid gap-4 md:grid-cols-2 card-animate">
+                <div className="grid gap-4 card-animate">
                   {goals.map((g) => (
                     <GoalProgressCard
                       key={g.id}
@@ -307,7 +307,7 @@ export function GoalsAndDebts() {
                 </div>
               )
             ) : debts.length > 0 ? (
-              <div className="grid gap-4 md:grid-cols-2 card-animate">
+              <div className="grid gap-4 card-animate">
                 {debts.map((d) => (
                   <DebtProgressCard
                     key={d.id}

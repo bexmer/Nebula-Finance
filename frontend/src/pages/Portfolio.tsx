@@ -59,6 +59,23 @@ interface SelectOption {
 }
 
 export function Portfolio() {
+  const resolveDetailMessage = useCallback((detail: unknown): string | null => {
+    if (!detail) {
+      return null;
+    }
+    if (typeof detail === "string") {
+      return detail;
+    }
+    if (Array.isArray(detail)) {
+      return detail.map((item) => resolveDetailMessage(item) ?? "").join(" ").trim() || null;
+    }
+    if (typeof detail === "object") {
+      const typed = detail as { detail?: unknown; message?: unknown };
+      return resolveDetailMessage(typed.detail ?? typed.message);
+    }
+    return String(detail);
+  }, []);
+
   const createDefaultFormState = (): TradeFormState => ({
     id: null,
     symbol: "",
@@ -385,16 +402,11 @@ export function Portfolio() {
       await fetchPortfolio();
     } catch (error) {
       console.error("Error al eliminar la operación:", error);
-      if (axios.isAxiosError(error)) {
-        const detail = error.response?.data?.detail;
-        setFormError(
-          typeof detail === "string"
-            ? detail
-            : "No se pudo eliminar la operación."
-        );
-      } else {
-        setFormError("No se pudo eliminar la operación.");
-      }
+      const detailMessage =
+        axios.isAxiosError(error) && error.response
+          ? resolveDetailMessage(error.response.data?.detail ?? error.response.data)
+          : null;
+      setFormError(detailMessage ?? "No se pudo eliminar la operación.");
     }
   };
 
@@ -510,15 +522,11 @@ export function Portfolio() {
       await fetchPortfolio();
     } catch (error) {
       console.error("Error al registrar la operación:", error);
-      if (axios.isAxiosError(error)) {
-        const detail = error.response?.data?.detail;
-        setFormError(
-          typeof detail === "string"
-            ? detail
-            : Array.isArray(detail)
-            ? detail.join(" ")
-            : "No se pudo registrar la operación."
+      if (axios.isAxiosError(error) && error.response) {
+        const detail = resolveDetailMessage(
+          error.response.data?.detail ?? error.response.data
         );
+        setFormError(detail ?? "No se pudo registrar la operación.");
       } else {
         setFormError("No se pudo registrar la operación.");
       }

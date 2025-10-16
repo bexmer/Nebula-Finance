@@ -1,16 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
-import {
-  Filter,
-  Plus,
-  RefreshCw,
-  Scale,
-  Target,
-  Trash2,
-  TrendingDown,
-  TrendingUp,
-  Wallet,
-} from "lucide-react";
+import { Filter, Plus, Scale, Target, Trash2, TrendingDown, TrendingUp, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { KeyboardEvent } from "react";
 
@@ -25,21 +15,7 @@ interface ParameterOption {
   value: string;
 }
 
-interface RecurringRule {
-  id: number;
-  description: string;
-  amount: number;
-  type: string;
-  category: string;
-  frequency: string;
-  day_of_month?: number | null;
-  day_of_month_2?: number | null;
-  start_date?: string | null;
-  last_processed_date?: string | null;
-  next_run?: string | null;
-}
-
-type TransactionsTab = "all" | "goals" | "debts" | "recurring";
+type TransactionsTab = "all" | "goals" | "debts";
 
 interface TabOption {
   key: TransactionsTab;
@@ -66,9 +42,6 @@ export function Transactions() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [activeTab, setActiveTab] = useState<TransactionsTab>("all");
-  const [recurringTransactions, setRecurringTransactions] = useState<RecurringRule[]>([]);
-  const [recurringLoading, setRecurringLoading] = useState(false);
-  const [recurringError, setRecurringError] = useState<string | null>(null);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [tagFilterInput, setTagFilterInput] = useState("");
 
@@ -77,44 +50,6 @@ export function Transactions() {
   const { formatCurrency } = useNumberFormatter();
   const [listPulse, setListPulse] = useState(false);
   const transactionsInitialLoad = useRef(true);
-
-  const totals = useMemo(() => {
-    const dataset =
-      activeTab === "recurring"
-        ? transactions
-        : transactions.filter((transaction) => {
-            if (activeTab === "goals") {
-              return Boolean(transaction.goal_id);
-            }
-            if (activeTab === "debts") {
-              return Boolean(transaction.debt_id);
-            }
-            return true;
-          });
-    let incomeTotal = 0;
-    let expenseTotal = 0;
-    let incomeCount = 0;
-    let expenseCount = 0;
-    dataset.forEach((transaction) => {
-      if (transaction.is_transfer) {
-        return;
-      }
-      if (transaction.type === "Ingreso") {
-        incomeTotal += transaction.amount;
-        incomeCount += 1;
-      } else {
-        expenseTotal += transaction.amount;
-        expenseCount += 1;
-      }
-    });
-    return {
-      income: incomeTotal,
-      expense: expenseTotal,
-      balance: incomeTotal - expenseTotal,
-      incomeCount,
-      expenseCount,
-    };
-  }, [transactions, activeTab]);
 
   const transactionCounts = useMemo(
     () => ({
@@ -145,14 +80,8 @@ export function Transactions() {
         count: transactionCounts.debts,
         icon: Scale,
       },
-      {
-        key: "recurring",
-        label: "Recurrentes",
-        count: recurringTransactions.length,
-        icon: RefreshCw,
-      },
     ],
-    [transactionCounts, recurringTransactions.length]
+    [transactionCounts]
   );
 
   const filteredTransactions = useMemo(() => {
@@ -165,7 +94,32 @@ export function Transactions() {
     return transactions;
   }, [transactions, activeTab]);
 
-  const showTable = activeTab !== "recurring";
+  const totals = useMemo(() => {
+    const dataset = filteredTransactions;
+    let incomeTotal = 0;
+    let expenseTotal = 0;
+    let incomeCount = 0;
+    let expenseCount = 0;
+    dataset.forEach((transaction) => {
+      if (transaction.is_transfer) {
+        return;
+      }
+      if (transaction.type === "Ingreso") {
+        incomeTotal += transaction.amount;
+        incomeCount += 1;
+      } else {
+        expenseTotal += transaction.amount;
+        expenseCount += 1;
+      }
+    });
+    return {
+      income: incomeTotal,
+      expense: expenseTotal,
+      balance: incomeTotal - expenseTotal,
+      incomeCount,
+      expenseCount,
+    };
+  }, [filteredTransactions]);
 
   useEffect(() => {
     if (transactionsInitialLoad.current) {
@@ -225,37 +179,6 @@ export function Transactions() {
       return combined.size === prev.length ? prev : Array.from(combined);
     });
   }, [transactions, normalizeTagValue]);
-
-  useEffect(() => {
-    let isMounted = true;
-    const loadRecurring = async () => {
-      setRecurringLoading(true);
-      setRecurringError(null);
-      try {
-        const response = await axios.get<RecurringRule[]>(
-          apiPath("/recurring-transactions"),
-        );
-        if (!isMounted) return;
-        setRecurringTransactions(response.data);
-      } catch (error) {
-        if (!isMounted) return;
-        console.error("Error al obtener transacciones recurrentes:", error);
-        setRecurringError(
-          "No pudimos obtener tus transacciones recurrentes. Intenta nuevamente.",
-        );
-      } finally {
-        if (isMounted) {
-          setRecurringLoading(false);
-        }
-      }
-    };
-
-    loadRecurring();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   // Carga inicial de transacciones
   useEffect(() => {
@@ -464,23 +387,39 @@ export function Transactions() {
     }
   };
 
-  const paginatedTransactions = useMemo(() => {
-    if (!showTable) {
-      return [];
+  const handleDeleteTransaction = async (transactionId: number) => {
+    if (
+      !window.confirm("¿Seguro que quieres eliminar esta transacción?")
+    ) {
+      return;
     }
+
+    const adjustBalance = window.confirm(
+      "¿Deseas ajustar los saldos de las cuentas asociadas a esta transacción? Acepta para ajustar o cancela para mantener el saldo actual."
+    );
+
+    try {
+      await axios.delete(apiPath(`/transactions/${transactionId}`), {
+        params: { adjust_balance: adjustBalance },
+      });
+      setSelectedTransactionIds((prev) =>
+        prev.filter((id) => id !== transactionId)
+      );
+      await fetchTransactions();
+    } catch (error) {
+      console.error("Error al eliminar la transacción:", error);
+    }
+  };
+
+  const paginatedTransactions = useMemo(() => {
     const startIndex = (currentPage - 1) * pageSize;
     return filteredTransactions.slice(startIndex, startIndex + pageSize);
-  }, [filteredTransactions, currentPage, pageSize, showTable]);
+  }, [filteredTransactions, currentPage, pageSize]);
 
-  const totalPages = showTable
-    ? Math.max(1, Math.ceil(filteredTransactions.length / pageSize))
-    : 1;
+  const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize));
   const pageNumbers = useMemo(
-    () =>
-      showTable
-        ? Array.from({ length: totalPages }, (_, index) => index + 1)
-        : [1],
-    [showTable, totalPages]
+    () => Array.from({ length: totalPages }, (_, index) => index + 1),
+    [totalPages]
   );
 
   const handlePageSizeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -488,20 +427,11 @@ export function Transactions() {
   };
 
   const isAllSelected =
-    showTable &&
     paginatedTransactions.length > 0 &&
     paginatedTransactions.every((t) => selectedTransactionIds.includes(t.id));
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
-  };
-
-  const formatRecurringDate = (value?: string | null) => {
-    if (!value) {
-      return "Sin fecha";
-    }
-    const formatted = formatDateForDisplay(value);
-    return formatted || value;
   };
 
   const handleResetFilters = () => {
@@ -824,49 +754,50 @@ export function Transactions() {
           })}
         </div>
         <div key={activeTab} className="tab-transition">
-          {showTable ? (
-            <>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-[var(--app-border)] table-animate">
-                <thead className="bg-[var(--app-surface-muted)]">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-[var(--app-border)] table-animate">
+              <thead className="bg-[var(--app-surface-muted)]">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                    <input
+                      type="checkbox"
+                      checked={isAllSelected}
+                      onChange={(e) => handleToggleAll(e.target.checked)}
+                      className="h-4 w-4 cursor-pointer rounded border border-[var(--app-border)]"
+                    />
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                    Fecha
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                    Descripción
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                    Cuenta
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                    Tipo
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                    Categoría
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">
+                    Monto
+                  </th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted">
+                    Acciones
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--app-border)]">
+                {paginatedTransactions.length === 0 ? (
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
-                      <input
-                        type="checkbox"
-                        checked={isAllSelected}
-                        onChange={(e) => handleToggleAll(e.target.checked)}
-                        className="h-4 w-4 cursor-pointer rounded border border-[var(--app-border)]"
-                      />
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
-                      Fecha
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
-                      Descripción
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
-                      Cuenta
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
-                      Tipo
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
-                      Categoría
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">
-                      Monto
-                    </th>
+                    <td colSpan={8} className="px-4 py-10 text-center text-muted">
+                      No se encontraron transacciones con los filtros seleccionados.
+                    </td>
                   </tr>
-                </thead>
-                  <tbody className="divide-y divide-[var(--app-border)]">
-                  {paginatedTransactions.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="px-4 py-10 text-center text-muted">
-                        No se encontraron transacciones con los filtros seleccionados.
-                      </td>
-                    </tr>
-                  ) : (
-                    paginatedTransactions.map((t) => {
+                ) : (
+                  paginatedTransactions.map((t) => {
                       const isSelected = selectedTransactionIds.includes(t.id);
                       const isIncome = t.type === "Ingreso";
                       const isTransfer = Boolean(t.is_transfer);
@@ -882,14 +813,14 @@ export function Transactions() {
                         : isIncome
                           ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
                           : "bg-rose-500/15 text-rose-600 dark:text-rose-300";
-                      return (
-                        <tr
-                          key={t.id}
-                          onDoubleClick={() => openTransactionModal(t)}
-                          className={`group cursor-pointer transition hover:bg-[var(--app-surface-muted)] ${
-                            isSelected ? "bg-[var(--app-surface-muted)]" : ""
-                          }`}
-                        >
+                    return (
+                      <tr
+                        key={t.id}
+                        onDoubleClick={() => openTransactionModal(t)}
+                        className={`group cursor-pointer transition hover:bg-[var(--app-surface-muted)] ${
+                          isSelected ? "bg-[var(--app-surface-muted)]" : ""
+                        }`}
+                      >
                           <td className="px-4 py-3">
                             <input
                               type="checkbox"
@@ -993,19 +924,31 @@ export function Transactions() {
                           >
                             {formatCurrency(t.amount)}
                           </td>
+                          <td className="px-4 py-3 text-center">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleDeleteTransaction(t.id);
+                              }}
+                              className="inline-flex items-center justify-center rounded-full border border-rose-400/60 p-2 text-rose-600 transition hover:border-rose-300 hover:text-rose-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/60"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </td>
                         </tr>
                       );
                     })
-                  )}
-                </tbody>
-                </table>
-              </div>
-              <div className="flex flex-col gap-4 border-t border-[var(--app-border)] bg-[var(--app-surface)] px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex items-center gap-2 text-sm text-muted">
-                <span>Mostrar</span>
-                <select
-                  value={pageSize}
-                  onChange={handlePageSizeChange}
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-col gap-4 border-t border-[var(--app-border)] bg-[var(--app-surface)] px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-2 text-sm text-muted">
+              <span>Mostrar</span>
+              <select
+                value={pageSize}
+                onChange={handlePageSizeChange}
                   className="rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-2 py-1 text-sm focus:border-sky-400 focus:outline-none"
                 >
                   {[5, 10, 20, 50].map((size) => (
@@ -1053,60 +996,7 @@ export function Transactions() {
                   </button>
                 </div>
               </div>
-              </div>
-            </>
-          ) : (
-            <div className="px-6 py-6">
-              {recurringLoading ? (
-                <p className="text-sm text-muted">Cargando transacciones recurrentes...</p>
-              ) : recurringError ? (
-                <p className="rounded-xl border border-rose-300/60 bg-rose-50 px-4 py-3 text-sm text-rose-600 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-200">
-                  {recurringError}
-                </p>
-              ) : recurringTransactions.length === 0 ? (
-                <p className="text-sm text-muted">
-                  Aún no registras transacciones recurrentes. Marca una transacción como recurrente desde el formulario para que aparezca aquí.
-                </p>
-              ) : (
-                <div className="grid gap-4 md:grid-cols-2 card-animate">
-                  {recurringTransactions.map((rule) => {
-                    const isIncome = rule.type === "Ingreso";
-                    return (
-                      <div
-                        key={rule.id}
-                        className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] p-4"
-                      >
-                        <div className="flex items-center justify-between">
-                          <h3 className="text-base font-semibold">{rule.description}</h3>
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${
-                              isIncome
-                                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
-                                : "bg-rose-500/15 text-rose-600 dark:text-rose-300"
-                            }`}
-                          >
-                            {rule.type}
-                          </span>
-                        </div>
-                        <p className="mt-2 text-sm text-muted">
-                          Monto: <span className="font-semibold">{formatCurrency(rule.amount)}</span>
-                        </p>
-                        <p className="text-sm text-muted">Categoría: {rule.category}</p>
-                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted">
-                          <span className="inline-flex items-center gap-2 rounded-full bg-[var(--app-surface)] px-3 py-1">
-                            Frecuencia: {rule.frequency}
-                          </span>
-                          <span className="inline-flex items-center gap-2 rounded-full bg-[var(--app-surface)] px-3 py-1">
-                            Próxima ejecución: {formatRecurringDate(rule.next_run)}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
+          </div>
         </div>
       </section>
     </div>

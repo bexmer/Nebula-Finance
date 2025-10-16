@@ -29,6 +29,7 @@ import { KpiCard } from "../components/KpiCard";
 import { GoalProgressCard, GoalData } from "../components/GoalProgressCard";
 import { API_BASE_URL } from "../utils/api";
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
+import { parseDateOnly } from "../utils/date";
 
 ChartJS.register(
   CategoryScale,
@@ -226,9 +227,23 @@ export function Dashboard() {
 
   const netWorthChartData = useMemo(() => {
     if (!data) return null;
-    const labels = data.net_worth_chart.dates.map((dateString) =>
-      monthFormatter.format(new Date(dateString)),
-    );
+
+    const labels = data.net_worth_chart.dates.map((dateString) => {
+      const parsed = parseDateOnly(dateString);
+      if (parsed) {
+        return monthFormatter.format(parsed);
+      }
+
+      const [yearPart = "0", monthPart = "1", dayPart = "1"] = dateString
+        .split("-")
+        .map((segment) => segment.trim());
+      const fallbackDate = new Date(
+        Number.parseInt(yearPart, 10) || 0,
+        (Number.parseInt(monthPart, 10) || 1) - 1,
+        Number.parseInt(dayPart, 10) || 1,
+      );
+      return monthFormatter.format(fallbackDate);
+    });
     return {
       labels,
       datasets: [
@@ -248,9 +263,20 @@ export function Dashboard() {
   const cashFlowChartData = useMemo(() => {
     if (!data) return null;
     const labels = data.cash_flow_chart.months.map((item) => {
-      const [yearPart, monthPart] = item.split("-");
-      const date = new Date(Number(yearPart), Number(monthPart) - 1, 1);
-      return monthFormatter.format(date);
+      const parsed = parseDateOnly(`${item}-01`);
+      if (parsed) {
+        return monthFormatter.format(parsed);
+      }
+
+      const [yearPart = "0", monthPart = "1"] = item
+        .split("-")
+        .map((segment) => segment.trim());
+      const fallbackDate = new Date(
+        Number.parseInt(yearPart, 10) || 0,
+        (Number.parseInt(monthPart, 10) || 1) - 1,
+        1,
+      );
+      return monthFormatter.format(fallbackDate);
     });
 
     return {

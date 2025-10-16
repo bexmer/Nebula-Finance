@@ -1,5 +1,7 @@
 """Helpers for initializing and seeding the application database."""
 
+import json
+
 from peewee import OperationalError
 
 from app.model.account import Account
@@ -58,6 +60,28 @@ def ensure_transaction_enhancements() -> None:
     if "transfer_account_id" not in existing_columns:
         db.execute_sql(
             f'ALTER TABLE "{table_name}" ADD COLUMN transfer_account_id INTEGER'
+        )
+
+
+def ensure_account_interest_columns() -> None:
+    """Ensure savings account interest metadata columns exist."""
+
+    table_name = Account._meta.table_name
+    existing_columns = _existing_columns(table_name)
+
+    if "annual_interest_rate" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN annual_interest_rate REAL DEFAULT 0'
+        )
+
+    if "compounding_frequency" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN compounding_frequency TEXT DEFAULT "Mensual"'
+        )
+
+    if "last_interest_accrual" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN last_interest_accrual DATE'
         )
 
 
@@ -131,6 +155,28 @@ def ensure_portfolio_asset_enhancements() -> None:
         )
 
 
+def ensure_savings_category_inheritance() -> None:
+    """Guarantee savings and debt types inherit variable expense categories."""
+
+    variable = Parameter.get_or_none(
+        (Parameter.group == "Tipo de Transacción")
+        & (Parameter.value == "Gasto Variable")
+    )
+
+    if not variable:
+        return
+
+    payload = json.dumps({"inherits": [variable.id]})
+
+    for value in ("Ahorro Meta", "Pago Deuda"):
+        parameter = Parameter.get_or_none(
+            (Parameter.group == "Tipo de Transacción") & (Parameter.value == value)
+        )
+        if parameter and not parameter.extra_data:
+            parameter.extra_data = payload
+            parameter.save()
+
+
 def ensure_transaction_budget_link() -> None:
     """Guarantee transactions can reference a budget entry when required."""
 
@@ -190,12 +236,14 @@ def seed_initial_parameters() -> None:
         value="Ahorro Meta",
         is_deletable=False,
         budget_rule=crecimiento,
+        extra_data=json.dumps({"inherits": []}),
     )
     pago_deuda = Parameter.create(
         group="Tipo de Transacción",
         value="Pago Deuda",
         is_deletable=False,
         budget_rule=estabilidad,
+        extra_data=json.dumps({"inherits": []}),
     )
 
     Parameter.create(group="Categoría", value="Nómina", parent=ingreso)
@@ -211,6 +259,12 @@ def seed_initial_parameters() -> None:
     Parameter.create(group="Categoría", value="Salud", parent=gasto_variable)
     Parameter.create(group="Categoría", value="Educación", parent=gasto_variable)
     Parameter.create(group="Categoría", value="Otros Gastos", parent=gasto_variable)
+
+    savings_inheritance = json.dumps({"inherits": [gasto_variable.id]})
+    ahorro_meta.extra_data = savings_inheritance
+    ahorro_meta.save()
+    pago_deuda.extra_data = savings_inheritance
+    pago_deuda.save()
 
     Parameter.create(group="Tipo de Cuenta", value="Cuenta de Ahorros")
     Parameter.create(group="Tipo de Cuenta", value="Cuenta Corriente")
@@ -255,8 +309,10 @@ def initialize_database() -> None:
         ensure_transaction_enhancements()
         ensure_budget_entry_links()
         ensure_budget_entry_enhancements()
+        ensure_account_interest_columns()
         ensure_portfolio_asset_enhancements()
         ensure_transaction_budget_link()
+        ensure_savings_category_inheritance()
         seed_initial_budget_rules()
         seed_initial_parameters()
         ensure_transfer_transaction_type()

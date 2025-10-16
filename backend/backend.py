@@ -58,12 +58,29 @@ class AccountModel(BaseModel):
     initial_balance: float
     current_balance: float
     is_virtual: bool = False
+    annual_interest_rate: float = 0.0
+    compounding_frequency: str = "Mensual"
+    last_interest_accrual: Optional[datetime.date] = None
 
 
 class AccountCreateModel(BaseModel):
     name: str
     account_type: str
     initial_balance: float = 0.0
+    annual_interest_rate: float = 0.0
+    compounding_frequency: Literal[
+        "Mensual", "Bimestral", "Trimestral", "Semestral", "Anual"
+    ] = "Mensual"
+
+    @field_validator("annual_interest_rate")
+    @classmethod
+    def validate_interest_rate(cls, value: float):
+        enforced = enforce_digit_limit(value, "annual_interest_rate")
+        if enforced is None:
+            return 0.0
+        if enforced < 0:
+            raise ValueError("La tasa anual no puede ser negativa.")
+        return enforced
 
 
 class AccountUpdateModel(BaseModel):
@@ -71,6 +88,20 @@ class AccountUpdateModel(BaseModel):
     account_type: Optional[str] = None
     initial_balance: Optional[float] = None
     current_balance: Optional[float] = None
+    annual_interest_rate: Optional[float] = None
+    compounding_frequency: Optional[
+        Literal["Mensual", "Bimestral", "Trimestral", "Semestral", "Anual"]
+    ] = None
+
+    @field_validator("annual_interest_rate")
+    @classmethod
+    def validate_interest_rate_update(cls, value: Optional[float]):
+        if value is None:
+            return value
+        enforced = enforce_digit_limit(value, "annual_interest_rate")
+        if enforced is not None and enforced < 0:
+            raise ValueError("La tasa anual no puede ser negativa.")
+        return enforced
 
 
 class TransactionSplitModel(BaseModel):
