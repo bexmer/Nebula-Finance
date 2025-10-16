@@ -376,6 +376,32 @@ class PortfolioSummaryModel(BaseModel):
     linked_goal_name: Optional[str] = None
 
 
+class PortfolioPlannedItemModel(BaseModel):
+    id: int
+    symbol: str
+    asset_type: str
+    quantity: float
+    price: float
+    amount: float
+    planned_amount: float
+    remaining_amount: float
+    date: datetime.date
+    due_date: Optional[datetime.date] = None
+    type: str
+    budget_entry_id: int
+    goal_id: Optional[int] = None
+    goal_name: Optional[str] = None
+    debt_id: Optional[int] = None
+    debt_name: Optional[str] = None
+    category: Optional[str] = None
+    description: Optional[str] = None
+
+
+class PortfolioCompositionModel(BaseModel):
+    paid: List[PortfolioSummaryModel]
+    planned: List[PortfolioPlannedItemModel]
+
+
 class TradeResponseModel(BaseModel):
     id: int
     date: datetime.date
@@ -387,6 +413,9 @@ class TradeResponseModel(BaseModel):
     annual_yield_rate: float
     linked_account_id: Optional[int] = None
     linked_goal_id: Optional[int] = None
+    linked_transaction_id: Optional[int] = None
+    linked_budget_entry_id: Optional[int] = None
+    status: Optional[str] = None
 
 
 class TradeCreateModel(BaseModel):
@@ -650,7 +679,7 @@ def delete_budget_entry(entry_id: int):
     return result
 
 
-@app.get("/api/portfolio/summary", response_model=List[PortfolioSummaryModel])
+@app.get("/api/portfolio/summary", response_model=PortfolioCompositionModel)
 def get_portfolio_summary():
     return controller.get_portfolio_assets()
 

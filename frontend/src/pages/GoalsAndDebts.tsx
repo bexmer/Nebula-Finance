@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import axios from "axios";
+import { useLocation } from "react-router-dom";
 
 import { GoalProgressCard } from "../components/GoalProgressCard";
 import { DebtProgressCard } from "../components/DebtProgressCard";
@@ -44,6 +45,7 @@ export function GoalsAndDebts() {
   const debtsInitialLoad = useRef(true);
 
   const { formatCurrency } = useNumberFormatter();
+  const location = useLocation();
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -99,6 +101,13 @@ export function GoalsAndDebts() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    const state = location.state as { defaultTab?: "goals" | "debts" } | null;
+    if (state?.defaultTab && state.defaultTab !== activeTab) {
+      setActiveTab(state.defaultTab);
+    }
+  }, [location.state, activeTab]);
 
   useEffect(() => {
     if (typeof window === "undefined") {

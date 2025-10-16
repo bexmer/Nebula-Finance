@@ -133,6 +133,18 @@ def ensure_budget_entry_enhancements() -> None:
         )
 
 
+def ensure_budget_entry_created_at() -> None:
+    """Ensure budget entries record their creation timestamp."""
+
+    table_name = BudgetEntry._meta.table_name
+    existing_columns = _existing_columns(table_name)
+
+    if "created_at" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
+        )
+
+
 def ensure_portfolio_asset_enhancements() -> None:
     """Add optional savings tracking fields to portfolio assets."""
 
@@ -152,6 +164,23 @@ def ensure_portfolio_asset_enhancements() -> None:
     if "linked_goal_id" not in existing_columns:
         db.execute_sql(
             f'ALTER TABLE "{table_name}" ADD COLUMN linked_goal_id INTEGER'
+        )
+
+
+def ensure_trade_side_effect_links() -> None:
+    """Guarantee trades can reference generated transactions or budgets."""
+
+    table_name = Trade._meta.table_name
+    existing_columns = _existing_columns(table_name)
+
+    if "linked_transaction_id" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN linked_transaction_id INTEGER'
+        )
+
+    if "linked_budget_entry_id" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN linked_budget_entry_id INTEGER'
         )
 
 
@@ -308,8 +337,10 @@ def initialize_database() -> None:
             ensure_transaction_enhancements()
             ensure_budget_entry_links()
             ensure_budget_entry_enhancements()
+            ensure_budget_entry_created_at()
             ensure_account_interest_columns()
             ensure_portfolio_asset_enhancements()
+            ensure_trade_side_effect_links()
             ensure_transaction_budget_link()
             ensure_savings_category_inheritance()
             seed_initial_budget_rules()

@@ -469,6 +469,7 @@ class AppController:
         budget_rule_control = self._get_budget_rule_control(transactions, kpis["income"]["amount"])
         expense_distribution = self._get_expense_distribution(transactions)
         expense_type_comparison = self._get_expense_type_comparison(transactions)
+        upcoming_payments = self._get_upcoming_payments(datetime.date.today())
 
         dashboard_data = {
             "kpis": kpis,
@@ -480,8 +481,89 @@ class AppController:
             "budget_rule_control": budget_rule_control,
             "expense_distribution": expense_distribution,
             "expense_type_comparison": expense_type_comparison,
+            "upcoming_payments": upcoming_payments,
         }
         return dashboard_data
+
+    def _get_upcoming_payments(self, reference: datetime.date) -> Dict[str, Any]:
+        """Return upcoming and overdue payments grouped by context."""
+
+        today = reference
+        horizon = today + datetime.timedelta(days=30)
+
+        query = (
+            BudgetEntry
+            .select(BudgetEntry, Goal, Debt)
+            .join(Goal, JOIN.LEFT_OUTER)
+            .switch(BudgetEntry)
+            .join(Debt, JOIN.LEFT_OUTER)
+        )
+
+        items: List[Dict[str, Any]] = []
+        counts = {"goal": 0, "debt": 0, "budget": 0, "overdue": 0}
+        total_amount = 0.0
+
+        for entry in query:
+            serialized = self._serialize_budget_entry(entry)
+            due_text = serialized.get("due_date")
+            if not due_text:
+                continue
+            try:
+                due_date = datetime.date.fromisoformat(due_text)
+            except (TypeError, ValueError):
+                continue
+
+            remaining = float(serialized.get("remaining_amount") or 0.0)
+            if remaining <= 0:
+                continue
+
+            if due_date < today:
+                status = "overdue"
+                counts["overdue"] += 1
+            elif due_date <= horizon:
+                status = "upcoming"
+            else:
+                continue
+
+            if serialized.get("goal_id"):
+                source = "goal"
+            elif serialized.get("debt_id"):
+                source = "debt"
+            else:
+                source = "budget"
+
+            counts[source] += 1
+            total_amount += remaining
+
+            items.append(
+                {
+                    "id": serialized["id"],
+                    "description": serialized.get("description")
+                    or serialized.get("category")
+                    or "Pago programado",
+                    "category": serialized.get("category"),
+                    "amount": remaining,
+                    "due_date": due_text,
+                    "status": status,
+                    "source": source,
+                    "goal_id": serialized.get("goal_id"),
+                    "goal_name": serialized.get("goal_name"),
+                    "debt_id": serialized.get("debt_id"),
+                    "debt_name": serialized.get("debt_name"),
+                    "days_until": (due_date - today).days,
+                }
+            )
+
+        items.sort(key=lambda item: (item["due_date"], item["amount"]), reverse=False)
+
+        return {
+            "items": items,
+            "counts": {
+                "all": len(items),
+                **counts,
+            },
+            "total_amount": total_amount,
+        }
 
     def _get_dashboard_kpis(
         self,
@@ -2846,6 +2928,16 @@ class AppController:
             "debt_name": debt_obj.name if debt_obj else None,
             "is_recurring": is_recurring,
             "use_custom_schedule": use_custom_schedule,
+            "created_at": (
+                entry.get("created_at").isoformat()
+                if is_dict
+                and hasattr(entry.get("created_at"), "isoformat")
+                else entry.get("created_at")
+                if is_dict and entry.get("created_at") is not None
+                else entry.created_at.isoformat()
+                if not is_dict and getattr(entry, "created_at", None)
+                else None
+            ),
         }
 
     def _prepare_budget_payload(self, data, existing_entry=None):
@@ -3120,7 +3212,7 @@ class AppController:
             .order_by(PortfolioAsset.symbol)
         )
 
-        summary = []
+        paid = []
         for asset in assets:
             quantity = float(asset.total_quantity or 0)
             avg_cost = float(asset.avg_cost_price or 0)
@@ -3134,7 +3226,7 @@ class AppController:
             linked_account = getattr(asset, "linked_account", None)
             linked_goal = getattr(asset, "linked_goal", None)
 
-            summary.append(
+            paid.append(
                 {
                     "symbol": asset.symbol,
                     "name": asset.asset_type,
@@ -3152,7 +3244,62 @@ class AppController:
                 }
             )
 
-        return summary
+        planned = self._get_planned_portfolio_allocations()
+
+        return {"paid": paid, "planned": planned}
+
+    def _get_planned_portfolio_allocations(self) -> List[Dict[str, Any]]:
+        trades_query = (
+            Trade
+            .select(Trade, PortfolioAsset, BudgetEntry)
+            .join(PortfolioAsset)
+            .switch(Trade)
+            .join(BudgetEntry, JOIN.LEFT_OUTER, on=(Trade.linked_budget_entry == BudgetEntry.id))
+            .where(Trade.linked_budget_entry.is_null(False))
+            .order_by(Trade.date.desc(), Trade.id.desc())
+        )
+
+        planned: List[Dict[str, Any]] = []
+        for trade in prefetch(trades_query, BudgetEntry, Goal, Debt):
+            entry = getattr(trade, "linked_budget_entry", None)
+            if entry is None:
+                continue
+
+            normalized = self._normalize_trade_type(trade.trade_type)
+            quantity = float(trade.quantity or 0)
+            price = float(trade.price_per_unit or 0)
+            amount = abs(quantity * price)
+            planned_amount = float(getattr(entry, "budgeted_amount", 0) or 0)
+            actual_amount = float(getattr(entry, "actual_amount", 0) or 0)
+            remaining = max(planned_amount - actual_amount, 0.0)
+
+            goal = getattr(entry, "goal", None)
+            debt = getattr(entry, "debt", None)
+
+            planned.append(
+                {
+                    "id": trade.id,
+                    "symbol": trade.asset.symbol,
+                    "asset_type": trade.asset.asset_type,
+                    "quantity": quantity,
+                    "price": price,
+                    "amount": amount,
+                    "planned_amount": planned_amount,
+                    "remaining_amount": remaining,
+                    "date": trade.date.isoformat(),
+                    "due_date": entry.due_date.isoformat() if entry.due_date else None,
+                    "type": "buy" if normalized == "Compra" else "sell",
+                    "budget_entry_id": entry.id,
+                    "goal_id": getattr(goal, "id", None),
+                    "goal_name": getattr(goal, "name", None),
+                    "debt_id": getattr(debt, "id", None),
+                    "debt_name": getattr(debt, "name", None),
+                    "category": entry.category,
+                    "description": entry.description,
+                }
+            )
+
+        return planned
 
     def get_trade_history(self):
         """Obtiene el historial de operaciones listo para la vista del frontend."""
@@ -3212,18 +3359,24 @@ class AppController:
         except ValueError as exc:
             return {"error": str(exc)}
 
-        trade = Trade.create(
-            asset=asset,
-            trade_type=payload["trade_type"],
-            quantity=payload["quantity"],
-            price_per_unit=payload["price"],
-            date=payload["date"],
-        )
+        try:
+            with db.atomic():
+                trade = Trade.create(
+                    asset=asset,
+                    trade_type=payload["trade_type"],
+                    quantity=payload["quantity"],
+                    price_per_unit=payload["price"],
+                    date=payload["date"],
+                )
 
-        asset.total_quantity = total_qty
-        asset.avg_cost_price = avg_cost
-        asset.current_price = last_price
-        asset.save()
+                asset.total_quantity = total_qty
+                asset.avg_cost_price = avg_cost
+                asset.current_price = last_price
+                asset.save()
+
+                self._sync_trade_side_effects(trade, payload)
+        except ValueError as exc:
+            return {"error": str(exc)}
 
         return self._serialize_trade(trade)
 
@@ -3287,23 +3440,29 @@ class AppController:
         else:
             orig_qty, orig_avg, orig_price = target_qty, target_avg, target_price
 
-        trade.asset = target_asset
-        trade.trade_type = payload["trade_type"]
-        trade.quantity = payload["quantity"]
-        trade.price_per_unit = payload["price"]
-        trade.date = payload["date"]
-        trade.save()
+        try:
+            with db.atomic():
+                trade.asset = target_asset
+                trade.trade_type = payload["trade_type"]
+                trade.quantity = payload["quantity"]
+                trade.price_per_unit = payload["price"]
+                trade.date = payload["date"]
+                trade.save()
 
-        target_asset.total_quantity = target_qty
-        target_asset.avg_cost_price = target_avg
-        target_asset.current_price = target_price
-        target_asset.save()
+                target_asset.total_quantity = target_qty
+                target_asset.avg_cost_price = target_avg
+                target_asset.current_price = target_price
+                target_asset.save()
 
-        if original_asset.id != target_asset.id:
-            original_asset.total_quantity = orig_qty
-            original_asset.avg_cost_price = orig_avg
-            original_asset.current_price = orig_price
-            original_asset.save()
+                if original_asset.id != target_asset.id:
+                    original_asset.total_quantity = orig_qty
+                    original_asset.avg_cost_price = orig_avg
+                    original_asset.current_price = orig_price
+                    original_asset.save()
+
+                self._sync_trade_side_effects(trade, payload)
+        except ValueError as exc:
+            return {"error": str(exc)}
 
         return self._serialize_trade(trade)
 
@@ -3314,8 +3473,13 @@ class AppController:
             return {"error": "La operación no existe."}
 
         asset = trade.asset
-        trade.delete_instance()
-        self._recalculate_portfolio_asset(asset)
+        try:
+            with db.atomic():
+                self._clear_trade_side_effects(trade)
+                trade.delete_instance()
+                self._recalculate_portfolio_asset(asset)
+        except ValueError as exc:
+            return {"error": str(exc)}
         return {"success": True}
 
     # --- Métodos de utilidad internos ---
@@ -3423,7 +3587,120 @@ class AppController:
             "annual_yield_rate": float(getattr(trade.asset, "annual_yield_rate", 0) or 0),
             "linked_account_id": getattr(getattr(trade.asset, "linked_account", None), "id", None),
             "linked_goal_id": getattr(getattr(trade.asset, "linked_goal", None), "id", None),
+            "linked_transaction_id": getattr(trade, "linked_transaction_id", None),
+            "linked_budget_entry_id": getattr(trade, "linked_budget_entry_id", None),
+            "status": "paid"
+            if getattr(trade, "linked_transaction_id", None)
+            else "planned"
+            if getattr(trade, "linked_budget_entry_id", None)
+            else "untracked",
         }
+
+    def _remove_trade_transaction(self, trade) -> None:
+        tx_id = getattr(trade, "linked_transaction_id", None)
+        if not tx_id:
+            return
+        result = self.delete_transaction(tx_id, adjust_balance=True)
+        if isinstance(result, dict) and result.get("error"):
+            raise ValueError(result["error"])
+        trade.linked_transaction = None
+        trade.save()
+
+    def _remove_trade_budget_entry(self, trade) -> None:
+        entry_id = getattr(trade, "linked_budget_entry_id", None)
+        if not entry_id:
+            return
+        result = self.delete_budget_entry(entry_id)
+        if isinstance(result, dict) and result.get("error"):
+            raise ValueError(result["error"])
+        trade.linked_budget_entry = None
+        trade.save()
+
+    def _clear_trade_side_effects(self, trade) -> None:
+        self._remove_trade_transaction(trade)
+        self._remove_trade_budget_entry(trade)
+
+    def _sync_trade_side_effects(self, trade, payload: Dict[str, Any]) -> None:
+        normalized = payload["trade_type"]
+        amount = float(payload["quantity"]) * float(payload["price"])
+        account = payload.get("linked_account")
+        goal = payload.get("linked_goal")
+        description = f"{normalized} de {payload['symbol']}"
+        category = "Inversiones"
+
+        if account:
+            tx_payload = {
+                "account_id": account.id,
+                "date": payload["date"],
+                "description": description,
+                "amount": abs(amount),
+                "type": "Ingreso" if normalized == "Venta" else "Gasto",
+                "category": category,
+                "goal_id": getattr(goal, "id", None),
+                "debt_id": None,
+                "budget_entry_id": None,
+                "is_transfer": False,
+            }
+
+            existing_tx_id = getattr(trade, "linked_transaction_id", None)
+            if existing_tx_id:
+                result = self.update_transaction(existing_tx_id, tx_payload)
+                if isinstance(result, dict) and result.get("error"):
+                    raise ValueError(result["error"])
+                transaction = Transaction.get_by_id(existing_tx_id)
+            else:
+                result = self.add_transaction(tx_payload)
+                if isinstance(result, dict) and result.get("error"):
+                    raise ValueError(result["error"])
+                transaction = Transaction.get_by_id(result["id"])
+                trade.linked_transaction = transaction
+
+            if getattr(trade, "linked_budget_entry_id", None):
+                # Remove any planned allocation now that the trade is executed.
+                self._remove_trade_budget_entry(trade)
+
+            trade.save()
+            return
+
+        # No linked account, keep or create a planned budget entry
+        entry_type = "Ingreso" if normalized == "Venta" else (
+            "Ahorro Meta" if goal else "Gasto"
+        )
+        entry_payload = {
+            "description": description,
+            "category": category,
+            "type": entry_type,
+            "budgeted_amount": abs(amount),
+            "frequency": "Única vez",
+            "start_date": payload["date"].isoformat()
+            if isinstance(payload["date"], datetime.date)
+            else str(payload["date"]),
+            "due_date": payload["date"].isoformat()
+            if isinstance(payload["date"], datetime.date)
+            else str(payload["date"]),
+            "use_custom_schedule": True,
+            "is_recurring": False,
+            "goal_id": getattr(goal, "id", None),
+            "debt_id": None,
+        }
+
+        existing_entry_id = getattr(trade, "linked_budget_entry_id", None)
+        if existing_entry_id:
+            result = self.update_budget_entry(existing_entry_id, entry_payload)
+            if isinstance(result, dict) and result.get("error"):
+                raise ValueError(result["error"])
+            entry = BudgetEntry.get_by_id(existing_entry_id)
+        else:
+            result = self.add_budget_entry(entry_payload)
+            if isinstance(result, dict) and result.get("error"):
+                raise ValueError(result["error"])
+            entry = BudgetEntry.get_by_id(result["id"])
+            trade.linked_budget_entry = entry
+
+        if getattr(trade, "linked_transaction_id", None):
+            self._remove_trade_transaction(trade)
+
+        trade.save()
 
     def _build_trade_entries(self, asset, exclude_id=None):
         entries = []

@@ -38,6 +38,9 @@ interface TradeHistory {
   annual_yield_rate?: number;
   linked_account_id?: number | null;
   linked_goal_id?: number | null;
+  linked_transaction_id?: number | null;
+  linked_budget_entry_id?: number | null;
+  status?: "paid" | "planned" | "untracked";
 }
 
 interface TradeFormState {
@@ -56,6 +59,27 @@ interface TradeFormState {
 interface SelectOption {
   id: number;
   name: string;
+}
+
+interface PlannedAllocation {
+  id: number;
+  symbol: string;
+  asset_type: string;
+  quantity: number;
+  price: number;
+  amount: number;
+  planned_amount: number;
+  remaining_amount: number;
+  date: string;
+  due_date?: string | null;
+  type: "buy" | "sell";
+  budget_entry_id: number;
+  goal_id?: number | null;
+  goal_name?: string | null;
+  debt_id?: number | null;
+  debt_name?: string | null;
+  category?: string | null;
+  description?: string | null;
 }
 
 export function Portfolio() {
@@ -90,6 +114,7 @@ export function Portfolio() {
   });
 
   const [summary, setSummary] = useState<PortfolioSummary[]>([]);
+  const [plannedAllocations, setPlannedAllocations] = useState<PlannedAllocation[]>([]);
   const [history, setHistory] = useState<TradeHistory[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -104,6 +129,7 @@ export function Portfolio() {
   const [assetTypes, setAssetTypes] = useState<string[]>([]);
   const [accountOptions, setAccountOptions] = useState<SelectOption[]>([]);
   const [goalOptions, setGoalOptions] = useState<SelectOption[]>([]);
+  const [compositionTab, setCompositionTab] = useState<"paid" | "planned">("paid");
   const formRef = useRef<HTMLFormElement | null>(null);
   const symbolInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -146,7 +172,18 @@ export function Portfolio() {
         axios.get(apiPath("/portfolio/summary")),
         axios.get(apiPath("/portfolio/history")),
       ]);
-      setSummary(summaryRes.data);
+      const { paid = [], planned = [] } = summaryRes.data ?? {};
+      setSummary(paid);
+      setPlannedAllocations(planned);
+      setCompositionTab((previous) => {
+        if (previous === "planned" && planned.length === 0 && paid.length > 0) {
+          return "paid";
+        }
+        if (previous === "paid" && paid.length === 0 && planned.length > 0) {
+          return "planned";
+        }
+        return previous;
+      });
       setHistory(historyRes.data);
     } catch (error) {
       console.error("Error al obtener datos del portafolio:", error);
@@ -692,70 +729,97 @@ export function Portfolio() {
       <div className="flex flex-col gap-6 xl:flex-row">
         <section className="flex-1 space-y-6">
           <div className="app-card p-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Composición actual</h2>
-              {loading && <span className="text-xs text-muted">Actualizando...</span>}
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Composición actual</h2>
+                {loading && <span className="text-xs text-muted">Actualizando...</span>}
+              </div>
+              <div className="inline-flex items-center rounded-full bg-[var(--app-surface-muted)] p-1 text-xs font-semibold uppercase tracking-wide text-muted">
+                <button
+                  type="button"
+                  onClick={() => setCompositionTab("paid")}
+                  className={`rounded-full px-3 py-1 transition ${
+                    compositionTab === "paid"
+                      ? "bg-white text-sky-600 shadow-sm dark:bg-slate-900"
+                      : "hover:text-slate-900 dark:hover:text-slate-100"
+                  }`}
+                >
+                  Pagadas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCompositionTab("planned")}
+                  className={`rounded-full px-3 py-1 transition ${
+                    compositionTab === "planned"
+                      ? "bg-white text-sky-600 shadow-sm dark:bg-slate-900"
+                      : "hover:text-slate-900 dark:hover:text-slate-100"
+                  }`}
+                >
+                  Planeadas
+                </button>
+              </div>
             </div>
-            <div className="mt-4 overflow-x-auto">
-              {enrichedSummary.length ? (
-                <table className="min-w-full divide-y divide-[var(--app-border)] text-sm">
-                  <thead>
-                    <tr className="text-left text-xs uppercase tracking-wide text-muted">
-                      <th className="py-2 pr-4">Activo</th>
-                      <th className="py-2 pr-4">Cantidad</th>
-                      <th className="py-2 pr-4 text-right">Costo prom.</th>
-                      <th className="py-2 pr-4 text-right">Valor mercado</th>
-                      <th className="py-2 pr-4 text-right">G/P</th>
-                      <th className="py-2 pr-4 text-right">ROI</th>
-                      <th className="py-2 pr-4 text-right">Rend. mensual</th>
-                      <th className="py-2 text-right">Vinculado</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {enrichedSummary.map((asset) => (
-                      <tr
-                        key={asset.symbol}
-                        className="border-b border-[var(--app-border)] text-sm text-slate-700 dark:text-slate-200"
-                      >
-                        <td className="py-3 pr-4">
-                          <div className="font-semibold text-slate-900 dark:text-white">
-                            {asset.symbol}
-                          </div>
-                          <div className="text-xs text-muted">
-                            {asset.asset_type || asset.name}
-                          </div>
-                        </td>
-                        <td className="py-3 pr-4">{asset.quantity.toFixed(4)}</td>
-                        <td className="py-3 pr-4 text-right font-mono text-slate-600 dark:text-slate-200">
-                          {formatCurrency(asset.avg_cost)}
-                        </td>
-                        <td className="py-3 pr-4 text-right font-mono text-sky-600 dark:text-sky-300">
-                          {formatCurrency(asset.market_value)}
-                        </td>
-                        <td
-                          className={`py-3 pr-4 text-right font-mono ${
-                            asset.unrealized_pnl >= 0
-                              ? "text-emerald-600 dark:text-emerald-300"
-                              : "text-rose-600 dark:text-rose-300"
-                          }`}
-                        >
-                          {formatCurrency(asset.unrealized_pnl)}
-                        </td>
-                        <td
-                          className={`py-3 pr-4 text-right font-semibold ${
-                            asset.roi >= 0
-                              ? "text-emerald-600 dark:text-emerald-300"
-                              : "text-rose-600 dark:text-rose-300"
-                          }`}
-                        >
-                          {formatPercent(asset.roi)}
-                        </td>
-                        <td className="py-3 pr-4 text-right font-mono text-amber-600 dark:text-amber-300">
-                          {formatCurrency(asset.monthly_yield ?? 0)}
-                        </td>
-                        <td className="py-3 text-right text-xs text-muted">
-                          {asset.linked_account_name || asset.linked_goal_name
-                            ? (
+            <div className="mt-4">
+              {compositionTab === "paid" ? (
+                <div className="overflow-x-auto">
+                  {enrichedSummary.length ? (
+                    <table className="min-w-full divide-y divide-[var(--app-border)] text-sm">
+                      <thead>
+                        <tr className="text-left text-xs uppercase tracking-wide text-muted">
+                          <th className="py-2 pr-4">Activo</th>
+                          <th className="py-2 pr-4">Cantidad</th>
+                          <th className="py-2 pr-4 text-right">Costo prom.</th>
+                          <th className="py-2 pr-4 text-right">Valor mercado</th>
+                          <th className="py-2 pr-4 text-right">G/P</th>
+                          <th className="py-2 pr-4 text-right">ROI</th>
+                          <th className="py-2 pr-4 text-right">Rend. mensual</th>
+                          <th className="py-2 text-right">Vinculado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {enrichedSummary.map((asset) => (
+                          <tr
+                            key={asset.symbol}
+                            className="border-b border-[var(--app-border)] text-sm text-slate-700 dark:text-slate-200"
+                          >
+                            <td className="py-3 pr-4">
+                              <div className="font-semibold text-slate-900 dark:text-white">
+                                {asset.symbol}
+                              </div>
+                              <div className="text-xs text-muted">
+                                {asset.asset_type || asset.name}
+                              </div>
+                            </td>
+                            <td className="py-3 pr-4">{asset.quantity.toFixed(4)}</td>
+                            <td className="py-3 pr-4 text-right font-mono text-slate-600 dark:text-slate-200">
+                              {formatCurrency(asset.avg_cost)}
+                            </td>
+                            <td className="py-3 pr-4 text-right font-mono text-sky-600 dark:text-sky-300">
+                              {formatCurrency(asset.market_value)}
+                            </td>
+                            <td
+                              className={`py-3 pr-4 text-right font-mono ${
+                                asset.unrealized_pnl >= 0
+                                  ? "text-emerald-600 dark:text-emerald-300"
+                                  : "text-rose-600 dark:text-rose-300"
+                              }`}
+                            >
+                              {formatCurrency(asset.unrealized_pnl)}
+                            </td>
+                            <td
+                              className={`py-3 pr-4 text-right font-semibold ${
+                                asset.roi >= 0
+                                  ? "text-emerald-600 dark:text-emerald-300"
+                                  : "text-rose-600 dark:text-rose-300"
+                              }`}
+                            >
+                              {formatPercent(asset.roi)}
+                            </td>
+                            <td className="py-3 pr-4 text-right font-mono text-amber-600 dark:text-amber-300">
+                              {formatCurrency(asset.monthly_yield ?? 0)}
+                            </td>
+                            <td className="py-3 text-right text-xs text-muted">
+                              {asset.linked_account_name || asset.linked_goal_name ? (
                                 <div className="space-y-1 text-right">
                                   {asset.linked_account_name && (
                                     <div className="font-medium text-slate-700 dark:text-slate-200">
@@ -768,19 +832,106 @@ export function Portfolio() {
                                     </div>
                                   )}
                                 </div>
-                              )
-                            : (
+                              ) : (
                                 <span>—</span>
                               )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <p className="rounded-lg border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)] p-4 text-sm text-muted">
+                      Aún no tienes posiciones activas registradas.
+                    </p>
+                  )}
+                </div>
               ) : (
-                <p className="rounded-lg border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)] p-4 text-sm text-muted">
-                  Aún no tienes posiciones activas registradas.
-                </p>
+                <div className="overflow-x-auto">
+                  {plannedAllocations.length ? (
+                    <table className="min-w-full divide-y divide-[var(--app-border)] text-sm">
+                      <thead>
+                        <tr className="text-left text-xs uppercase tracking-wide text-muted">
+                          <th className="py-2 pr-4">Activo</th>
+                          <th className="py-2 pr-4">Tipo</th>
+                          <th className="py-2 pr-4 text-right">Cantidad</th>
+                          <th className="py-2 pr-4 text-right">Precio</th>
+                          <th className="py-2 pr-4 text-right">Planeado</th>
+                          <th className="py-2 pr-4 text-right">Pendiente</th>
+                          <th className="py-2 pr-4">Fecha objetivo</th>
+                          <th className="py-2 text-right">Destino</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {plannedAllocations.map((allocation) => {
+                          const targetDate = allocation.due_date ?? allocation.date;
+                          const label = allocation.type === "buy" ? "Compra" : "Venta";
+                          const badgeClass =
+                            allocation.type === "buy"
+                              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"
+                              : "bg-sky-500/10 text-sky-600 dark:text-sky-300";
+                          return (
+                            <tr
+                              key={`${allocation.id}-${allocation.budget_entry_id}`}
+                              className="border-b border-[var(--app-border)] text-sm text-slate-700 dark:text-slate-200"
+                            >
+                              <td className="py-3 pr-4">
+                                <div className="font-semibold text-slate-900 dark:text-white">
+                                  {allocation.symbol}
+                                </div>
+                                <div className="text-xs text-muted">
+                                  {allocation.asset_type}
+                                </div>
+                              </td>
+                              <td className="py-3 pr-4">
+                                <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${badgeClass}`}>
+                                  {label}
+                                </span>
+                              </td>
+                              <td className="py-3 pr-4 text-right font-mono">
+                                {allocation.quantity.toFixed(4)}
+                              </td>
+                              <td className="py-3 pr-4 text-right font-mono text-slate-600 dark:text-slate-200">
+                                {formatCurrency(allocation.price)}
+                              </td>
+                              <td className="py-3 pr-4 text-right font-mono text-sky-600 dark:text-sky-300">
+                                {formatCurrency(allocation.planned_amount)}
+                              </td>
+                              <td className="py-3 pr-4 text-right font-mono text-amber-600 dark:text-amber-300">
+                                {formatCurrency(allocation.remaining_amount)}
+                              </td>
+                              <td className="py-3 pr-4 text-sm text-slate-600 dark:text-slate-300">
+                                {formatDate(targetDate)}
+                              </td>
+                              <td className="py-3 text-right text-xs text-muted">
+                                {allocation.goal_name || allocation.debt_name ? (
+                                  <div className="space-y-1 text-right">
+                                    {allocation.goal_name && (
+                                      <div className="font-medium text-slate-700 dark:text-slate-200">
+                                        Meta: {allocation.goal_name}
+                                      </div>
+                                    )}
+                                    {allocation.debt_name && (
+                                      <div className="text-slate-600 dark:text-slate-300">
+                                        Deuda: {allocation.debt_name}
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span>—</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <p className="rounded-lg border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)] p-4 text-sm text-muted">
+                      No tienes aportaciones planeadas pendientes.
+                    </p>
+                  )}
+                </div>
               )}
             </div>
           </div>
