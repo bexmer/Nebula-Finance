@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
+import { useNavigate } from "react-router-dom";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -84,6 +85,35 @@ interface BudgetRuleItem {
   state: "ok" | "warning" | "critical" | "neutral";
 }
 
+type UpcomingFilter = "all" | "goal" | "debt" | "budget" | "overdue";
+
+interface UpcomingPayment {
+  id: number;
+  description: string;
+  category?: string | null;
+  amount: number;
+  due_date: string;
+  status: "upcoming" | "overdue";
+  source: "goal" | "debt" | "budget";
+  goal_id?: number | null;
+  goal_name?: string | null;
+  debt_id?: number | null;
+  debt_name?: string | null;
+  days_until: number;
+}
+
+interface UpcomingPaymentsSummary {
+  items: UpcomingPayment[];
+  counts: {
+    all: number;
+    goal: number;
+    debt: number;
+    budget: number;
+    overdue: number;
+  };
+  total_amount: number;
+}
+
 interface AccountSummary {
   id: number;
   name: string;
@@ -123,6 +153,7 @@ interface DashboardData {
     labels: string[];
     amounts: number[];
   };
+  upcoming_payments: UpcomingPaymentsSummary;
 }
 
 interface MonthMultiSelectProps {
@@ -148,6 +179,8 @@ export function Dashboard() {
     typeof window !== "undefined" ? window.innerWidth : 0,
   );
   const { formatCurrency, formatPercent } = useNumberFormatter();
+  const navigate = useNavigate();
+  const [upcomingFilter, setUpcomingFilter] = useState<UpcomingFilter>("all");
 
   const formatSignedCurrency = (value: number) => {
     if (!Number.isFinite(value) || value === 0) {
@@ -156,6 +189,40 @@ export function Dashboard() {
     const absolute = Math.abs(value);
     const formatted = formatCurrency(absolute);
     return `${value > 0 ? "+" : "-"}${formatted}`;
+  };
+
+  const formatDueDate = (value: string) => {
+    const parsed = parseDateOnly(value);
+    if (!parsed) {
+      return value;
+    }
+    return new Intl.DateTimeFormat("es-MX", {
+      day: "numeric",
+      month: "short",
+    }).format(parsed);
+  };
+
+  const describeDueDate = (payment: UpcomingPayment) => {
+    if (payment.days_until === 0) {
+      return "Vence hoy";
+    }
+    if (payment.days_until < 0) {
+      const days = Math.abs(payment.days_until);
+      return `Vencido hace ${days} día${days === 1 ? "" : "s"}`;
+    }
+    return `Vence en ${payment.days_until} día${payment.days_until === 1 ? "" : "s"}`;
+  };
+
+  const sourceLabels: Record<UpcomingPayment["source"], string> = {
+    goal: "Meta",
+    debt: "Deuda",
+    budget: "Presupuesto",
+  };
+
+  const sourceStyles: Record<UpcomingPayment["source"], string> = {
+    goal: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300",
+    debt: "bg-orange-500/10 text-orange-600 dark:text-orange-300",
+    budget: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-300",
   };
 
   useEffect(() => {
@@ -443,6 +510,63 @@ export function Dashboard() {
     },
   }), []);
 
+  const upcomingPayments = data?.upcoming_payments;
+  const upcomingItems = useMemo(
+    () => upcomingPayments?.items ?? [],
+    [upcomingPayments],
+  );
+
+  const filteredUpcomingPayments = useMemo(
+    () =>
+      upcomingItems.filter((item) => {
+        if (upcomingFilter === "all") {
+          return true;
+        }
+        if (upcomingFilter === "overdue") {
+          return item.status === "overdue";
+        }
+        return item.source === upcomingFilter;
+      }),
+    [upcomingFilter, upcomingItems],
+  );
+
+  const upcomingTotal = useMemo(
+    () =>
+      filteredUpcomingPayments.reduce(
+        (accumulator, item) => accumulator + item.amount,
+        0,
+      ),
+    [filteredUpcomingPayments],
+  );
+
+  const upcomingFilterOptions = useMemo(
+    () => {
+      const counts = upcomingPayments?.counts ?? {
+        all: 0,
+        goal: 0,
+        debt: 0,
+        budget: 0,
+        overdue: 0,
+      };
+      return [
+        { value: "all" as UpcomingFilter, label: "Todos", count: counts.all },
+        { value: "goal" as UpcomingFilter, label: "Metas", count: counts.goal },
+        { value: "debt" as UpcomingFilter, label: "Deudas", count: counts.debt },
+        {
+          value: "budget" as UpcomingFilter,
+          label: "Presupuesto",
+          count: counts.budget,
+        },
+        {
+          value: "overdue" as UpcomingFilter,
+          label: "Atrasados",
+          count: counts.overdue,
+        },
+      ];
+    },
+    [upcomingPayments?.counts],
+  );
+
   const accounts = data?.accounts ?? [];
   const activeAccount = accounts[activeAccountIndex] ?? null;
 
@@ -630,9 +754,27 @@ export function Dashboard() {
 
           <div className="xl:col-span-7 2xl:col-span-8">
             <div className="app-card flex h-full flex-col p-5">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold">Metas activas</h2>
-                <Target className="h-5 w-5 text-sky-500" />
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Target className="h-5 w-5 text-sky-500" />
+                  <h2 className="text-lg font-semibold">Metas activas</h2>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => navigate("/dashboard-goals", { state: { defaultTab: "goals" } })}
+                    className="inline-flex items-center gap-2 rounded-full border border-[var(--app-border)] px-3 py-1 text-xs font-semibold text-muted transition hover:border-sky-400 hover:text-sky-600 dark:hover:text-sky-300"
+                  >
+                    Ver metas
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate("/dashboard-goals", { state: { defaultTab: "debts" } })}
+                    className="inline-flex items-center gap-2 rounded-full border border-[var(--app-border)] px-3 py-1 text-xs font-semibold text-muted transition hover:border-sky-400 hover:text-sky-600 dark:hover:text-sky-300"
+                  >
+                    Ver deudas
+                  </button>
+                </div>
               </div>
               <p className="mt-1 text-sm text-muted">
                 Da seguimiento a tus objetivos financieros y mantén la motivación.
@@ -670,6 +812,109 @@ export function Dashboard() {
                   />
                 ) : (
                   <EmptyState message="No hay datos de gastos para comparar." />
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="xl:col-span-5 2xl:col-span-4">
+            <div className="app-card flex h-full flex-col p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold">Pagos próximos</h2>
+                  <p className="mt-1 text-sm text-muted">
+                    Anticípate a tus compromisos de metas, deudas y presupuesto.
+                  </p>
+                </div>
+                <div className="text-right">
+                  <span className="text-[0.65rem] font-semibold uppercase tracking-wide text-muted">
+                    Total filtrado
+                  </span>
+                  <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                    {formatCurrency(upcomingTotal)}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {upcomingFilterOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setUpcomingFilter(option.value)}
+                    className={`group inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                      upcomingFilter === option.value
+                        ? "border-sky-500 bg-sky-500/10 text-sky-600 dark:text-sky-300"
+                        : "border-[var(--app-border)] text-muted hover:border-sky-400 hover:text-sky-600 dark:hover:text-sky-300"
+                    }`}
+                  >
+                    {option.label}
+                    <span
+                      className={`inline-flex h-5 min-w-[1.5rem] items-center justify-center rounded-full text-[0.7rem] font-semibold ${
+                        upcomingFilter === option.value
+                          ? "bg-white/80 text-sky-600 dark:bg-slate-900/70 dark:text-sky-300"
+                          : "bg-[var(--app-surface-muted)] text-muted"
+                      }`}
+                    >
+                      {option.count ?? 0}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div className="mt-4 space-y-3">
+                {filteredUpcomingPayments.length ? (
+                  filteredUpcomingPayments.slice(0, 6).map((payment) => (
+                    <article
+                      key={`${payment.id}-${payment.due_date}`}
+                      className="rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface-muted)]/60 p-4"
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="font-semibold text-slate-900 dark:text-white">
+                            {payment.description}
+                          </p>
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
+                            <span
+                              className={`inline-flex items-center rounded-full px-2 py-1 font-semibold ${sourceStyles[payment.source]}`}
+                            >
+                              {sourceLabels[payment.source]}
+                            </span>
+                            {payment.goal_name && <span>Meta: {payment.goal_name}</span>}
+                            {payment.debt_name && <span>Deuda: {payment.debt_name}</span>}
+                            {payment.category && <span>{payment.category}</span>}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div
+                            className={`text-base font-semibold ${
+                              payment.status === "overdue"
+                                ? "text-rose-600 dark:text-rose-300"
+                                : "text-slate-900 dark:text-slate-100"
+                            }`}
+                          >
+                            {formatCurrency(payment.amount)}
+                          </div>
+                          <div className="text-xs text-muted">
+                            {formatDueDate(payment.due_date)}
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        className={`mt-3 text-xs ${
+                          payment.status === "overdue"
+                            ? "text-rose-500 dark:text-rose-300"
+                            : "text-muted"
+                        }`}
+                      >
+                        {describeDueDate(payment)}
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <p className="rounded-lg border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)] p-4 text-sm text-muted">
+                    {upcomingFilter === "all"
+                      ? "No hay pagos programados en el periodo seleccionado."
+                      : "No se encontraron pagos con el filtro aplicado."}
+                  </p>
                 )}
               </div>
             </div>

@@ -41,6 +41,7 @@ interface BudgetEntry {
   debt_name?: string | null;
   is_recurring: boolean;
   use_custom_schedule?: boolean;
+  created_at?: string | null;
 }
 
 interface ParameterOption {
@@ -90,6 +91,7 @@ export function Budget() {
   const [monthFilter, setMonthFilter] = useState("all");
   const [yearFilter, setYearFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<BudgetStatusFilter>("active");
+  const [categoryTab, setCategoryTab] = useState<"all" | "goals" | "debts">("all");
   const [referenceDate, setReferenceDate] = useState<string>(
     getTodayDateInputValue(),
   );
@@ -97,6 +99,8 @@ export function Budget() {
   const { formatCurrency } = useNumberFormatter();
   const [listPulse, setListPulse] = useState(false);
   const budgetInitialLoad = useRef(true);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [currentPage, setCurrentPage] = useState(0);
 
   const fetchBudgetEntries = useCallback(async () => {
     const params: Record<string, string> = {};
@@ -187,11 +191,42 @@ export function Budget() {
           monthFilter === "all" || entryMonth === Number(monthFilter);
         const matchesYear =
           yearFilter === "all" || entryYear === Number(yearFilter);
+        const matchesTab =
+          categoryTab === "all" ||
+          (categoryTab === "goals" && Boolean(entry.goal_id)) ||
+          (categoryTab === "debts" && Boolean(entry.debt_id));
 
-        return matchesSearch && matchesType && matchesMonth && matchesYear;
+        return matchesSearch && matchesType && matchesMonth && matchesYear && matchesTab;
       })
-      .sort((a, b) => parseEntryDate(a).getTime() - parseEntryDate(b).getTime());
-  }, [budgetEntries, monthFilter, parseEntryDate, searchTerm, typeFilter, yearFilter]);
+      .sort((a, b) => {
+        const createdA = a.created_at ? Date.parse(a.created_at) : NaN;
+        const createdB = b.created_at ? Date.parse(b.created_at) : NaN;
+        if (Number.isFinite(createdA) && Number.isFinite(createdB) && createdA !== createdB) {
+          return createdB - createdA;
+        }
+        const dateA = parseEntryDate(a).getTime();
+        const dateB = parseEntryDate(b).getTime();
+        return dateB - dateA;
+      });
+  }, [budgetEntries, categoryTab, monthFilter, parseEntryDate, searchTerm, typeFilter, yearFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredEntries.length / rowsPerPage));
+
+  const paginatedEntries = useMemo(() => {
+    const startIndex = currentPage * rowsPerPage;
+    return filteredEntries.slice(startIndex, startIndex + rowsPerPage);
+  }, [filteredEntries, currentPage, rowsPerPage]);
+
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [rowsPerPage, categoryTab, searchTerm, typeFilter, monthFilter, yearFilter, statusFilter, referenceDate]);
+
+  useEffect(() => {
+    const maxPage = Math.max(0, Math.ceil(filteredEntries.length / rowsPerPage) - 1);
+    if (currentPage > maxPage) {
+      setCurrentPage(maxPage);
+    }
+  }, [filteredEntries.length, rowsPerPage, currentPage]);
 
   const totals = useMemo<BudgetSummary>(() => {
     let today = new Date();
@@ -325,6 +360,9 @@ export function Budget() {
     setYearFilter("all");
     setStatusFilter("active");
     setReferenceDate(getTodayDateInputValue());
+    setCategoryTab("all");
+    setRowsPerPage(10);
+    setCurrentPage(0);
   };
 
   const getStatusPill = (entry: BudgetEntry) => {
@@ -615,11 +653,49 @@ export function Budget() {
             <p className="text-sm text-muted">
               Selecciona filas para eliminarlas en lote o haz doble clic para editarlas.
             </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {(
+                [
+                  { value: "all" as const, label: "Todas" },
+                  { value: "goals" as const, label: "Metas" },
+                  { value: "debts" as const, label: "Deudas" },
+                ]
+              ).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setCategoryTab(option.value)}
+                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                    categoryTab === option.value
+                      ? "border-sky-500 bg-sky-500/10 text-sky-600 dark:text-sky-300"
+                      : "border-[var(--app-border)] text-muted hover:border-sky-400 hover:text-sky-600 dark:hover:text-sky-300"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="flex flex-col items-end gap-3 sm:flex-row sm:items-center">
-            <span className="text-sm text-muted">
-              {filteredEntries.length} registros · {selectedEntryIds.length} seleccionados
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted">
+                {filteredEntries.length} registros · {selectedEntryIds.length} seleccionados
+              </span>
+              <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted">
+                Filas
+                <select
+                  value={rowsPerPage}
+                  onChange={(event) => setRowsPerPage(Number(event.target.value))}
+                  className="rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-2 py-1 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                >
+                  {[5, 10, 20, 50].map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={handleDeleteSelected}
@@ -676,12 +752,12 @@ export function Budget() {
             <tbody className="divide-y divide-[var(--app-border)]">
               {filteredEntries.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-muted">
+                  <td colSpan={9} className="px-4 py-10 text-center text-muted">
                     No hay presupuestos que coincidan con los filtros actuales.
                   </td>
                 </tr>
               ) : (
-                filteredEntries.map((entry) => {
+                paginatedEntries.map((entry) => {
                   const entryDate = parseEntryDate(entry);
                   const status = getStatusPill(entry);
                   const isSelected = selectedEntryIds.includes(entry.id);
@@ -774,6 +850,31 @@ export function Budget() {
             </tbody>
           </table>
         </div>
+        {filteredEntries.length > 0 && (
+          <div className="flex flex-col gap-3 border-t border-[var(--app-border)] px-6 py-4 text-sm text-muted sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              Página {Math.min(currentPage + 1, totalPages)} de {totalPages}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCurrentPage((page) => Math.max(0, page - 1))}
+                disabled={currentPage === 0}
+                className="rounded-lg border border-[var(--app-border)] px-3 py-1 text-sm font-semibold transition hover:border-sky-400 hover:text-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Anterior
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((page) => Math.min(totalPages - 1, page + 1))}
+                disabled={currentPage >= totalPages - 1}
+                className="rounded-lg border border-[var(--app-border)] px-3 py-1 text-sm font-semibold transition hover:border-sky-400 hover:text-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       <BudgetModal
