@@ -30,13 +30,15 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # --- IMPORTACIONES ---
 from app.controller.app_controller import AppController
 from app.database.db_manager import initialize_database, close_db
+from app.model.base_model import db
 
 # --- MANEJO DE LA VIDA DEL SERVIDOR (LIFESPAN) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("INFO:     Server startup: Initializing database...")
     initialize_database()
-    controller.process_recurring_transactions()
+    with db.connection_context():
+        controller.process_recurring_transactions()
     yield
     print("INFO:     Server shutdown: Closing database connection...")
     close_db()
@@ -49,6 +51,15 @@ app.add_middleware(
     allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def peewee_connection_middleware(request, call_next):
+    """Provide an isolated database connection per request."""
+
+    with db.connection_context():
+        response = await call_next(request)
+    return response
+
 # --- MODELOS DE DATOS PARA LA API (PYDANTIC V2) ---
 class AccountModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -57,12 +68,30 @@ class AccountModel(BaseModel):
     account_type: str
     initial_balance: float
     current_balance: float
+    is_virtual: bool = False
+    annual_interest_rate: float = 0.0
+    compounding_frequency: str = "Mensual"
+    last_interest_accrual: Optional[datetime.date] = None
 
 
 class AccountCreateModel(BaseModel):
     name: str
     account_type: str
     initial_balance: float = 0.0
+    annual_interest_rate: float = 0.0
+    compounding_frequency: Literal[
+        "Mensual", "Bimestral", "Trimestral", "Semestral", "Anual"
+    ] = "Mensual"
+
+    @field_validator("annual_interest_rate")
+    @classmethod
+    def validate_interest_rate(cls, value: float):
+        enforced = enforce_digit_limit(value, "annual_interest_rate")
+        if enforced is None:
+            return 0.0
+        if enforced < 0:
+            raise ValueError("La tasa anual no puede ser negativa.")
+        return enforced
 
 
 class AccountUpdateModel(BaseModel):
@@ -70,6 +99,20 @@ class AccountUpdateModel(BaseModel):
     account_type: Optional[str] = None
     initial_balance: Optional[float] = None
     current_balance: Optional[float] = None
+    annual_interest_rate: Optional[float] = None
+    compounding_frequency: Optional[
+        Literal["Mensual", "Bimestral", "Trimestral", "Semestral", "Anual"]
+    ] = None
+
+    @field_validator("annual_interest_rate")
+    @classmethod
+    def validate_interest_rate_update(cls, value: Optional[float]):
+        if value is None:
+            return value
+        enforced = enforce_digit_limit(value, "annual_interest_rate")
+        if enforced is not None and enforced < 0:
+            raise ValueError("La tasa anual no puede ser negativa.")
+        return enforced
 
 
 class TransactionSplitModel(BaseModel):
@@ -91,6 +134,7 @@ class TransactionModel(BaseModel):
     account_id: int
     goal_id: Optional[int] = None
     debt_id: Optional[int] = None
+    budget_entry_id: Optional[int] = None
     is_transfer: bool = False
     transfer_account_id: Optional[int] = None
     splits: Optional[List[TransactionSplitModel]] = None
@@ -108,15 +152,23 @@ class BudgetEntryModel(BaseModel):
     description: Optional[str] = None
     category: str
     type: str
+    frequency: str
     budgeted_amount: float
+    start_date: Optional[datetime.date] = None
+    end_date: Optional[datetime.date] = None
     due_date: Optional[datetime.date] = None
     month: Optional[int] = None
     year: Optional[int] = None
-    amount: Optional[float] = None
+    actual_amount: float = 0.0
+    remaining_amount: float = 0.0
+    over_budget_amount: float = 0.0
+    execution: Optional[float] = None
     goal_id: Optional[int] = None
     goal_name: Optional[str] = None
     debt_id: Optional[int] = None
     debt_name: Optional[str] = None
+    is_recurring: bool = False
+    use_custom_schedule: bool = False
 
 
 class BudgetEntryCreateModel(BaseModel):
@@ -125,11 +177,16 @@ class BudgetEntryCreateModel(BaseModel):
     amount: Optional[float] = None
     type: Optional[str] = "Gasto"
     description: Optional[constr(max_length=100)] = None
+    start_date: Optional[datetime.date] = None
+    end_date: Optional[datetime.date] = None
     due_date: Optional[datetime.date] = None
     month: Optional[int] = None
     year: Optional[int] = None
     goal_id: Optional[int] = None
     debt_id: Optional[int] = None
+    frequency: Literal["Única vez", "Semanal", "Quincenal", "Mensual", "Anual"] = "Mensual"
+    is_recurring: Optional[bool] = None
+    use_custom_schedule: Optional[bool] = None
 
     @field_validator("budgeted_amount", "amount")
     @classmethod
@@ -143,11 +200,16 @@ class BudgetEntryUpdateModel(BaseModel):
     amount: Optional[float] = None
     type: Optional[str] = None
     description: Optional[constr(max_length=100)] = None
+    start_date: Optional[datetime.date] = None
+    end_date: Optional[datetime.date] = None
     due_date: Optional[datetime.date] = None
     month: Optional[int] = None
     year: Optional[int] = None
     goal_id: Optional[int] = None
     debt_id: Optional[int] = None
+    frequency: Optional[Literal["Única vez", "Semanal", "Quincenal", "Mensual", "Anual"]] = None
+    is_recurring: Optional[bool] = None
+    use_custom_schedule: Optional[bool] = None
 
     @field_validator("budgeted_amount", "amount")
     @classmethod
@@ -265,6 +327,20 @@ class CategoryUpdateModel(BaseModel):
     parent_id: Optional[int] = None
 
 
+class AssetTypeItem(BaseModel):
+    id: int
+    name: str
+    is_deletable: bool
+
+
+class AssetTypeCreateModel(BaseModel):
+    name: str
+
+
+class AssetTypeUpdateModel(BaseModel):
+    name: str
+
+
 class RecurringTransactionModel(BaseModel):
     id: int
     description: str
@@ -292,6 +368,12 @@ class PortfolioSummaryModel(BaseModel):
     avg_cost: float
     market_value: float
     unrealized_pnl: float
+    annual_yield_rate: float
+    monthly_yield: float
+    linked_account_id: Optional[int] = None
+    linked_account_name: Optional[str] = None
+    linked_goal_id: Optional[int] = None
+    linked_goal_name: Optional[str] = None
 
 
 class TradeResponseModel(BaseModel):
@@ -302,6 +384,9 @@ class TradeResponseModel(BaseModel):
     type: Literal["buy", "sell"]
     quantity: float
     price: float
+    annual_yield_rate: float
+    linked_account_id: Optional[int] = None
+    linked_goal_id: Optional[int] = None
 
 
 class TradeCreateModel(BaseModel):
@@ -311,11 +396,21 @@ class TradeCreateModel(BaseModel):
     quantity: float
     price: float
     date: datetime.date
+    annual_yield_rate: Optional[float] = 0.0
+    linked_account_id: Optional[int] = None
+    linked_goal_id: Optional[int] = None
 
     @field_validator("quantity", "price")
     @classmethod
     def validate_trade_numbers(cls, value: float, info):
         return enforce_digit_limit(value, info.field_name)
+
+    @field_validator("annual_yield_rate")
+    @classmethod
+    def validate_trade_yield(cls, value: Optional[float]):
+        if value is None:
+            return 0.0
+        return enforce_digit_limit(float(value), "annual_yield_rate")
 
 
 class TradeUpdateModel(TradeCreateModel):
@@ -518,8 +613,17 @@ def delete_debt(debt_id: int):
 
 
 @app.get("/api/budget", response_model=List[BudgetEntryModel])
-def list_budget_entries():
-    return controller.get_budget_entries()
+def list_budget_entries(
+    status: Optional[str] = Query(default=None),
+    reference_date: Optional[datetime.date] = Query(default=None),
+):
+    filters: Dict[str, Any] = {}
+    if status:
+        filters["status"] = status
+    if reference_date:
+        filters["reference_date"] = reference_date
+
+    return controller.get_budget_entries(filters if filters else None)
 
 
 @app.post("/api/budget", response_model=BudgetEntryModel, status_code=201)
@@ -587,6 +691,11 @@ def get_transaction_types():
 @app.get("/api/parameters/account-types", response_model=List[str])
 def get_account_types():
     return controller.get_account_types()
+
+
+@app.get("/api/parameters/asset-types", response_model=List[str])
+def get_asset_types():
+    return controller.get_asset_types()
 
 @app.get("/api/parameters/categories/{parent_id}")
 def get_categories_by_type(parent_id: int):
@@ -682,6 +791,35 @@ def update_account_type_parameter(type_id: int, account_type: AccountTypeUpdateM
 @app.delete("/api/config/account-types/{type_id}")
 def delete_account_type_parameter(type_id: int):
     result = controller.delete_account_type_parameter(type_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.get("/api/config/asset-types", response_model=List[AssetTypeItem])
+def list_asset_types_config():
+    return controller.get_asset_type_parameters()
+
+
+@app.post("/api/config/asset-types", response_model=AssetTypeItem, status_code=201)
+def create_asset_type_parameter(asset_type: AssetTypeCreateModel):
+    result = controller.add_asset_type(asset_type.name)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.put("/api/config/asset-types/{type_id}", response_model=AssetTypeItem)
+def update_asset_type_parameter(type_id: int, asset_type: AssetTypeUpdateModel):
+    result = controller.update_asset_type_parameter(type_id, asset_type.name)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.delete("/api/config/asset-types/{type_id}")
+def delete_asset_type_parameter(type_id: int):
+    result = controller.delete_asset_type_parameter(type_id)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result

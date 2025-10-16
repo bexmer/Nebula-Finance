@@ -1,34 +1,46 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import {
+  AlertCircle,
   Calendar,
   CheckCircle2,
   Clock,
   PiggyBank,
   Plus,
-  Target,
   Trash2,
 } from "lucide-react";
 import { BudgetModal } from "../components/BudgetModal";
 import { useStore } from "../store/useStore";
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 import { apiPath } from "../utils/api";
-import { normalizeDateInputValue } from "../utils/date";
+import {
+  formatDateForDisplay,
+  getTodayDateInputValue,
+  parseDateOnly,
+} from "../utils/date";
 
 interface BudgetEntry {
   id: number;
   category: string;
-  amount: number;
-  budgeted_amount?: number;
-  type: string;
-  month?: number;
-  year?: number;
   description?: string;
+  type: string;
+  frequency: string;
+  budgeted_amount: number;
+  actual_amount: number;
+  remaining_amount: number;
+  over_budget_amount: number;
+  execution?: number | null;
+  start_date?: string | null;
+  end_date?: string | null;
   due_date?: string | null;
+  month?: number | null;
+  year?: number | null;
   goal_id?: number | null;
   goal_name?: string | null;
   debt_id?: number | null;
   debt_name?: string | null;
+  is_recurring: boolean;
+  use_custom_schedule?: boolean;
 }
 
 interface ParameterOption {
@@ -36,10 +48,14 @@ interface ParameterOption {
   value: string;
 }
 
+type BudgetStatusFilter = "active" | "upcoming" | "archived" | "all";
+
 interface BudgetSummary {
   planned: number;
+  executed: number;
+  available: number;
   upcoming: number;
-  overdue: number;
+  overdueCount: number;
   nextEntry: {
     amount: number;
     description: string;
@@ -73,24 +89,62 @@ export function Budget() {
   const [typeFilter, setTypeFilter] = useState("");
   const [monthFilter, setMonthFilter] = useState("all");
   const [yearFilter, setYearFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<BudgetStatusFilter>("active");
+  const [referenceDate, setReferenceDate] = useState<string>(
+    getTodayDateInputValue(),
+  );
   const { openTransactionModal } = useStore();
   const { formatCurrency } = useNumberFormatter();
   const [listPulse, setListPulse] = useState(false);
   const budgetInitialLoad = useRef(true);
 
-  const fetchBudgetEntries = async () => {
-    const response = await axios.get<BudgetEntry[]>(apiPath("/budget"));
-    const entries = response.data.map((entry) => ({
-      ...entry,
-      amount: entry.amount ?? entry.budgeted_amount ?? 0,
-    }));
-    setBudgetEntries(entries);
-    setSelectedEntryIds([]);
-  };
+  const fetchBudgetEntries = useCallback(async () => {
+    const params: Record<string, string> = {};
+    if (statusFilter !== "all") {
+      params.status = statusFilter;
+    }
+    if (referenceDate) {
+      params.reference_date = referenceDate;
+    }
+
+    try {
+      const response = await axios.get<BudgetEntry[]>(apiPath("/budget"), {
+        params,
+      });
+
+      const entries = response.data.map((entry) => {
+        const planned = entry.budgeted_amount ?? (entry as any).amount ?? 0;
+        const actual = entry.actual_amount ?? 0;
+        const remaining =
+          entry.remaining_amount !== undefined && entry.remaining_amount !== null
+            ? entry.remaining_amount
+            : planned - actual;
+        const overBudget =
+          entry.over_budget_amount !== undefined &&
+          entry.over_budget_amount !== null
+            ? entry.over_budget_amount
+            : Math.max(actual - planned, 0);
+
+        return {
+          ...entry,
+          budgeted_amount: planned,
+          actual_amount: actual,
+          remaining_amount: remaining,
+          over_budget_amount: overBudget,
+          frequency: entry.frequency || "Mensual",
+          is_recurring: Boolean(entry.is_recurring),
+        };
+      });
+      setBudgetEntries(entries);
+      setSelectedEntryIds([]);
+    } catch (budgetError) {
+      console.error("Error al obtener las entradas de presupuesto:", budgetError);
+    }
+  }, [referenceDate, statusFilter]);
 
   useEffect(() => {
     fetchBudgetEntries();
-  }, []);
+  }, [fetchBudgetEntries]);
 
   useEffect(() => {
     setSelectedEntryIds((prev) =>
@@ -105,11 +159,13 @@ export function Budget() {
   }, []);
 
   const parseEntryDate = useCallback((entry: BudgetEntry) => {
-    if (entry.due_date) {
-      return new Date(entry.due_date);
+    const reference = entry.due_date || entry.end_date || entry.start_date;
+    const parsed = parseDateOnly(reference);
+    if (parsed) {
+      return parsed;
     }
     if (entry.year && entry.month) {
-      return new Date(entry.year, entry.month - 1, 1);
+      return new Date(entry.year, (entry.month || 1) - 1, 1);
     }
     return new Date();
   }, []);
@@ -123,7 +179,7 @@ export function Budget() {
 
         const matchesSearch =
           !searchTerm ||
-          `${entry.description ?? ""} ${entry.category}`
+          `${entry.description ?? ""} ${entry.category} ${entry.frequency}`
             .toLowerCase()
             .includes(searchTerm.toLowerCase());
         const matchesType = !typeFilter || entry.type === typeFilter;
@@ -138,36 +194,53 @@ export function Budget() {
   }, [budgetEntries, monthFilter, parseEntryDate, searchTerm, typeFilter, yearFilter]);
 
   const totals = useMemo<BudgetSummary>(() => {
-    const today = new Date();
-    const next30 = new Date();
+    let today = new Date();
+    if (referenceDate) {
+      const parsed = parseDateOnly(referenceDate);
+      if (parsed) {
+        today = parsed;
+      }
+    }
+    const next30 = new Date(today.getTime());
     next30.setDate(today.getDate() + 30);
 
     let planned = 0;
+    let executed = 0;
+    let available = 0;
     let upcoming = 0;
-    let overdue = 0;
+    let overdueCount = 0;
     let nextEntry: { amount: number; description: string; date: Date } | null = null;
 
     budgetEntries.forEach((entry) => {
       const date = parseEntryDate(entry);
-      const amount = entry.amount ?? 0;
-      planned += amount;
-      if (date < today) {
-        overdue += 1;
-      } else if (date <= next30) {
-        upcoming += amount;
+      const plannedAmount = entry.budgeted_amount ?? 0;
+      const actualAmount = entry.actual_amount ?? 0;
+      const remainingAmount = Math.max(plannedAmount - actualAmount, 0);
+      const isOverBudget = (entry.over_budget_amount ?? 0) > 0.01;
+
+      planned += plannedAmount;
+      executed += actualAmount;
+      available += Math.max(plannedAmount - actualAmount, 0);
+
+      if (!isOverBudget && remainingAmount > 0 && date >= today && date <= next30) {
+        upcoming += remainingAmount;
+      }
+
+      if (date < today && remainingAmount > 0) {
+        overdueCount += 1;
       }
 
       if (!nextEntry || date < nextEntry.date) {
         nextEntry = {
-          amount,
+          amount: remainingAmount > 0 ? remainingAmount : Math.max(actualAmount, plannedAmount),
           description: entry.description || entry.category,
           date,
         };
       }
     });
 
-    return { planned, upcoming, overdue, nextEntry };
-  }, [budgetEntries, parseEntryDate]);
+    return { planned, executed, available, upcoming, overdueCount, nextEntry };
+  }, [budgetEntries, parseEntryDate, referenceDate]);
 
   const availableYears = useMemo(() => {
     const years = new Set<number>();
@@ -190,9 +263,7 @@ export function Budget() {
     setIsModalOpen(true);
   }, []);
 
-  const handleSave = () => {
-    fetchBudgetEntries();
-  };
+  const handleSave = useCallback(() => fetchBudgetEntries(), [fetchBudgetEntries]);
 
   useEffect(() => {
     const handleNewBudgetEntry = () => handleOpenModal(null);
@@ -247,49 +318,40 @@ export function Budget() {
     setSelectedEntryIds([]);
   };
 
-  const handleRegisterPayment = (entry: BudgetEntry) => {
-    const entryDate = parseEntryDate(entry);
-    const shouldDelete = window.confirm(
-      "¿Deseas eliminar esta entrada de presupuesto después de registrar el pago?"
-    );
-
-    openTransactionModal(
-      null,
-      {
-        description: entry.description || `Pago de ${entry.category}`,
-        amount: entry.amount,
-        date: normalizeDateInputValue(entryDate),
-        type: entry.type || "Gasto",
-        category: entry.category,
-        goal_id: entry.goal_id ?? undefined,
-        debt_id: entry.debt_id ?? undefined,
-      },
-      async () => {
-        try {
-          if (shouldDelete) {
-            await axios.delete(apiPath(`/budget/${entry.id}`));
-          }
-        } catch (error) {
-          console.error("Error al eliminar la entrada de presupuesto:", error);
-        } finally {
-          await fetchBudgetEntries();
-        }
-      }
-    );
-  };
-
   const resetFilters = () => {
     setSearchTerm("");
     setTypeFilter("");
     setMonthFilter("all");
     setYearFilter("all");
+    setStatusFilter("active");
+    setReferenceDate(getTodayDateInputValue());
   };
 
   const getStatusPill = (entry: BudgetEntry) => {
+    const reference = referenceDate ? new Date(referenceDate) : new Date();
     const date = parseEntryDate(entry);
-    const today = new Date();
+    const remaining =
+      entry.remaining_amount ?? entry.budgeted_amount - entry.actual_amount;
+    const overBudget = entry.over_budget_amount ?? 0;
+
+    if (overBudget > 0.01) {
+      return {
+        label: "Excedido",
+        className: "bg-rose-500/15 text-rose-600 dark:text-rose-200",
+        icon: <AlertCircle className="h-3.5 w-3.5" />,
+      };
+    }
+
+    if (remaining <= 0.01) {
+      return {
+        label: "Completado",
+        className: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-200",
+        icon: <CheckCircle2 className="h-3.5 w-3.5" />,
+      };
+    }
+
     const diffDays = Math.floor(
-      (date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+      (date.getTime() - reference.getTime()) / (1000 * 60 * 60 * 24),
     );
 
     if (diffDays < 0) {
@@ -315,8 +377,8 @@ export function Budget() {
     }
     return {
       label: "Planificado",
-      className: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-200",
-      icon: <CheckCircle2 className="h-3.5 w-3.5" />,
+      className: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-200",
+      icon: <Calendar className="h-3.5 w-3.5" />,
     };
   };
 
@@ -383,10 +445,10 @@ export function Budget() {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-300">
-                Próximos 30 días
+                Ejecutado
               </p>
               <p className="mt-2 text-3xl font-bold text-sky-600 dark:text-sky-200">
-                {formatCurrency(totals.upcoming)}
+                {formatCurrency(totals.executed)}
               </p>
             </div>
             <span className="rounded-full bg-sky-500/15 p-3 text-sky-600 dark:text-sky-300">
@@ -394,45 +456,50 @@ export function Budget() {
             </span>
           </div>
           <p className="mt-3 text-sm text-muted">
-            Pagos que vencen durante el siguiente mes.
+            Monto aplicado a transacciones vinculadas al presupuesto.
           </p>
         </div>
         <div className="glow-card glow-card--amber sm:p-6">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-300">
-                Vencidos
+                Disponible
               </p>
-              <p className="mt-2 text-3xl font-bold text-amber-600 dark:text-amber-200">{totals.overdue}</p>
+              <p className="mt-2 text-3xl font-bold text-amber-600 dark:text-amber-200">
+                {formatCurrency(totals.available)}
+              </p>
             </div>
             <span className="rounded-full bg-amber-500/15 p-3 text-amber-600 dark:text-amber-300">
-              <Clock className="h-5 w-5" />
+              <CheckCircle2 className="h-5 w-5" />
             </span>
           </div>
           <p className="mt-3 text-sm text-muted">
-            Entradas cuya fecha comprometida ya pasó.
+            Recursos aún libres dentro de tus límites presupuestados.
           </p>
         </div>
         <div className="glow-card glow-card--rose sm:p-6">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-300">
-                Próxima salida
+                Próximos 30 días
               </p>
               <p className="mt-2 text-xl font-semibold text-rose-600 dark:text-rose-200">
-                {totals.nextEntry
-                  ? formatCurrency(totals.nextEntry.amount)
-                  : "Sin registros"}
+                {formatCurrency(totals.upcoming)}
               </p>
             </div>
             <span className="rounded-full bg-rose-500/15 p-3 text-rose-600 dark:text-rose-300">
-              <Target className="h-5 w-5" />
+              <Clock className="h-5 w-5" />
             </span>
           </div>
           <p className="mt-3 text-sm text-muted">
+            {totals.overdueCount > 0
+              ? `Tienes ${totals.overdueCount} ${
+                  totals.overdueCount === 1 ? "presupuesto vencido" : "presupuestos vencidos"
+                } pendientes.`
+              : "Sin pagos atrasados en el periodo analizado."}
             {totals.nextEntry
-              ? `${totals.nextEntry.description} · ${totals.nextEntry.date.toLocaleDateString()}`
-              : "Registra tu primer presupuesto"}
+              ? ` Próxima referencia: ${totals.nextEntry.description} (${formatDateForDisplay(totals.nextEntry.date)}).`
+              : ""}
           </p>
         </div>
       </section>
@@ -444,7 +511,7 @@ export function Budget() {
             Refina la lista por categoría, tipo, periodo o búsqueda libre.
           </p>
         </div>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
           <div>
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
               Buscar
@@ -508,6 +575,34 @@ export function Budget() {
               ))}
             </select>
           </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
+              Estado
+            </label>
+            <select
+              value={statusFilter}
+              onChange={(event) =>
+                setStatusFilter(event.target.value as BudgetStatusFilter)
+              }
+              className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+            >
+              <option value="active">Activos</option>
+              <option value="upcoming">Próximos</option>
+              <option value="archived">Cerrados</option>
+              <option value="all">Todos</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
+              Fecha de referencia
+            </label>
+            <input
+              type="date"
+              value={referenceDate}
+              onChange={(event) => setReferenceDate(event.target.value)}
+              className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+            />
+          </div>
         </div>
       </section>
 
@@ -527,13 +622,6 @@ export function Budget() {
             </span>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => handleOpenModal(null)}
-                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold shadow-lg shadow-blue-600/20 transition hover:bg-blue-500"
-              >
-                <Plus className="h-4 w-4" />
-                Añadir entrada
-              </button>
-              <button
                 onClick={handleDeleteSelected}
                 disabled={selectedEntryIds.length === 0}
                 className="inline-flex items-center gap-2 rounded-lg border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:border-rose-400 hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-200 disabled:cursor-not-allowed disabled:border-rose-100 disabled:text-rose-300 dark:border-rose-500/40 dark:text-rose-200 dark:hover:bg-rose-500/10"
@@ -544,6 +632,9 @@ export function Budget() {
             </div>
           </div>
         </div>
+        <p className="mb-3 text-xs text-muted">
+          Haz doble clic en cualquier fila para editar el presupuesto al instante.
+        </p>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-[var(--app-border)] table-animate">
             <thead className="bg-[var(--app-surface-muted)]">
@@ -557,22 +648,25 @@ export function Budget() {
                   />
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
-                  Fecha
+                  Periodo
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
-                  Descripción
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
-                  Categoría
+                  Presupuesto
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
                   Tipo
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
-                  Estado
+                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">
+                  Planificado
                 </th>
                 <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">
-                  Monto
+                  Ejecutado
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">
+                  Disponible
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                  Estado
                 </th>
                 <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">
                   Acciones
@@ -591,6 +685,14 @@ export function Budget() {
                   const entryDate = parseEntryDate(entry);
                   const status = getStatusPill(entry);
                   const isSelected = selectedEntryIds.includes(entry.id);
+                  const startDate = parseDateOnly(entry.start_date);
+                  const dueDate = parseDateOnly(entry.due_date);
+                  const periodLabel = startDate && dueDate
+                    ? `${formatDateForDisplay(startDate)} – ${formatDateForDisplay(dueDate)}`
+                    : dueDate
+                      ? formatDateForDisplay(dueDate)
+                      : formatDateForDisplay(entryDate);
+                  const remainingAmount = entry.remaining_amount ?? entry.budgeted_amount - entry.actual_amount;
                   return (
                     <tr
                       key={entry.id}
@@ -613,22 +715,39 @@ export function Budget() {
                         />
                       </td>
                       <td className="px-4 py-4 text-sm text-slate-600 dark:text-slate-200">
-                        {entryDate.toLocaleDateString()}
+                        <div>{periodLabel}</div>
+                        <div className="text-xs text-muted">{entry.frequency}</div>
                       </td>
                       <td className="px-4 py-4 text-sm font-semibold text-slate-900 dark:text-slate-100">
                         <span className="block max-w-xs truncate" title={entry.description ?? entry.category}>
                           {entry.description || entry.category}
                         </span>
-                      </td>
-                      <td className="px-4 py-4 text-sm text-muted">
-                        <span className="inline-flex rounded-full bg-[var(--app-surface-muted)] px-3 py-1 text-xs font-medium text-muted">
+                        <span className="mt-1 block text-xs font-medium text-muted">
                           {entry.category}
+                          {entry.goal_name ? ` · Meta: ${entry.goal_name}` : ""}
+                          {entry.debt_name ? ` · Deuda: ${entry.debt_name}` : ""}
                         </span>
                       </td>
                       <td className="px-4 py-4 text-sm">
                         <span className="inline-flex rounded-full bg-indigo-500/10 px-3 py-1 text-xs font-semibold text-indigo-600 dark:text-indigo-300">
                           {entry.type}
                         </span>
+                        {entry.is_recurring ? (
+                          <span className="mt-1 block text-xs text-muted">Se repite automáticamente</span>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-4 text-right text-sm font-semibold text-slate-900 dark:text-slate-100">
+                        {formatCurrency(entry.budgeted_amount)}
+                      </td>
+                      <td className="px-4 py-4 text-right text-sm font-semibold text-slate-900 dark:text-slate-100">
+                        {formatCurrency(entry.actual_amount)}
+                      </td>
+                      <td className={`px-4 py-4 text-right text-sm font-semibold ${
+                        remainingAmount < 0
+                          ? "text-rose-600 dark:text-rose-300"
+                          : "text-slate-900 dark:text-slate-100"
+                      }`}>
+                        {formatCurrency(remainingAmount)}
                       </td>
                       <td className="px-4 py-4 text-sm text-muted">
                         <span
@@ -638,17 +757,8 @@ export function Budget() {
                           {status.label}
                         </span>
                       </td>
-                      <td className="px-4 py-4 text-right text-sm font-semibold text-slate-900 dark:text-slate-100">
-                        {formatCurrency(entry.amount)}
-                      </td>
                       <td className="px-4 py-4 text-right text-sm">
                         <div className="flex flex-wrap justify-end gap-2">
-                          <button
-                            onClick={() => handleRegisterPayment(entry)}
-                            className="inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-600 transition hover:bg-emerald-500/15 dark:text-emerald-300"
-                          >
-                            Registrar pago
-                          </button>
                           <button
                             onClick={() => handleOpenModal(entry)}
                             className="inline-flex items-center gap-1 rounded-full border border-sky-300 px-3 py-1.5 text-xs font-semibold text-sky-600 transition hover:border-sky-400 hover:text-sky-700 dark:border-sky-500/60 dark:text-sky-200"

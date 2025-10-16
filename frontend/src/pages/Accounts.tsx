@@ -5,6 +5,7 @@ import axios from "axios";
 
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 import { apiPath } from "../utils/api";
+import { getTodayDateInputValue } from "../utils/date";
 
 interface Account {
   id: number;
@@ -12,12 +13,18 @@ interface Account {
   account_type: string;
   initial_balance: number;
   current_balance: number;
+  is_virtual: boolean;
+  annual_interest_rate: number;
+  compounding_frequency: string;
+  last_interest_accrual?: string | null;
 }
 
 interface AccountFormState {
   name: string;
   accountType: string;
   initialBalance: string;
+  interestRate: string;
+  compoundingFrequency: string;
 }
 
 const resolveDetailMessage = (detail: unknown): string | null => {
@@ -38,6 +45,24 @@ const resolveDetailMessage = (detail: unknown): string | null => {
   return String(detail);
 };
 
+const normalizeText = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[^a-z0-9\s]/gi, "")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+const isSavingsAccountType = (value: string) =>
+  normalizeText(value).includes("ahorro");
+
+const COMPOUNDING_OPTIONS = [
+  "Mensual",
+  "Bimestral",
+  "Trimestral",
+  "Semestral",
+  "Anual",
+];
+
 export function Accounts() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [accountTypes, setAccountTypes] = useState<string[]>([]);
@@ -47,13 +72,30 @@ export function Accounts() {
     name: "",
     accountType: "",
     initialBalance: "",
+    interestRate: "",
+    compoundingFrequency: "Mensual",
   });
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [transferState, setTransferState] = useState({
+    fromAccountId: "",
+    toAccountId: "",
+    amount: "",
+    note: "",
+    date: getTodayDateInputValue(),
+  });
+  const [transferFeedback, setTransferFeedback] = useState<string | null>(null);
+  const [transferring, setTransferring] = useState(false);
   const formRef = useRef<HTMLFormElement | null>(null);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const { formatCurrency } = useNumberFormatter();
+
+  const refreshAccounts = useCallback(async () => {
+    const response = await axios.get<Account[]>(apiPath("/accounts"));
+    setAccounts(response.data);
+    return response.data;
+  }, []);
 
   const resetForm = useCallback(
     (availableTypes: string[] = accountTypes) => {
@@ -61,19 +103,32 @@ export function Accounts() {
         name: "",
         accountType: availableTypes[0] ?? "",
         initialBalance: "",
+        interestRate: "",
+        compoundingFrequency: "Mensual",
       });
       setSelectedAccountId(null);
     },
     [accountTypes]
   );
 
+  const resetTransferForm = useCallback(() => {
+    setTransferState({
+      fromAccountId: "",
+      toAccountId: "",
+      amount: "",
+      note: "",
+      date: getTodayDateInputValue(),
+    });
+    setTransferFeedback(null);
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
 
     const fetchInitialData = async () => {
       try {
-        const [accountsResponse, typesResponse] = await Promise.all([
-          axios.get<Account[]>(apiPath("/accounts")),
+        const [, typesResponse] = await Promise.all([
+          refreshAccounts(),
           axios.get<string[]>(apiPath("/parameters/account-types")),
         ]);
 
@@ -81,13 +136,14 @@ export function Accounts() {
           return;
         }
 
-        setAccounts(accountsResponse.data);
         setAccountTypes(typesResponse.data);
         setError(null);
         setFormState({
           name: "",
           accountType: typesResponse.data[0] ?? "",
           initialBalance: "",
+          interestRate: "",
+          compoundingFrequency: "Mensual",
         });
         setSelectedAccountId(null);
       } catch (err) {
@@ -134,15 +190,56 @@ export function Accounts() {
   }, [resetForm]);
 
   const handleInputChange = (field: keyof AccountFormState, value: string) => {
+    if (field === "interestRate") {
+      const cleaned = value.replace(/[^0-9.,]/g, "");
+      const normalized = cleaned.replace(/,/g, ".");
+      const [integerPart, decimalPart] = normalized.split(".");
+      if (integerPart && integerPart.length > 6) {
+        return;
+      }
+      const limitedDecimals = decimalPart ? decimalPart.slice(0, 2) : "";
+      const nextValue = decimalPart !== undefined
+        ? `${integerPart}.${limitedDecimals}`
+        : integerPart;
+      setFormState((prev) => ({ ...prev, interestRate: nextValue }));
+      return;
+    }
+
+    if (field === "accountType") {
+      setFormState((prev) => ({
+        ...prev,
+        accountType: value,
+        interestRate: isSavingsAccountType(value) ? prev.interestRate : "",
+        compoundingFrequency: isSavingsAccountType(value)
+          ? prev.compoundingFrequency || "Mensual"
+          : "Mensual",
+      }));
+      return;
+    }
+
     setFormState((prev) => ({ ...prev, [field]: value }));
   };
 
   const startEditing = (account: Account) => {
+    if (account.is_virtual) {
+      setFeedback(
+        "La cuenta virtual de presupuesto se calcula automáticamente y no puede editarse."
+      );
+      setSelectedAccountId(null);
+      return;
+    }
     setSelectedAccountId(account.id);
     setFormState({
       name: account.name,
       accountType: account.account_type,
       initialBalance: account.initial_balance.toString(),
+      interestRate:
+        isSavingsAccountType(account.account_type) && account.annual_interest_rate
+          ? String(account.annual_interest_rate)
+          : "",
+      compoundingFrequency: isSavingsAccountType(account.account_type)
+        ? account.compounding_frequency || "Mensual"
+        : "Mensual",
     });
     setFeedback(null);
   };
@@ -158,6 +255,8 @@ export function Accounts() {
       return;
     }
 
+    const savingsSelected = isSavingsAccountType(formState.accountType);
+
     const basePayload = {
       name: formState.name.trim(),
       account_type: formState.accountType,
@@ -172,6 +271,17 @@ export function Accounts() {
       return;
     }
 
+    const interestRateValue = formState.interestRate
+      ? parseFloat(formState.interestRate.replace(/,/g, "."))
+      : 0;
+
+    if (!Number.isFinite(interestRateValue) || interestRateValue < 0) {
+      setFeedback("Ingresa una tasa anual válida.");
+      return;
+    }
+
+    const compoundingFrequency = formState.compoundingFrequency || "Mensual";
+
     if (selectedAccountId !== null) {
       const existing = accounts.find(
         (account) => account.id === selectedAccountId
@@ -179,7 +289,11 @@ export function Accounts() {
       if (existing) {
         const unchanged =
           existing.name === basePayload.name &&
-          existing.account_type === basePayload.account_type;
+          existing.account_type === basePayload.account_type &&
+          Math.abs((existing.annual_interest_rate ?? 0) - interestRateValue) <
+            0.0001 &&
+          (existing.compounding_frequency || "Mensual") ===
+            (savingsSelected ? compoundingFrequency : "Mensual");
         if (unchanged) {
           setFeedback("No has realizado cambios en esta cuenta.");
           return;
@@ -190,20 +304,23 @@ export function Accounts() {
     try {
       setSubmitting(true);
       if (selectedAccountId === null) {
-        const response = await axios.post<Account>(apiPath("/accounts"), {
+        await axios.post<Account>(apiPath("/accounts"), {
           ...basePayload,
           initial_balance: initialBalanceValue,
+          annual_interest_rate: savingsSelected ? interestRateValue : 0,
+          compounding_frequency: savingsSelected
+            ? compoundingFrequency
+            : "Mensual",
         });
-        setAccounts((prev) => [...prev, response.data]);
+        await refreshAccounts();
         setFeedback("Cuenta añadida correctamente.");
       } else {
-        const response = await axios.put<Account>(
-          apiPath(`/accounts/${selectedAccountId}`),
-          basePayload
-        );
-        setAccounts((prev) =>
-          prev.map((account) => (account.id === selectedAccountId ? response.data : account))
-        );
+        await axios.put<Account>(apiPath(`/accounts/${selectedAccountId}`), {
+          ...basePayload,
+          annual_interest_rate: interestRateValue,
+          compounding_frequency: compoundingFrequency,
+        });
+        await refreshAccounts();
         setFeedback("Cuenta actualizada correctamente.");
       }
       resetForm();
@@ -225,9 +342,18 @@ export function Accounts() {
       return;
     }
 
+    const accountToDelete = accounts.find(
+      (account) => account.id === selectedAccountId,
+    );
+
+    if (accountToDelete?.is_virtual) {
+      setFeedback("La cuenta virtual no puede eliminarse.");
+      return;
+    }
+
     try {
       await axios.delete(apiPath(`/accounts/${selectedAccountId}`));
-      setAccounts((prev) => prev.filter((account) => account.id !== selectedAccountId));
+      await refreshAccounts();
       setFeedback("Cuenta eliminada correctamente.");
       resetForm();
     } catch (err: unknown) {
@@ -249,6 +375,110 @@ export function Accounts() {
     const account = accounts.find((item) => item.id === selectedAccountId);
     return account?.name ?? null;
   }, [accounts, selectedAccountId]);
+
+  const transferableAccounts = useMemo(
+    () => accounts.filter((account) => !account.is_virtual),
+    [accounts]
+  );
+
+  const handleTransferFieldChange = (
+    field: "fromAccountId" | "toAccountId" | "amount" | "note" | "date",
+    value: string
+  ) => {
+    setTransferState((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleTransferSubmit = async (
+    event: React.FormEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault();
+    setTransferFeedback(null);
+
+    if (!transferState.fromAccountId || !transferState.toAccountId) {
+      setTransferFeedback("Selecciona la cuenta de origen y la de destino.");
+      return;
+    }
+
+    if (transferState.fromAccountId === transferState.toAccountId) {
+      setTransferFeedback("Elige cuentas diferentes para la transferencia.");
+      return;
+    }
+
+    const parsedAmount = parseFloat(transferState.amount.replace(/,/g, "."));
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setTransferFeedback("Ingresa un monto válido mayor que cero.");
+      return;
+    }
+
+    if (!transferState.date) {
+      setTransferFeedback("Selecciona la fecha en la que se realizó la transferencia.");
+      return;
+    }
+
+    const [yearStr, monthStr, dayStr] = transferState.date.split("-");
+    const year = Number.parseInt(yearStr ?? "", 10);
+    const month = Number.parseInt(monthStr ?? "", 10) - 1;
+    const day = Number.parseInt(dayStr ?? "", 10);
+    const parsedDate = new Date(year, month, day);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      setTransferFeedback("La fecha seleccionada no es válida.");
+      return;
+    }
+
+    const today = new Date();
+    parsedDate.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+    if (parsedDate > today) {
+      setTransferFeedback("La fecha no puede ser posterior al día de hoy.");
+      return;
+    }
+
+    const fromAccountId = Number.parseInt(transferState.fromAccountId, 10);
+    const toAccountId = Number.parseInt(transferState.toAccountId, 10);
+    const fromAccount = accounts.find((account) => account.id === fromAccountId);
+    const toAccount = accounts.find((account) => account.id === toAccountId);
+    if (fromAccount && fromAccount.current_balance + 1e-9 < parsedAmount) {
+      setTransferFeedback(
+        "La cuenta de origen no tiene fondos suficientes para completar la transferencia."
+      );
+      return;
+    }
+    const description = transferState.note.trim()
+      ? transferState.note.trim()
+      : `Transferencia de ${fromAccount?.name ?? "Cuenta origen"} a ${
+          toAccount?.name ?? "Cuenta destino"
+        }`;
+
+    try {
+      setTransferring(true);
+      await axios.post(apiPath("/transactions"), {
+        description,
+        amount: parsedAmount,
+        date: transferState.date,
+        account_id: fromAccountId,
+        type: "Transferencia",
+        category: "Transferencia interna",
+        is_transfer: true,
+        transfer_account_id: toAccountId,
+      });
+
+      await refreshAccounts();
+      resetTransferForm();
+      setTransferFeedback("Transferencia registrada correctamente.");
+    } catch (err) {
+      console.error("Error al registrar la transferencia:", err);
+      const detailMessage =
+        axios.isAxiosError(err) && err.response
+          ? resolveDetailMessage(err.response.data?.detail ?? err.response.data)
+          : null;
+      setTransferFeedback(
+        detailMessage ?? "No se pudo registrar la transferencia. Intenta de nuevo."
+      );
+    } finally {
+      setTransferring(false);
+    }
+  };
 
   if (loading) {
     return <div className="app-card p-6 text-muted">Cargando cuentas...</div>;
@@ -330,6 +560,51 @@ export function Accounts() {
               )}
             </div>
 
+            {isSavingsAccountType(formState.accountType) && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-muted">
+                    Tasa anual (% APR)
+                  </label>
+                  <input
+                    type="number"
+                    value={formState.interestRate}
+                    onChange={(event) =>
+                      handleInputChange("interestRate", event.target.value)
+                    }
+                    className="mt-1 w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                    step="0.01"
+                    min="0"
+                    placeholder="Ej. 5.0"
+                  />
+                  <p className="mt-1 text-xs text-muted">
+                    Calcularemos intereses automáticos según esta tasa.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-muted">
+                    Frecuencia de capitalización
+                  </label>
+                  <select
+                    value={formState.compoundingFrequency}
+                    onChange={(event) =>
+                      handleInputChange(
+                        "compoundingFrequency",
+                        event.target.value
+                      )
+                    }
+                    className="mt-1 w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                  >
+                    {COMPOUNDING_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
             {feedback && (
               <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-muted">
                 {feedback}
@@ -361,81 +636,233 @@ export function Accounts() {
           </form>
         </div>
 
-        <div className="app-card space-y-4 p-6">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-xl font-semibold">
-                Cuentas registradas
-              </h2>
-              <p className="text-sm text-muted">
-                Selecciona una fila para editarla.
-                {selectedAccountName ? ` Seleccionado: ${selectedAccountName}` : ""}
-              </p>
+        <div className="space-y-6">
+          <div className="app-card space-y-4 p-6">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold">
+                  Cuentas registradas
+                </h2>
+                <p className="text-sm text-muted">
+                  Haz doble clic sobre una fila para editarla.
+                  {selectedAccountName ? ` Seleccionado: ${selectedAccountName}` : ""}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={selectedAccountId === null}
+                className="self-start rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-200 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-500/40 dark:text-red-300 dark:hover:bg-red-500/10"
+              >
+                Eliminar Selección
+              </button>
             </div>
 
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={selectedAccountId === null}
-              className="self-start rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-200 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-500/40 dark:text-red-300 dark:hover:bg-red-500/10"
-            >
-              Eliminar Selección
-            </button>
+            <div className="overflow-x-auto rounded-xl border border-[var(--app-border)]">
+              <table className="min-w-full divide-y divide-[var(--app-border)] text-sm">
+                <thead className="bg-[var(--app-surface-muted)]">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium text-muted">
+                      Nombre
+                    </th>
+                    <th className="px-4 py-3 text-left font-medium text-muted">
+                      Tipo
+                    </th>
+                    <th className="px-4 py-3 text-right font-medium text-muted">
+                      Saldo Actual
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--app-border)]">
+                  {accounts.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={3}
+                        className="px-4 py-6 text-center text-sm text-muted"
+                      >
+                        No hay cuentas registradas.
+                      </td>
+                    </tr>
+                  ) : (
+                    accounts.map((account) => {
+                      const isSelected = account.id === selectedAccountId;
+                      const rowClass = account.is_virtual
+                        ? "cursor-not-allowed bg-indigo-50/70 text-slate-700 dark:bg-slate-800/80 dark:text-slate-200"
+                        : `cursor-pointer transition hover:bg-sky-50 dark:hover:bg-slate-800/70 ${
+                            isSelected
+                              ? "bg-sky-100/70 dark:bg-blue-500/20"
+                              : "bg-[var(--app-surface)]"
+                          }`;
+                      const accountTypeLabel = account.is_virtual
+                        ? "Virtual"
+                        : account.account_type;
+                      return (
+                        <tr
+                          key={account.id}
+                          onClick={() => startEditing(account)}
+                          onDoubleClick={() => startEditing(account)}
+                          className={rowClass}
+                        >
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-slate-900 dark:text-slate-100">
+                                {account.name}
+                              </span>
+                              {account.is_virtual && (
+                                <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-xs font-semibold text-sky-600 dark:text-sky-300">
+                                  Virtual
+                                </span>
+                              )}
+                            </div>
+                            {account.is_virtual && (
+                              <p className="mt-1 text-xs text-muted">
+                                Saldo disponible según tus presupuestos activos.
+                              </p>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-muted">
+                            {accountTypeLabel}
+                          </td>
+                          <td className="px-4 py-3 text-right font-semibold">
+                            {formatCurrency(account.current_balance)}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
 
-          <div className="overflow-x-auto rounded-xl border border-[var(--app-border)]">
-            <table className="min-w-full divide-y divide-[var(--app-border)] text-sm">
-              <thead className="bg-[var(--app-surface-muted)]">
-                <tr>
-                  <th className="px-4 py-3 text-left font-medium text-muted">
-                    Nombre
-                  </th>
-                  <th className="px-4 py-3 text-left font-medium text-muted">
-                    Tipo
-                  </th>
-                  <th className="px-4 py-3 text-right font-medium text-muted">
-                    Saldo Actual
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--app-border)]">
-                {accounts.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={3}
-                      className="px-4 py-6 text-center text-sm text-muted"
-                    >
-                      No hay cuentas registradas.
-                    </td>
-                  </tr>
-                ) : (
-                  accounts.map((account) => {
-                    const isSelected = account.id === selectedAccountId;
-                    return (
-                      <tr
-                        key={account.id}
-                        onClick={() => startEditing(account)}
-                        className={`cursor-pointer transition hover:bg-sky-50 dark:hover:bg-slate-800/70 ${
-                          isSelected
-                            ? "bg-sky-100/70 dark:bg-blue-500/20"
-                            : "bg-[var(--app-surface)]"
-                        }`}
-                      >
-                        <td className="px-4 py-3">
+          <div className="app-card space-y-4 p-6">
+            <div>
+              <h3 className="text-lg font-semibold">Transferir entre cuentas</h3>
+              <p className="mt-1 text-sm text-muted">
+                Mueve saldo entre tus cuentas reales. Las transferencias no afectan tus reportes de ingresos o gastos.
+              </p>
+            </div>
+            <form onSubmit={handleTransferSubmit} className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
+                    Cuenta de origen
+                  </label>
+                  <select
+                    value={transferState.fromAccountId}
+                    onChange={(event) =>
+                      handleTransferFieldChange("fromAccountId", event.target.value)
+                    }
+                    className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                  >
+                    <option value="">Selecciona una cuenta</option>
+                    {transferableAccounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
+                    Cuenta de destino
+                  </label>
+                  <select
+                    value={transferState.toAccountId}
+                    onChange={(event) =>
+                      handleTransferFieldChange("toAccountId", event.target.value)
+                    }
+                    className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                  >
+                    <option value="">Selecciona una cuenta</option>
+                    {transferableAccounts
+                      .filter((account) => account.id !== Number(transferState.fromAccountId))
+                      .map((account) => (
+                        <option key={account.id} value={account.id}>
                           {account.name}
-                        </td>
-                        <td className="px-4 py-3 text-muted">
-                          {account.account_type}
-                        </td>
-                        <td className="px-4 py-3 text-right font-semibold">
-                          {formatCurrency(account.current_balance)}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
+                    Monto
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={transferState.amount}
+                    onChange={(event) =>
+                      handleTransferFieldChange("amount", event.target.value)
+                    }
+                    className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                    placeholder="0.00"
+                    inputMode="decimal"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
+                    Fecha
+                  </label>
+                  <input
+                    type="date"
+                    max={getTodayDateInputValue()}
+                    value={transferState.date}
+                    onChange={(event) =>
+                      handleTransferFieldChange("date", event.target.value)
+                    }
+                    className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
+                  Nota (opcional)
+                </label>
+                <input
+                  type="text"
+                  value={transferState.note}
+                  onChange={(event) =>
+                    handleTransferFieldChange("note", event.target.value.slice(0, 80))
+                  }
+                  placeholder="Ej. Ajuste mensual o reembolso"
+                  className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                />
+              </div>
+
+              {transferableAccounts.length < 2 ? (
+                <div className="rounded-xl border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-xs text-muted">
+                  Registra al menos dos cuentas reales para habilitar las transferencias internas.
+                </div>
+              ) : transferFeedback ? (
+                <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-muted">
+                  {transferFeedback}
+                </div>
+              ) : null}
+
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={resetTransferForm}
+                  className="rounded-xl border border-[var(--app-border)] px-4 py-2 text-sm font-semibold text-muted transition hover:border-sky-400 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:hover:text-slate-200"
+                >
+                  Limpiar
+                </button>
+                <button
+                  type="submit"
+                  disabled={transferring || transferableAccounts.length < 2}
+                  className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {transferring ? "Registrando..." : "Registrar transferencia"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       </div>

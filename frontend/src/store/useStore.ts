@@ -22,6 +22,8 @@ export interface Transaction {
   debt_id?: number | null;
   goal_name?: string | null;
   debt_name?: string | null;
+  budget_entry_id?: number | null;
+  budget_entry_name?: string | null;
   is_transfer?: boolean;
   transfer_account_id?: number | null;
   transfer_account_name?: string | null;
@@ -38,6 +40,7 @@ export interface TransactionPrefill {
   account_id?: number;
   goal_id?: number | null;
   debt_id?: number | null;
+  budget_entry_id?: number | null;
 }
 
 export interface TransactionFilters {

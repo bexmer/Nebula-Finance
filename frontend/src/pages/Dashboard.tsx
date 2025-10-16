@@ -29,6 +29,7 @@ import { KpiCard } from "../components/KpiCard";
 import { GoalProgressCard, GoalData } from "../components/GoalProgressCard";
 import { API_BASE_URL } from "../utils/api";
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
+import { parseDateOnly } from "../utils/date";
 
 ChartJS.register(
   CategoryScale,
@@ -89,6 +90,7 @@ interface AccountSummary {
   account_type: string;
   initial_balance: number;
   current_balance: number;
+  is_virtual: boolean;
 }
 
 interface DashboardData {
@@ -225,9 +227,23 @@ export function Dashboard() {
 
   const netWorthChartData = useMemo(() => {
     if (!data) return null;
-    const labels = data.net_worth_chart.dates.map((dateString) =>
-      monthFormatter.format(new Date(dateString)),
-    );
+
+    const labels = data.net_worth_chart.dates.map((dateString) => {
+      const parsed = parseDateOnly(dateString);
+      if (parsed) {
+        return monthFormatter.format(parsed);
+      }
+
+      const [yearPart = "0", monthPart = "1", dayPart = "1"] = dateString
+        .split("-")
+        .map((segment) => segment.trim());
+      const fallbackDate = new Date(
+        Number.parseInt(yearPart, 10) || 0,
+        (Number.parseInt(monthPart, 10) || 1) - 1,
+        Number.parseInt(dayPart, 10) || 1,
+      );
+      return monthFormatter.format(fallbackDate);
+    });
     return {
       labels,
       datasets: [
@@ -247,9 +263,20 @@ export function Dashboard() {
   const cashFlowChartData = useMemo(() => {
     if (!data) return null;
     const labels = data.cash_flow_chart.months.map((item) => {
-      const [yearPart, monthPart] = item.split("-");
-      const date = new Date(Number(yearPart), Number(monthPart) - 1, 1);
-      return monthFormatter.format(date);
+      const parsed = parseDateOnly(`${item}-01`);
+      if (parsed) {
+        return monthFormatter.format(parsed);
+      }
+
+      const [yearPart = "0", monthPart = "1"] = item
+        .split("-")
+        .map((segment) => segment.trim());
+      const fallbackDate = new Date(
+        Number.parseInt(yearPart, 10) || 0,
+        (Number.parseInt(monthPart, 10) || 1) - 1,
+        1,
+      );
+      return monthFormatter.format(fallbackDate);
     });
 
     return {
@@ -947,13 +974,17 @@ function AccountsCard({
       {activeAccount ? (
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-sky-500 via-blue-500 to-indigo-500 p-6 text-white">
           <div className="text-sm uppercase tracking-wide text-white/70">
-            {activeAccount.account_type}
+            {activeAccount.is_virtual ? "Cuenta virtual" : activeAccount.account_type}
           </div>
           <div className="mt-3 text-3xl font-semibold">{displayBalance}</div>
           <div className="mt-8 text-sm">
             <p className="font-medium">{activeAccount.name}</p>
             <p className="text-xs text-white/70">
-              Variación {formatSigned(activeAccount.current_balance - activeAccount.initial_balance)}
+              {activeAccount.is_virtual
+                ? "Refleja el dinero aún disponible dentro de tu presupuesto."
+                : `Variación ${formatSigned(
+                    activeAccount.current_balance - activeAccount.initial_balance,
+                  )}`}
             </p>
           </div>
           {accounts.length > 1 && (

@@ -9,6 +9,7 @@ from peewee import (
 
 from .account import Account
 from .base_model import BaseModel
+from .budget_entry import BudgetEntry
 from .debt import Debt
 from .goal import Goal
 
@@ -25,6 +26,12 @@ class Transaction(BaseModel):
 
     goal = ForeignKeyField(Goal, backref="transactions", null=True)
     debt = ForeignKeyField(Debt, backref="transactions", null=True)
+    budget_entry = ForeignKeyField(
+        BudgetEntry,
+        backref="transactions",
+        null=True,
+        column_name="budget_entry_id",
+    )
     is_transfer = BooleanField(default=False)
     transfer_account = ForeignKeyField(
         Account,

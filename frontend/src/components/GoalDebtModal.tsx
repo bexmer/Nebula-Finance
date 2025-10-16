@@ -6,6 +6,23 @@ import { apiPath } from "../utils/api";
 
 Modal.setAppElement("#root");
 
+const resolveDetailMessage = (detail: unknown): string | null => {
+  if (!detail) {
+    return null;
+  }
+  if (typeof detail === "string") {
+    return detail;
+  }
+  if (Array.isArray(detail)) {
+    return detail.map((item) => resolveDetailMessage(item) ?? "").join(" ").trim() || null;
+  }
+  if (typeof detail === "object") {
+    const typed = detail as { message?: unknown; detail?: unknown };
+    return resolveDetailMessage(typed.detail ?? typed.message);
+  }
+  return String(detail);
+};
+
 interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -122,8 +139,8 @@ export function GoalDebtModal({
         return;
       }
 
-      if (parsedMinPayment > parsedAmount) {
-        setError("El pago mínimo no puede ser mayor que el monto total.");
+      if (parsedMinPayment >= parsedAmount) {
+        setError("El pago mínimo debe ser menor que el monto total de la deuda.");
         return;
       }
 
@@ -179,10 +196,14 @@ export function GoalDebtModal({
     } catch (error) {
       console.error(`Error al guardar ${mode}:`, error);
       const message =
-        axios.isAxiosError(error) && error.response?.data?.detail
-          ? String(error.response.data.detail)
-          : "No se pudo guardar la información. Inténtalo de nuevo.";
-      setError(message);
+        axios.isAxiosError(error) && error.response
+          ? resolveDetailMessage(
+              error.response.data?.detail ?? error.response.data
+            )
+          : null;
+      setError(
+        message ?? "No se pudo guardar la información. Inténtalo de nuevo."
+      );
     }
   };
 

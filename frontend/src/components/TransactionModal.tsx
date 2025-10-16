@@ -5,13 +5,35 @@ import { useStore, TransactionSplit as TransactionSplitData } from "../store/use
 import { apiPath } from "../utils/api";
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 import {
+  formatDateForDisplay,
   getTodayDateInputValue,
   normalizeDateInputValue,
+  parseDateOnly,
 } from "../utils/date";
 
 interface SelectOption {
   id: number;
   name: string;
+}
+
+interface BudgetEntryOption {
+  id: number;
+  description: string;
+  category: string;
+  type: string;
+  frequency: string;
+  start_date?: string | null;
+  end_date?: string | null;
+  due_date?: string | null;
+  budgeted_amount: number;
+  actual_amount: number;
+  remaining_amount: number;
+  over_budget_amount?: number;
+  is_recurring?: boolean;
+  goal_id?: number | null;
+  goal_name?: string | null;
+  debt_id?: number | null;
+  debt_name?: string | null;
 }
 
 interface ParameterOption {
@@ -25,7 +47,7 @@ interface SplitRow {
   amount: string;
 }
 
-const initialState = {
+const createInitialState = () => ({
   description: "",
   amount: "",
   date: getTodayDateInputValue(),
@@ -34,12 +56,24 @@ const initialState = {
   account_id: "",
   goal_id: "",
   debt_id: "",
-  is_recurring: false,
-  frequency: "Mensual",
-  day_of_month: 1,
+  budget_entry_id: "",
   is_transfer: false,
   transfer_account_id: "",
-};
+});
+
+const normalizeTypeLabel = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+interface TypeChangeOptions {
+  categoryOverride?: string;
+  keepBudget?: boolean;
+  preserveCategory?: boolean;
+  goalOverride?: string | null;
+  debtOverride?: string | null;
+}
 
 export const TransactionModal = () => {
   const {
@@ -52,16 +86,19 @@ export const TransactionModal = () => {
   } = useStore();
 
   const { formatCurrency } = useNumberFormatter();
-  const [formData, setFormData] = useState(initialState);
+  const [formData, setFormData] = useState(createInitialState);
   const [accounts, setAccounts] = useState<SelectOption[]>([]);
   const [transactionTypes, setTransactionTypes] = useState<ParameterOption[]>([]);
   const [categories, setCategories] = useState<ParameterOption[]>([]);
   const [goals, setGoals] = useState<SelectOption[]>([]);
   const [debts, setDebts] = useState<SelectOption[]>([]);
+  const [budgetEntries, setBudgetEntries] = useState<BudgetEntryOption[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [catalogNotice, setCatalogNotice] = useState<string | null>(null);
-  const [initialSnapshot, setInitialSnapshot] = useState<typeof initialState | null>(
+  const [initialSnapshot, setInitialSnapshot] = useState<
+    ReturnType<typeof createInitialState> | null
+  >(
     null
   );
   const [splitMode, setSplitMode] = useState(false);
@@ -71,6 +108,7 @@ export const TransactionModal = () => {
   const [initialTags, setInitialTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [availableTags, setAvailableTags] = useState<string[]>([]);
+  const todayInputValue = useMemo(() => getTodayDateInputValue(), []);
 
   const activeType = useMemo(() => {
     if (!formData.typeId) {
@@ -84,10 +122,7 @@ export const TransactionModal = () => {
     if (!activeType) {
       return "";
     }
-    return activeType.value
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase();
+    return normalizeTypeLabel(activeType.value);
   }, [activeType]);
 
   const requiresGoal = normalizedTypeName.includes("ahorro");
@@ -158,6 +193,91 @@ export const TransactionModal = () => {
       .slice(0, 8);
   }, [availableTags, normalizeTagValue, selectedTags, tagInput]);
 
+  const selectedBudgetId = formData.budget_entry_id
+    ? Number(formData.budget_entry_id)
+    : null;
+
+  const budgetOptions = useMemo(() => {
+    if (budgetEntries.length === 0) {
+      return [] as BudgetEntryOption[];
+    }
+
+    const targetType = activeType?.value ?? "";
+    const normalizedTarget = normalizeTypeLabel(targetType);
+
+    const parseDate = (entry: BudgetEntryOption) => {
+      const dateValue = entry.due_date || entry.end_date || entry.start_date;
+      const parsed = parseDateOnly(dateValue);
+      return parsed ? parsed.getTime() : Number.MAX_SAFE_INTEGER;
+    };
+
+    return budgetEntries
+      .filter((entry) => {
+        if (selectedBudgetId && entry.id === selectedBudgetId) {
+          return true;
+        }
+        if (!normalizedTarget) {
+          return true;
+        }
+
+        if (normalizedTarget.includes("transferencia")) {
+          return false;
+        }
+
+        const normalizedEntryType = normalizeTypeLabel(entry.type ?? "");
+
+        if (normalizedEntryType === normalizedTarget) {
+          return true;
+        }
+
+        if (normalizedTarget.includes("gasto")) {
+          return (
+            normalizedEntryType.includes("gasto") ||
+            normalizedEntryType.includes("egreso")
+          );
+        }
+
+        if (normalizedTarget.includes("ingreso")) {
+          return normalizedEntryType.includes("ingreso");
+        }
+
+        if (normalizedTarget.includes("ahorro")) {
+          return normalizedEntryType.includes("ahorro");
+        }
+
+        if (normalizedTarget.includes("deuda")) {
+          return normalizedEntryType.includes("deuda");
+        }
+
+        return normalizedEntryType.includes(normalizedTarget);
+      })
+      .sort((a, b) => parseDate(a) - parseDate(b));
+  }, [activeType, budgetEntries, selectedBudgetId]);
+
+  const hasAnyBudgets = budgetEntries.length > 0;
+
+  const selectedBudget = useMemo(() => {
+    if (!selectedBudgetId) {
+      return null;
+    }
+    const found = budgetEntries.find((entry) => entry.id === selectedBudgetId);
+    if (!found) {
+      return null;
+    }
+    const planned = found.budgeted_amount ?? 0;
+    const actual = found.actual_amount ?? 0;
+    const remaining =
+      found.remaining_amount !== undefined && found.remaining_amount !== null
+        ? found.remaining_amount
+        : planned - actual;
+    return {
+      ...found,
+      budgeted_amount: planned,
+      actual_amount: actual,
+      remaining_amount: remaining,
+    };
+  }, [budgetEntries, selectedBudgetId]);
+
   const fetchCategoriesByType = useCallback(async (typeId: number) => {
     try {
       const response = await axios.get<ParameterOption[]>(
@@ -175,6 +295,141 @@ export const TransactionModal = () => {
       return [];
     }
   }, [setCatalogNotice]);
+
+  const applyTypeChange = useCallback(
+    (typeId: string, options: TypeChangeOptions = {}) => {
+      const { categoryOverride, keepBudget = false, preserveCategory = false } =
+        options;
+
+      const numericType = typeId ? Number(typeId) : null;
+      const selectedType = numericType
+        ? transactionTypes.find((item) => item.id === numericType)
+        : undefined;
+
+      let isTransferSelection = false;
+      let requiresGoal = false;
+      let requiresDebt = false;
+
+      if (selectedType) {
+        const normalized = normalizeTypeLabel(selectedType.value);
+        isTransferSelection = normalized.includes("transferencia");
+        requiresGoal = normalized.includes("ahorro");
+        requiresDebt = normalized.includes("deuda");
+
+        if (requiresGoal && goals.length === 0) {
+          setCatalogNotice(
+            "Para registrar un ahorro necesitas crear una meta desde la sección Metas y deudas."
+          );
+        } else if (requiresDebt && debts.length === 0) {
+          setCatalogNotice(
+            "Para registrar un pago de deuda necesitas crear una deuda desde la sección Metas y deudas."
+          );
+        } else {
+          setCatalogNotice(null);
+        }
+      } else {
+        setCatalogNotice(null);
+      }
+
+      setFormData((prev) => {
+        const resolvedGoal =
+          options.goalOverride !== undefined
+            ? options.goalOverride ?? ""
+            : requiresGoal
+            ? prev.goal_id
+            : "";
+        const resolvedDebt =
+          options.debtOverride !== undefined
+            ? options.debtOverride ?? ""
+            : requiresDebt
+            ? prev.debt_id
+            : "";
+
+        const next = {
+          ...prev,
+          typeId,
+          budget_entry_id: keepBudget ? prev.budget_entry_id : "",
+          is_transfer: isTransferSelection,
+          transfer_account_id: isTransferSelection
+            ? prev.transfer_account_id
+            : "",
+          goal_id: resolvedGoal,
+          debt_id: resolvedDebt,
+        };
+
+        if (isTransferSelection) {
+          next.goal_id = "";
+          next.debt_id = "";
+        }
+
+        if (categoryOverride) {
+          next.categoryValue = categoryOverride;
+        } else if (preserveCategory) {
+          next.categoryValue = prev.categoryValue;
+        } else {
+          next.categoryValue = isTransferSelection
+            ? "Transferencia interna"
+            : "";
+        }
+
+        return next;
+      });
+
+      if (isTransferSelection) {
+        setSplitMode(false);
+        setSplitItems([]);
+        setCategories([]);
+        return;
+      }
+
+      if (numericType) {
+        fetchCategoriesByType(numericType).then((data) => {
+          const enriched = categoryOverride
+            ? data.some((item) => item.value === categoryOverride)
+              ? data
+              : [
+                  ...data,
+                  { id: -1, value: categoryOverride } as ParameterOption,
+                ]
+            : data;
+          setCategories(enriched);
+          setFormData((prev) => {
+            if (categoryOverride) {
+              return prev.categoryValue === categoryOverride
+                ? prev
+                : { ...prev, categoryValue: categoryOverride };
+            }
+            if (preserveCategory && prev.categoryValue) {
+              const exists = enriched.some(
+                (item) => item.value === prev.categoryValue
+              );
+              if (exists) {
+                return prev;
+              }
+            }
+            const fallback = enriched[0]?.value ?? prev.categoryValue;
+            if (!fallback || fallback === prev.categoryValue) {
+              return prev;
+            }
+            return { ...prev, categoryValue: fallback };
+          });
+        });
+      } else {
+        setCategories([]);
+      }
+    },
+    [
+      debts.length,
+      fetchCategoriesByType,
+      goals.length,
+      setCatalogNotice,
+      setCategories,
+      setFormData,
+      setSplitItems,
+      setSplitMode,
+      transactionTypes,
+    ]
+  );
 
   const createSplitRow = useCallback((): SplitRow => {
     return {
@@ -283,36 +538,123 @@ export const TransactionModal = () => {
     );
   }, [normalizeTagValue]);
 
+  const handleBudgetEntryChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = event.target.value;
+    const numericId = value ? Number(value) : null;
+    const matchedBudget =
+      numericId && !Number.isNaN(numericId)
+        ? budgetEntries.find((entry) => entry.id === numericId)
+        : undefined;
+
+    setFormData((prev) => ({
+      ...prev,
+      budget_entry_id: value,
+      goal_id: matchedBudget?.goal_id ? String(matchedBudget.goal_id) : "",
+      debt_id: matchedBudget?.debt_id ? String(matchedBudget.debt_id) : "",
+    }));
+
+    if (matchedBudget) {
+      const normalizedType = normalizeTypeLabel(matchedBudget.type ?? "");
+      const matchedType = transactionTypes.find(
+        (type) => normalizeTypeLabel(type.value) === normalizedType
+      );
+
+      if (matchedType) {
+        applyTypeChange(String(matchedType.id), {
+          categoryOverride: matchedBudget.category,
+          keepBudget: true,
+          preserveCategory: true,
+          goalOverride: matchedBudget.goal_id
+            ? String(matchedBudget.goal_id)
+            : "",
+          debtOverride: matchedBudget.debt_id
+            ? String(matchedBudget.debt_id)
+            : "",
+        });
+      } else if (matchedBudget.category) {
+        setFormData((prev) => ({
+          ...prev,
+          categoryValue: matchedBudget.category,
+        }));
+      }
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        categoryValue: prev.categoryValue,
+      }));
+    }
+  };
+
   const loadModalData = useCallback(async () => {
     setIsLoading(true);
     setError("");
     setCatalogNotice(null);
 
     try {
-      const [accountsResult, typesResult, goalsResult, debtsResult, tagsResult] =
-        await Promise.allSettled([
-          axios.get(apiPath("/accounts")),
-          axios.get(apiPath("/parameters/transaction-types")),
-          axios.get(apiPath("/goals")),
-          axios.get(apiPath("/debts")),
-          axios.get(apiPath("/tags")),
-        ]);
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const [
+        accountsResult,
+        typesResult,
+        goalsResult,
+        debtsResult,
+        budgetsResult,
+        tagsResult,
+      ] = await Promise.allSettled([
+        axios.get(apiPath("/accounts")),
+        axios.get(apiPath("/parameters/transaction-types")),
+        axios.get(apiPath("/goals")),
+        axios.get(apiPath("/debts")),
+        axios.get(apiPath("/budget"), {
+          params: {
+            status: "active",
+            reference_date: todayIso,
+          },
+        }),
+        axios.get(apiPath("/tags")),
+      ]);
 
       if (
         accountsResult.status !== "fulfilled" ||
-        typesResult.status !== "fulfilled"
+        typesResult.status !== "fulfilled" ||
+        budgetsResult.status !== "fulfilled"
       ) {
         throw new Error("catalog-unavailable");
       }
 
-      const accountList = (accountsResult.value.data as any[]).map((account) => ({
-        id: account.id,
-        name: account.name,
-      }));
+      const accountList = (accountsResult.value.data as any[])
+        .filter((account) => !account.is_virtual)
+        .map((account) => ({
+          id: account.id,
+          name: account.name,
+        }));
       const typeList = (typesResult.value.data as any[]).map((type) => ({
         id: type.id,
         value: type.value,
       }));
+
+      let fetchedBudgets =
+        budgetsResult.status === "fulfilled"
+          ? (budgetsResult.value.data as BudgetEntryOption[])
+          : [];
+
+      if (
+        editingTransaction?.budget_entry_id &&
+        !fetchedBudgets.some(
+          (entry) => entry.id === editingTransaction.budget_entry_id,
+        )
+      ) {
+        try {
+          const fallback = await axios.get<BudgetEntryOption[]>(
+            apiPath("/budget"),
+          );
+          fetchedBudgets = fallback.data;
+        } catch (fallbackError) {
+          console.warn(
+            "No fue posible cargar el presupuesto asociado a la transacción en edición:",
+            fallbackError,
+          );
+        }
+      }
 
       setAccounts(accountList);
       setTransactionTypes(typeList);
@@ -340,11 +682,10 @@ export const TransactionModal = () => {
               .filter((tag) => Boolean(tag))
           : [];
 
+      setBudgetEntries(fetchedBudgets);
+
       let nextCategories: ParameterOption[] = [];
-      let nextFormState = {
-        ...initialState,
-        date: getTodayDateInputValue(),
-      };
+      let nextFormState = createInitialState();
       let transactionTags: string[] = [];
 
       if (editingTransaction) {
@@ -364,6 +705,9 @@ export const TransactionModal = () => {
             categoryValue: editingTransaction.category,
             goal_id: String(editingTransaction.goal_id || ""),
             debt_id: String(editingTransaction.debt_id || ""),
+            budget_entry_id: editingTransaction.budget_entry_id
+              ? String(editingTransaction.budget_entry_id)
+              : "",
             is_transfer: Boolean(editingTransaction.is_transfer),
             transfer_account_id: editingTransaction.transfer_account_id
               ? String(editingTransaction.transfer_account_id)
@@ -378,6 +722,9 @@ export const TransactionModal = () => {
             account_id: String(editingTransaction.account_id),
             goal_id: String(editingTransaction.goal_id || ""),
             debt_id: String(editingTransaction.debt_id || ""),
+            budget_entry_id: editingTransaction.budget_entry_id
+              ? String(editingTransaction.budget_entry_id)
+              : "",
             is_transfer: Boolean(editingTransaction.is_transfer),
             transfer_account_id: editingTransaction.transfer_account_id
               ? String(editingTransaction.transfer_account_id)
@@ -429,6 +776,9 @@ export const TransactionModal = () => {
             : "",
           debt_id: transactionPrefill.debt_id
             ? String(transactionPrefill.debt_id)
+            : "",
+          budget_entry_id: transactionPrefill.budget_entry_id
+            ? String(transactionPrefill.budget_entry_id)
             : "",
         };
 
@@ -493,7 +843,7 @@ export const TransactionModal = () => {
     if (isTransactionModalOpen) {
       loadModalData();
     } else {
-      setFormData(initialState);
+      setFormData(createInitialState());
       setCatalogNotice(null);
       setError("");
       setInitialSnapshot(null);
@@ -502,61 +852,16 @@ export const TransactionModal = () => {
       setInitialSplits([]);
       setSelectedTags([]);
       setInitialTags([]);
+      setBudgetEntries([]);
       setTagInput("");
     }
   }, [isTransactionModalOpen, loadModalData]);
 
   const handleTypeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const typeId = event.target.value;
-    const numericType = typeId ? Number(typeId) : null;
-    let isTransferSelection = false;
-
-    if (numericType) {
-      const selectedType = transactionTypes.find((item) => item.id === numericType);
-      if (selectedType) {
-        const normalized = selectedType.value
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .toLowerCase();
-        isTransferSelection = normalized.includes("transferencia");
-        if (normalized.includes("ahorro") && goals.length === 0) {
-          setCatalogNotice(
-            "Para registrar un ahorro necesitas crear una meta desde la sección Metas y deudas."
-          );
-        } else if (normalized.includes("deuda") && debts.length === 0) {
-          setCatalogNotice(
-            "Para registrar un pago de deuda necesitas crear una deuda desde la sección Metas y deudas."
-          );
-        } else {
-          setCatalogNotice(null);
-        }
-      }
-    } else {
-      setCatalogNotice(null);
-    }
-
-    setFormData((prev) => ({
-      ...prev,
-      typeId,
-      categoryValue: isTransferSelection ? "Transferencia interna" : "",
-      goal_id: "",
-      debt_id: "",
-      is_transfer: isTransferSelection,
-      transfer_account_id: "",
-    }));
-
-    if (isTransferSelection) {
-      setSplitMode(false);
-      setSplitItems([]);
-      setCategories([]);
-    } else if (numericType) {
-      fetchCategoriesByType(numericType).then((data) => setCategories(data));
-    } else {
-      setCategories([]);
-    }
+    applyTypeChange(event.target.value);
   };
 
-  const LIMITED_NUMERIC_FIELDS = new Set(["amount", "day_of_month"]);
+  const LIMITED_NUMERIC_FIELDS = new Set(["amount"]);
 
   const handleChange = (
     event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
@@ -607,6 +912,32 @@ export const TransactionModal = () => {
       return;
     }
 
+    const [yearStr, monthStr, dayStr] = formData.date.split("-");
+    if (!yearStr || !monthStr || !dayStr) {
+      setError("Selecciona una fecha válida.");
+      return;
+    }
+
+    const parsedTransactionDate = new Date(
+      Number(yearStr),
+      Number(monthStr) - 1,
+      Number(dayStr)
+    );
+
+    if (Number.isNaN(parsedTransactionDate.getTime())) {
+      setError("La fecha proporcionada no es válida.");
+      return;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    parsedTransactionDate.setHours(0, 0, 0, 0);
+
+    if (parsedTransactionDate > today) {
+      setError("La fecha no puede ser posterior al día de hoy.");
+      return;
+    }
+
     if (Number.isNaN(accountIdNumber)) {
       setError("Selecciona una cuenta para registrar la transacción.");
       return;
@@ -614,6 +945,9 @@ export const TransactionModal = () => {
 
     const goalIdNumber = formData.goal_id ? parseInt(formData.goal_id, 10) : null;
     const debtIdNumber = formData.debt_id ? parseInt(formData.debt_id, 10) : null;
+    const budgetEntryIdNumber = formData.budget_entry_id
+      ? parseInt(formData.budget_entry_id, 10)
+      : null;
 
     if (requiresGoal && !goalIdNumber) {
       setError("Selecciona la meta a la que se asignará este ahorro.");
@@ -625,7 +959,12 @@ export const TransactionModal = () => {
       return;
     }
 
-    if (!isTransfer && !splitMode && !formData.categoryValue) {
+    if (
+      !isTransfer &&
+      !splitMode &&
+      !formData.categoryValue &&
+      !budgetEntryIdNumber
+    ) {
       setError("Selecciona una categoría para la transacción.");
       return;
     }
@@ -678,7 +1017,9 @@ export const TransactionModal = () => {
       ? "Transferencia interna"
       : splitMode
         ? "Múltiples categorías"
-        : formData.categoryValue;
+        : budgetEntryIdNumber && selectedBudget
+          ? selectedBudget.category
+          : formData.categoryValue;
 
     const submissionData = {
       description: trimmedDescription,
@@ -689,9 +1030,7 @@ export const TransactionModal = () => {
       category: submissionCategory,
       goal_id: goalIdNumber,
       debt_id: debtIdNumber,
-      is_recurring: formData.is_recurring,
-      frequency: formData.frequency,
-      day_of_month: formData.day_of_month,
+      budget_entry_id: isTransfer ? null : budgetEntryIdNumber,
       is_transfer: isTransfer,
       transfer_account_id: transferAccountNumber,
       splits: splitPayload,
@@ -728,10 +1067,10 @@ export const TransactionModal = () => {
       const initialAccount = parseInt(initialSnapshot.account_id || "", 10);
       const initialGoal = initialSnapshot.goal_id || "";
       const initialDebt = initialSnapshot.debt_id || "";
+      const initialBudget = initialSnapshot.budget_entry_id || "";
       const currentGoal = formData.goal_id || "";
       const currentDebt = formData.debt_id || "";
-      const initialDay = String(initialSnapshot.day_of_month);
-
+      const currentBudget = formData.budget_entry_id || "";
       const unchanged =
         initialSnapshot.description.trim() === trimmedDescription &&
         Number.isFinite(initialAmount) &&
@@ -742,9 +1081,7 @@ export const TransactionModal = () => {
         initialAccount === submissionData.account_id &&
         initialGoal === currentGoal &&
         initialDebt === currentDebt &&
-        initialSnapshot.is_recurring === formData.is_recurring &&
-        initialSnapshot.frequency === formData.frequency &&
-        initialDay === String(submissionData.day_of_month) &&
+        initialBudget === currentBudget &&
         initialSnapshot.is_transfer === submissionData.is_transfer &&
         (initialSnapshot.transfer_account_id || "") ===
           (formData.transfer_account_id || "") &&
@@ -797,19 +1134,23 @@ export const TransactionModal = () => {
         {isLoading ? (
           <p className="mt-6 text-center text-muted">Cargando catálogos...</p>
         ) : (
-          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+          <form
+            onSubmit={handleSubmit}
+            className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)]"
+          >
             {error && (
-              <p className="rounded-xl border border-rose-300/60 bg-rose-50 px-4 py-2 text-sm text-rose-600 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-200">
+              <p className="rounded-xl border border-rose-300/60 bg-rose-50 px-4 py-2 text-sm text-rose-600 dark:border-rose-400/40 dark:bg-rose-500/10 dark:text-rose-200 lg:col-span-2">
                 {error}
               </p>
             )}
             {catalogNotice && !error && (
-              <p className="rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-2 text-sm text-amber-600 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
+              <p className="rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-2 text-sm text-amber-600 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200 lg:col-span-2">
                 {catalogNotice}
               </p>
             )}
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-4 lg:col-start-1">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <input
                 type="text"
                 name="description"
@@ -818,7 +1159,7 @@ export const TransactionModal = () => {
                 placeholder="Descripción"
                 required
                 maxLength={100}
-                className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100 sm:col-span-2"
+                className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100 sm:col-span-3"
               />
               <input
                 type="number"
@@ -837,26 +1178,26 @@ export const TransactionModal = () => {
                 value={formData.date}
                 onChange={handleChange}
                 required
+                max={todayInputValue}
                 className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
               />
-            </div>
+              <select
+                name="account_id"
+                value={formData.account_id}
+                onChange={handleChange}
+                required
+                className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+              >
+                <option value="">-- Selecciona una Cuenta --</option>
+                {accounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name}
+                  </option>
+                ))}
+              </select>
+              </div>
 
-            <select
-              name="account_id"
-              value={formData.account_id}
-              onChange={handleChange}
-              required
-              className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
-            >
-              <option value="">-- Selecciona una Cuenta --</option>
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name}
-                </option>
-              ))}
-            </select>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
                   Tipo de movimiento
@@ -1007,26 +1348,41 @@ export const TransactionModal = () => {
                     </div>
                   )
                 ) : (
-                  <select
-                    name="categoryValue"
-                    value={formData.categoryValue}
-                    onChange={handleChange}
-                    required
-                    disabled={!formData.typeId || categories.length === 0}
-                    className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100"
-                  >
-                    <option value="">-- Selecciona una Categoría --</option>
-                    {categories.map((category) => (
-                      <option key={category.id} value={category.value}>
-                        {category.value}
-                      </option>
-                    ))}
-                  </select>
+                  <>
+                    <select
+                      name="categoryValue"
+                      value={formData.categoryValue}
+                      onChange={handleChange}
+                      required={!formData.budget_entry_id && !splitMode && !isTransfer}
+                      disabled={
+                        !formData.typeId ||
+                        categories.length === 0 ||
+                        Boolean(formData.budget_entry_id) ||
+                        isTransfer
+                      }
+                      className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100"
+                    >
+                      <option value="">-- Selecciona una Categoría --</option>
+                      {categories.map((category) => (
+                        <option key={category.id} value={category.value}>
+                          {category.value}
+                        </option>
+                      ))}
+                    </select>
+                    {Boolean(formData.budget_entry_id) && !splitMode && !isTransfer ? (
+                      <p className="mt-1 text-xs text-muted">
+                        La categoría se ajustará automáticamente según el presupuesto
+                        seleccionado.
+                      </p>
+                    ) : null}
+                  </>
                 )}
+              </div>
               </div>
             </div>
 
-            <div className="space-y-3 rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface-muted)]/60 px-4 py-4">
+            <div className="space-y-4 lg:col-start-2">
+              <div className="space-y-3 rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface-muted)]/60 px-4 py-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-[var(--app-text)]">Etiquetas personalizadas</p>
@@ -1147,45 +1503,107 @@ export const TransactionModal = () => {
               </div>
             )}
 
-            <div className="rounded-2xl border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)]/70 px-4 py-4">
-              <label className="flex cursor-pointer items-center gap-3">
-                <input
-                  type="checkbox"
-                  name="is_recurring"
-                  checked={formData.is_recurring}
-                  onChange={handleChange}
-                  className="h-5 w-5 rounded border-slate-400 text-sky-500 focus:ring-sky-400"
-                />
-                <span className="text-sm text-muted">Es una transacción recurrente</span>
-              </label>
-              {formData.is_recurring && (
-                <div className="grid grid-cols-1 gap-4 pt-4 sm:grid-cols-2">
-                  <select
-                    name="frequency"
-                    value={formData.frequency}
-                    onChange={handleChange}
-                    className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
-                  >
-                    <option>Mensual</option>
-                    <option>Quincenal</option>
-                    <option>Semanal</option>
-                    <option>Anual</option>
-                  </select>
-                  <input
-                    type="number"
-                    name="day_of_month"
-                    value={formData.day_of_month}
-                    onChange={handleChange}
-                    placeholder="Día del mes"
-                    min="1"
-                    max="31"
-                    className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
-                  />
-                </div>
-              )}
+            {!isTransfer && (
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-[var(--app-text)]">
+                  Asociar a presupuesto (opcional)
+                </label>
+                <select
+                  name="budget_entry_id"
+                  value={formData.budget_entry_id}
+                  onChange={handleBudgetEntryChange}
+                  disabled={budgetOptions.length === 0}
+                  className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100"
+                >
+                  <option value="">-- Sin asociación --</option>
+                  {budgetOptions.map((entry) => {
+                    const remaining = entry.remaining_amount ?? 0;
+                    const overBudget =
+                      entry.over_budget_amount ??
+                      Math.max((entry.actual_amount ?? 0) - (entry.budgeted_amount ?? 0), 0);
+                    const remainingText =
+                      overBudget > 0
+                        ? `Excedido ${formatCurrency(overBudget)}`
+                        : remaining <= 0
+                        ? "Completado"
+                        : `${formatCurrency(Math.max(remaining, 0))} disponibles`;
+                    const deadline = entry.due_date || entry.end_date || entry.start_date;
+                    const deadlineDate = parseDateOnly(deadline);
+                    const deadlineText = deadlineDate
+                      ? formatDateForDisplay(deadlineDate)
+                      : "sin fecha límite";
+                    return (
+                      <option key={entry.id} value={String(entry.id)}>
+                        {(entry.description || entry.category) ?? "Presupuesto"} · {remainingText} · vence {deadlineText}
+                      </option>
+                    );
+                  })}
+                </select>
+                {budgetOptions.length === 0 ? (
+                  <p className="text-xs text-muted">
+                    {hasAnyBudgets
+                      ? "No hay presupuestos activos compatibles con el tipo seleccionado."
+                      : "No hay presupuestos activos disponibles para este periodo."}
+                  </p>
+                ) : selectedBudget ? (
+                  <div className="space-y-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-3 text-xs text-muted">
+                    <div className="flex items-center justify-between text-[var(--app-text)]">
+                      <span className="font-semibold">{selectedBudget.description || selectedBudget.category}</span>
+                      <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-300">
+                        {selectedBudget.frequency}
+                      </span>
+                    </div>
+                    <div className="space-y-1 text-[var(--app-text)]">
+                      <div className="flex items-center justify-between">
+                        <span>Planificado</span>
+                        <span className="font-semibold">{formatCurrency(selectedBudget.budgeted_amount)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Ejecutado</span>
+                        <span className="font-semibold">{formatCurrency(selectedBudget.actual_amount)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>{selectedBudget.remaining_amount <= 0 ? "Restante" : "Disponible"}</span>
+                        <span
+                          className={`font-semibold ${
+                            selectedBudget.remaining_amount < 0
+                              ? "text-rose-600 dark:text-rose-300"
+                              : ""
+                          }`}
+                        >
+                          {formatCurrency(selectedBudget.remaining_amount)}
+                        </span>
+                      </div>
+                    </div>
+                    {selectedBudget.budgeted_amount > 0 ? (
+                      <div className="h-2 rounded-full bg-[var(--app-border)]">
+                        <div
+                          className={`h-2 rounded-full ${
+                            selectedBudget.remaining_amount < 0
+                              ? "bg-rose-500"
+                              : "bg-sky-500"
+                          }`}
+                          style={{
+                            width: `${Math.min(
+                              100,
+                              Math.max(
+                                0,
+                                (selectedBudget.actual_amount /
+                                  selectedBudget.budgeted_amount) *
+                                  100,
+                              ),
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            )}
             </div>
 
-            <div className="flex flex-col-reverse gap-3 pt-6 sm:flex-row sm:justify-end">
+            <div className="flex flex-col-reverse gap-3 pt-6 sm:flex-row sm:justify-end lg:col-span-2">
               <button
                 type="button"
                 onClick={closeTransactionModal}

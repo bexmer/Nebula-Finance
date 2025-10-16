@@ -1,5 +1,7 @@
 """Helpers for initializing and seeding the application database."""
 
+import json
+
 from peewee import OperationalError
 
 from app.model.account import Account
@@ -61,6 +63,28 @@ def ensure_transaction_enhancements() -> None:
         )
 
 
+def ensure_account_interest_columns() -> None:
+    """Ensure savings account interest metadata columns exist."""
+
+    table_name = Account._meta.table_name
+    existing_columns = _existing_columns(table_name)
+
+    if "annual_interest_rate" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN annual_interest_rate REAL DEFAULT 0'
+        )
+
+    if "compounding_frequency" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN compounding_frequency TEXT DEFAULT "Mensual"'
+        )
+
+    if "last_interest_accrual" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN last_interest_accrual DATE'
+        )
+
+
 def ensure_budget_entry_links() -> None:
     """Ensure budget entries can optionally reference a goal or debt."""
 
@@ -72,6 +96,97 @@ def ensure_budget_entry_links() -> None:
 
     if "debt_id" not in existing_columns:
         db.execute_sql(f'ALTER TABLE "{table_name}" ADD COLUMN debt_id INTEGER')
+
+
+def ensure_budget_entry_enhancements() -> None:
+    """Add extended budgeting fields when missing on existing databases."""
+
+    table_name = BudgetEntry._meta.table_name
+    existing_columns = _existing_columns(table_name)
+
+    if "frequency" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN frequency TEXT DEFAULT "Mensual"'
+        )
+
+    if "start_date" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN start_date DATE DEFAULT CURRENT_DATE'
+        )
+
+    if "end_date" not in existing_columns:
+        db.execute_sql(f'ALTER TABLE "{table_name}" ADD COLUMN end_date DATE')
+
+    if "is_recurring" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN is_recurring INTEGER DEFAULT 0'
+        )
+
+    if "actual_amount" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN actual_amount REAL DEFAULT 0'
+        )
+
+    if "use_custom_schedule" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN use_custom_schedule INTEGER DEFAULT 0'
+        )
+
+
+def ensure_portfolio_asset_enhancements() -> None:
+    """Add optional savings tracking fields to portfolio assets."""
+
+    table_name = PortfolioAsset._meta.table_name
+    existing_columns = _existing_columns(table_name)
+
+    if "annual_yield_rate" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN annual_yield_rate REAL DEFAULT 0'
+        )
+
+    if "linked_account_id" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN linked_account_id INTEGER'
+        )
+
+    if "linked_goal_id" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN linked_goal_id INTEGER'
+        )
+
+
+def ensure_savings_category_inheritance() -> None:
+    """Guarantee savings and debt types inherit variable expense categories."""
+
+    variable = Parameter.get_or_none(
+        (Parameter.group == "Tipo de Transacción")
+        & (Parameter.value == "Gasto Variable")
+    )
+
+    if not variable:
+        return
+
+    payload = json.dumps({"inherits": [variable.id]})
+
+    for value in ("Ahorro Meta", "Pago Deuda"):
+        parameter = Parameter.get_or_none(
+            (Parameter.group == "Tipo de Transacción") & (Parameter.value == value)
+        )
+        if parameter and not parameter.extra_data:
+            parameter.extra_data = payload
+            parameter.save()
+
+
+def ensure_transaction_budget_link() -> None:
+    """Guarantee transactions can reference a budget entry when required."""
+
+    table_name = Transaction._meta.table_name
+    existing_columns = _existing_columns(table_name)
+
+    if "budget_entry_id" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN budget_entry_id INTEGER'
+        )
 
 
 def seed_initial_budget_rules() -> None:
@@ -121,12 +236,14 @@ def seed_initial_parameters() -> None:
         value="Ahorro Meta",
         is_deletable=False,
         budget_rule=crecimiento,
+        extra_data=json.dumps({"inherits": []}),
     )
     pago_deuda = Parameter.create(
         group="Tipo de Transacción",
         value="Pago Deuda",
         is_deletable=False,
         budget_rule=estabilidad,
+        extra_data=json.dumps({"inherits": []}),
     )
 
     Parameter.create(group="Categoría", value="Nómina", parent=ingreso)
@@ -143,10 +260,21 @@ def seed_initial_parameters() -> None:
     Parameter.create(group="Categoría", value="Educación", parent=gasto_variable)
     Parameter.create(group="Categoría", value="Otros Gastos", parent=gasto_variable)
 
+    savings_inheritance = json.dumps({"inherits": [gasto_variable.id]})
+    ahorro_meta.extra_data = savings_inheritance
+    ahorro_meta.save()
+    pago_deuda.extra_data = savings_inheritance
+    pago_deuda.save()
+
     Parameter.create(group="Tipo de Cuenta", value="Cuenta de Ahorros")
     Parameter.create(group="Tipo de Cuenta", value="Cuenta Corriente")
     Parameter.create(group="Tipo de Cuenta", value="Tarjeta de Crédito")
     Parameter.create(group="Tipo de Cuenta", value="Efectivo")
+
+    Parameter.create(group="Tipo de Activo", value="Acción")
+    Parameter.create(group="Tipo de Activo", value="Fondo de Inversión")
+    Parameter.create(group="Tipo de Activo", value="Criptomoneda")
+    Parameter.create(group="Tipo de Activo", value="Cuenta de Ahorro")
 
     print("Initial parameters seeded with parent-child relationships.")
 
@@ -171,20 +299,24 @@ def initialize_database() -> None:
     """Connect to the database, create tables, and seed initial data."""
 
     try:
-        if db.is_closed():
-            db.connect()
+        with db.connection_context():
             print("Database connection opened.")
 
-        db.create_tables(MODELS, safe=True)
-        print("Tables created successfully (if they didn't exist).")
+            db.create_tables(MODELS, safe=True)
+            print("Tables created successfully (if they didn't exist).")
 
-        ensure_transaction_enhancements()
-        ensure_budget_entry_links()
-        seed_initial_budget_rules()
-        seed_initial_parameters()
-        ensure_transfer_transaction_type()
+            ensure_transaction_enhancements()
+            ensure_budget_entry_links()
+            ensure_budget_entry_enhancements()
+            ensure_account_interest_columns()
+            ensure_portfolio_asset_enhancements()
+            ensure_transaction_budget_link()
+            ensure_savings_category_inheritance()
+            seed_initial_budget_rules()
+            seed_initial_parameters()
+            ensure_transfer_transaction_type()
 
-        print("Database initialization complete.")
+            print("Database initialization complete.")
     except OperationalError as exc:
         print(f"Database operational error during initialization: {exc}")
     except Exception as exc:  # pylint: disable=broad-except
