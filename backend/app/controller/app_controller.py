@@ -451,6 +451,8 @@ class AppController:
         cash_flow_data = self._get_cash_flow_data_for_chart(year, month_list)
 
         goals_summary = self.get_goals_summary()
+        debts_summary = self.get_debts_summary()
+        upcoming_budget_payments = self.get_upcoming_budget_payments()
 
         accounts_summary = [
             {
@@ -475,11 +477,13 @@ class AppController:
             "net_worth_chart": net_worth_data,
             "cash_flow_chart": cash_flow_data,
             "goals": goals_summary,
+            "debts": debts_summary,
             "accounts": accounts_summary,
             "budget_vs_actual": budget_vs_actual,
             "budget_rule_control": budget_rule_control,
             "expense_distribution": expense_distribution,
             "expense_type_comparison": expense_type_comparison,
+            "upcoming_budget_payments": upcoming_budget_payments,
         }
         return dashboard_data
 
@@ -2598,6 +2602,49 @@ class AppController:
         for goal in query:
             goals_data.append(self._serialize_goal(goal))
         return goals_data
+
+    def get_debts_summary(self, limit=3):
+        """Devuelve un resumen de las deudas activas para el dashboard."""
+        debts_data: List[Dict[str, Any]] = []
+        query = Debt.select()
+        if limit:
+            query = query.limit(limit)
+
+        for debt in query:
+            debts_data.append(self._serialize_debt(debt))
+        return debts_data
+
+    def get_upcoming_budget_payments(self, limit=6):
+        """Obtiene las próximas entradas de presupuesto con saldo pendiente."""
+        today = datetime.date.today()
+        upcoming: List[Tuple[datetime.date, Dict[str, Any]]] = []
+
+        for entry in BudgetEntry.select():
+            serialized = self._serialize_budget_entry(entry)
+            remaining = float(serialized.get("remaining_amount") or 0.0)
+            if remaining <= 0:
+                continue
+
+            due_reference = (
+                serialized.get("due_date")
+                or serialized.get("end_date")
+                or serialized.get("start_date")
+            )
+            due_date = self._coerce_date(due_reference)
+            if due_date is None:
+                continue
+            if due_date < today:
+                continue
+
+            serialized["due_date"] = due_date.isoformat()
+            upcoming.append((due_date, serialized))
+
+        upcoming.sort(key=lambda item: item[0])
+
+        if limit:
+            upcoming = upcoming[:limit]
+
+        return [data for _, data in upcoming]
 
     def get_all_goals(self):
         """Devuelve todas las metas con su progreso."""

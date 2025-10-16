@@ -221,7 +221,7 @@ export const TransactionModal = () => {
         }
 
         if (normalizedTarget.includes("transferencia")) {
-          return false;
+          return true;
         }
 
         const normalizedEntryType = normalizeTypeLabel(entry.type ?? "");
@@ -1503,104 +1503,107 @@ export const TransactionModal = () => {
               </div>
             )}
 
-            {!isTransfer && (
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-[var(--app-text)]">
-                  Asociar a presupuesto (opcional)
-                </label>
-                <select
-                  name="budget_entry_id"
-                  value={formData.budget_entry_id}
-                  onChange={handleBudgetEntryChange}
-                  disabled={budgetOptions.length === 0}
-                  className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100"
-                >
-                  <option value="">-- Sin asociación --</option>
-                  {budgetOptions.map((entry) => {
-                    const remaining = entry.remaining_amount ?? 0;
-                    const overBudget =
-                      entry.over_budget_amount ??
-                      Math.max((entry.actual_amount ?? 0) - (entry.budgeted_amount ?? 0), 0);
-                    const remainingText =
-                      overBudget > 0
-                        ? `Excedido ${formatCurrency(overBudget)}`
-                        : remaining <= 0
-                        ? "Completado"
-                        : `${formatCurrency(Math.max(remaining, 0))} disponibles`;
-                    const deadline = entry.due_date || entry.end_date || entry.start_date;
-                    const deadlineDate = parseDateOnly(deadline);
-                    const deadlineText = deadlineDate
-                      ? formatDateForDisplay(deadlineDate)
-                      : "sin fecha límite";
-                    return (
-                      <option key={entry.id} value={String(entry.id)}>
-                        {(entry.description || entry.category) ?? "Presupuesto"} · {remainingText} · vence {deadlineText}
-                      </option>
-                    );
-                  })}
-                </select>
-                {budgetOptions.length === 0 ? (
-                  <p className="text-xs text-muted">
-                    {hasAnyBudgets
-                      ? "No hay presupuestos activos compatibles con el tipo seleccionado."
-                      : "No hay presupuestos activos disponibles para este periodo."}
-                  </p>
-                ) : selectedBudget ? (
-                  <div className="space-y-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-3 text-xs text-muted">
-                    <div className="flex items-center justify-between text-[var(--app-text)]">
-                      <span className="font-semibold">{selectedBudget.description || selectedBudget.category}</span>
-                      <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-300">
-                        {selectedBudget.frequency}
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-[var(--app-text)]">
+                Asociar a presupuesto (opcional)
+              </label>
+              {isTransfer ? (
+                <p className="text-xs text-muted">
+                  Vincular esta transferencia a un presupuesto actualizará el tipo y la categoría con los datos del presupuesto seleccionado.
+                </p>
+              ) : null}
+              <select
+                name="budget_entry_id"
+                value={formData.budget_entry_id}
+                onChange={handleBudgetEntryChange}
+                disabled={budgetOptions.length === 0}
+                className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100"
+              >
+                <option value="">-- Sin asociación --</option>
+                {budgetOptions.map((entry) => {
+                  const remaining = entry.remaining_amount ?? 0;
+                  const overBudget =
+                    entry.over_budget_amount ??
+                    Math.max((entry.actual_amount ?? 0) - (entry.budgeted_amount ?? 0), 0);
+                  const remainingText =
+                    overBudget > 0
+                      ? `Excedido ${formatCurrency(overBudget)}`
+                      : remaining <= 0
+                      ? "Completado"
+                      : `${formatCurrency(Math.max(remaining, 0))} disponibles`;
+                  const deadline = entry.due_date || entry.end_date || entry.start_date;
+                  const deadlineDate = parseDateOnly(deadline);
+                  const deadlineText = deadlineDate
+                    ? formatDateForDisplay(deadlineDate)
+                    : "sin fecha límite";
+                  return (
+                    <option key={entry.id} value={String(entry.id)}>
+                      {(entry.description || entry.category) ?? "Presupuesto"} · {remainingText} · vence {deadlineText}
+                    </option>
+                  );
+                })}
+              </select>
+              {budgetOptions.length === 0 ? (
+                <p className="text-xs text-muted">
+                  {hasAnyBudgets
+                    ? "No hay presupuestos activos compatibles con el tipo seleccionado."
+                    : "No hay presupuestos activos disponibles para este periodo."}
+                </p>
+              ) : selectedBudget ? (
+                <div className="space-y-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-3 text-xs text-muted">
+                  <div className="flex items-center justify-between text-[var(--app-text)]">
+                    <span className="font-semibold">{selectedBudget.description || selectedBudget.category}</span>
+                    <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-300">
+                      {selectedBudget.frequency}
+                    </span>
+                  </div>
+                  <div className="space-y-1 text-[var(--app-text)]">
+                    <div className="flex items-center justify-between">
+                      <span>Planificado</span>
+                      <span className="font-semibold">{formatCurrency(selectedBudget.budgeted_amount)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Ejecutado</span>
+                      <span className="font-semibold">{formatCurrency(selectedBudget.actual_amount)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>{selectedBudget.remaining_amount <= 0 ? "Restante" : "Disponible"}</span>
+                      <span
+                        className={`font-semibold ${
+                          selectedBudget.remaining_amount < 0
+                            ? "text-rose-600 dark:text-rose-300"
+                            : ""
+                        }`}
+                      >
+                        {formatCurrency(selectedBudget.remaining_amount)}
                       </span>
                     </div>
-                    <div className="space-y-1 text-[var(--app-text)]">
-                      <div className="flex items-center justify-between">
-                        <span>Planificado</span>
-                        <span className="font-semibold">{formatCurrency(selectedBudget.budgeted_amount)}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span>Ejecutado</span>
-                        <span className="font-semibold">{formatCurrency(selectedBudget.actual_amount)}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span>{selectedBudget.remaining_amount <= 0 ? "Restante" : "Disponible"}</span>
-                        <span
-                          className={`font-semibold ${
-                            selectedBudget.remaining_amount < 0
-                              ? "text-rose-600 dark:text-rose-300"
-                              : ""
-                          }`}
-                        >
-                          {formatCurrency(selectedBudget.remaining_amount)}
-                        </span>
-                      </div>
-                    </div>
-                    {selectedBudget.budgeted_amount > 0 ? (
-                      <div className="h-2 rounded-full bg-[var(--app-border)]">
-                        <div
-                          className={`h-2 rounded-full ${
-                            selectedBudget.remaining_amount < 0
-                              ? "bg-rose-500"
-                              : "bg-sky-500"
-                          }`}
-                          style={{
-                            width: `${Math.min(
-                              100,
-                              Math.max(
-                                0,
-                                (selectedBudget.actual_amount /
-                                  selectedBudget.budgeted_amount) *
-                                  100,
-                              ),
-                            )}%`,
-                          }}
-                        />
-                      </div>
-                    ) : null}
                   </div>
-                ) : null}
-              </div>
-            )}
+                  {selectedBudget.budgeted_amount > 0 ? (
+                    <div className="h-2 rounded-full bg-[var(--app-border)]">
+                      <div
+                        className={`h-2 rounded-full ${
+                          selectedBudget.remaining_amount < 0
+                            ? "bg-rose-500"
+                            : "bg-sky-500"
+                        }`}
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            Math.max(
+                              0,
+                              (selectedBudget.actual_amount /
+                                selectedBudget.budgeted_amount) *
+                                100,
+                            ),
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
             </div>
 
             <div className="flex flex-col-reverse gap-3 pt-6 sm:flex-row sm:justify-end lg:col-span-2">
