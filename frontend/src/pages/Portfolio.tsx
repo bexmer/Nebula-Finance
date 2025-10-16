@@ -197,7 +197,11 @@ export function Portfolio() {
           return;
         }
 
-        setAssetTypes(typesRes.data);
+        setAssetTypes(
+          typesRes.data.filter(
+            (type) => type.trim().toLowerCase() !== "cuenta de ahorros"
+          )
+        );
 
         const accountItems = (accountsRes.data as { id: number; name: string; is_virtual: boolean }[])
           .filter((account) => !account.is_virtual)
