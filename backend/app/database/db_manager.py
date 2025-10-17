@@ -1,8 +1,8 @@
 """Helpers for initializing and seeding the application database."""
 
 import json
+from importlib import import_module, util
 
-import peeweedbevolve  # noqa: F401  (ensures `Database.evolve` is registered)
 from peewee import OperationalError
 
 from app.model.account import Account
@@ -19,6 +19,15 @@ from app.model.trade import Trade
 from app.model.transaction import Transaction
 from app.model.transaction_split import TransactionSplit
 from app.model.transaction_tag import TransactionTag
+
+# Detect whether the optional peewee-db-evolve package is installed.
+_EVOLVE_SPEC = util.find_spec("peeweedbevolve")
+HAVE_DB_EVOLVE = _EVOLVE_SPEC is not None
+
+if HAVE_DB_EVOLVE:
+    # Import for side effects so the Database.evolve helper registers itself.
+    import_module("peeweedbevolve")  # noqa: F401
+
 
 # Every model that requires a table created on startup.
 MODELS = [
@@ -384,9 +393,15 @@ def initialize_database() -> None:
             db.connect()
             print("Database connection opened.")
 
-        print("Evolving database schema...")
-        db.evolve(MODELS)
-        print("Database schema is up to date.")
+        if HAVE_DB_EVOLVE:
+            print("Evolving database schema...")
+            db.evolve(MODELS)
+            print("Database schema is up to date.")
+        else:
+            print(
+                "peewee-db-evolve not installed; using create_tables fallback."
+            )
+            db.create_tables(MODELS, safe=True)
 
         ensure_transaction_enhancements()
         ensure_budget_entry_links()
