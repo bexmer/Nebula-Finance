@@ -1,4 +1,5 @@
 peewee
+peewee-db-evolve
 fastapi[all]
 python-multipart
 python-dateutil

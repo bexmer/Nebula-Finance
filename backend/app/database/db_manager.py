@@ -2,6 +2,7 @@
 
 import json
 
+import peeweedbevolve  # noqa: F401  (ensures `Database.evolve` is registered)
 from peewee import OperationalError
 
 from app.model.account import Account
@@ -376,29 +377,31 @@ def ensure_portfolio_transaction_catalog() -> None:
         )
 
 def initialize_database() -> None:
-    """Connect to the database, create tables, and seed initial data."""
+    """Connect to the database, evolve tables, and seed initial data."""
 
     try:
-        with db.connection_context():
+        if db.is_closed():
+            db.connect()
             print("Database connection opened.")
 
-            db.create_tables(MODELS, safe=True)
-            print("Tables created successfully (if they didn't exist).")
+        print("Evolving database schema...")
+        db.evolve(MODELS)
+        print("Database schema is up to date.")
 
-            ensure_transaction_enhancements()
-            ensure_budget_entry_links()
-            ensure_budget_entry_enhancements()
-            ensure_account_interest_columns()
-            ensure_portfolio_asset_enhancements()
-            ensure_trade_enhancements()
-            ensure_transaction_budget_link()
-            ensure_savings_category_inheritance()
-            seed_initial_budget_rules()
-            seed_initial_parameters()
-            ensure_transfer_transaction_type()
-            ensure_portfolio_transaction_catalog()
+        ensure_transaction_enhancements()
+        ensure_budget_entry_links()
+        ensure_budget_entry_enhancements()
+        ensure_account_interest_columns()
+        ensure_portfolio_asset_enhancements()
+        ensure_trade_enhancements()
+        ensure_transaction_budget_link()
+        ensure_savings_category_inheritance()
+        seed_initial_budget_rules()
+        seed_initial_parameters()
+        ensure_transfer_transaction_type()
+        ensure_portfolio_transaction_catalog()
 
-            print("Database initialization complete.")
+        print("Database initialization complete.")
     except OperationalError as exc:
         print(f"Database operational error during initialization: {exc}")
     except Exception as exc:  # pylint: disable=broad-except
