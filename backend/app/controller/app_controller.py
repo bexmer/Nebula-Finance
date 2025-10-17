@@ -719,7 +719,7 @@ class AppController:
     def _get_budget_rule_control(self, transactions: List[Transaction], total_income: float):
         """Calcula el cumplimiento de las reglas de presupuesto basadas en el ingreso."""
 
-        parameters = Parameter.select().where(Parameter.group == 'Tipo de Transacción')
+        parameters = Parameter.select().where(Parameter.group == "Tipo de Transacción")
         type_to_rule = {}
         for param in parameters:
             if param.budget_rule_id:
@@ -729,7 +729,7 @@ class AppController:
         for transaction in transactions:
             if getattr(transaction, 'is_transfer', False):
                 continue
-            if transaction.type == 'Ingreso':
+            if transaction.type == "Ingreso":
                 continue
             amount = abs(float(transaction.amount or 0))
             rule = type_to_rule.get(transaction.type)
@@ -864,6 +864,9 @@ class AppController:
         cash_flow_projection = self._build_cash_flow_projection(
             year, month_list, projection_months, transactions
         )
+        income_allocation = self._build_income_allocation_analysis(
+            year, month_list, transactions
+        )
 
         return {
             "year": year,
@@ -871,6 +874,7 @@ class AppController:
             "annual_expense_report": annual_expense_report,
             "budget_analysis": budget_analysis,
             "cash_flow_projection": cash_flow_projection,
+            "income_allocation": income_allocation,
         }
 
     def _build_annual_expense_report(self, year: int, months: List[int]) -> Dict[str, Any]:
@@ -933,7 +937,7 @@ class AppController:
 
         start_date, end_date = self._get_date_range(year, months)
 
-        parameters = Parameter.select().where(Parameter.group == 'Tipo de Transacción')
+        parameters = Parameter.select().where(Parameter.group == "Tipo de Transacción")
         type_to_rule: Dict[str, Optional[BudgetRule]] = {}
         for param in parameters:
             type_to_rule[param.value] = param.budget_rule if param.budget_rule_id else None
@@ -1021,6 +1025,162 @@ class AppController:
             "total_actual": total_actual,
             "total_difference": total_difference,
             "total_compliance": total_compliance,
+        }
+
+    def _build_income_allocation_analysis(
+        self,
+        year: int,
+        months: List[int],
+        transactions: List[Transaction],
+    ) -> Dict[str, Any]:
+        """Resume ingresos mensuales y su asignación ideal vs real por reglas."""
+
+        month_list = sorted(set(months)) if months else list(range(1, 13))
+        month_headers = [
+            {"number": month, "label": MONTH_LABELS[month]}
+            for month in month_list
+        ]
+        month_set = set(month_list)
+
+        income_by_month = {month: 0.0 for month in month_list}
+        actual_spent_by_month = {month: 0.0 for month in month_list}
+
+        parameters = Parameter.select().where(Parameter.group == "Tipo de Transacción")
+        type_to_rule: Dict[str, Optional[BudgetRule]] = {}
+        for param in parameters:
+            type_to_rule[param.value] = param.budget_rule if param.budget_rule_id else None
+
+        rules = list(BudgetRule.select().order_by(BudgetRule.id))
+        rule_percentages: Dict[str, float] = {
+            rule.name: float(getattr(rule, 'percentage', 0) or 0)
+            for rule in rules
+        }
+        rule_order = [rule.name for rule in rules]
+
+        def _fresh_month_totals() -> Dict[int, float]:
+            return {month: 0.0 for month in month_list}
+
+        actual_by_rule: Dict[str, Dict[int, float]] = {}
+
+        for transaction, amount, _ in self._iter_transaction_allocations(transactions):
+            month_number = int(transaction.date.month)
+            if month_number not in month_set:
+                continue
+
+            amount_value = float(amount or 0)
+
+            if transaction.type == "Ingreso":
+                income_amount = amount_value if amount_value >= 0 else abs(amount_value)
+                income_by_month[month_number] += income_amount
+                continue
+
+            spend_value = abs(amount_value)
+            actual_spent_by_month[month_number] += spend_value
+
+            mapped_rule = type_to_rule.get(transaction.type)
+            rule_name = (
+                mapped_rule.name
+                if mapped_rule
+                else (transaction.type or "Sin regla")
+            )
+            rule_totals = actual_by_rule.setdefault(rule_name, _fresh_month_totals())
+            rule_totals[month_number] = rule_totals.get(month_number, 0.0) + spend_value
+
+        additional_rules = [
+            name for name in actual_by_rule.keys() if name not in rule_percentages
+        ]
+        additional_rules.sort()
+        row_order = rule_order + additional_rules
+
+        recommended_by_rule: Dict[str, Dict[int, float]] = {}
+        for name in row_order:
+            percentage = rule_percentages.get(name, 0.0)
+            recommended_by_rule[name] = {
+                month: income_by_month.get(month, 0.0) * (percentage / 100.0)
+                for month in month_list
+            }
+
+        recommended_rows = []
+        for name in row_order:
+            monthly_values = [recommended_by_rule[name][month] for month in month_list]
+            total_value = sum(monthly_values)
+            recommended_rows.append(
+                {
+                    "rule": name,
+                    "percentage": rule_percentages.get(name),
+                    "share": None,
+                    "values": monthly_values,
+                    "total": total_value,
+                }
+            )
+
+        total_actual_spent = sum(actual_spent_by_month.values())
+
+        actual_rows = []
+        for name in row_order:
+            month_totals = actual_by_rule.get(name, _fresh_month_totals())
+            monthly_values = [month_totals.get(month, 0.0) for month in month_list]
+            total_value = sum(monthly_values)
+            share = None
+            if total_actual_spent > 0:
+                share = (total_value / total_actual_spent) * 100
+            actual_rows.append(
+                {
+                    "rule": name,
+                    "percentage": rule_percentages.get(name),
+                    "share": share,
+                    "values": monthly_values,
+                    "total": total_value,
+                }
+            )
+
+        monthly_recommended_totals = [
+            sum(recommended_by_rule[name][month] for name in row_order)
+            for month in month_list
+        ]
+        monthly_actual_totals = [
+            sum(actual_by_rule.get(name, {}).get(month, 0.0) for name in row_order)
+            for month in month_list
+        ]
+
+        monthly_balances = []
+        for index, month in enumerate(month_list):
+            monthly_balances.append(
+                {
+                    "month": month,
+                    "label": MONTH_LABELS[month],
+                    "income": income_by_month.get(month, 0.0),
+                    "recommended_spend": monthly_recommended_totals[index],
+                    "actual_spend": monthly_actual_totals[index],
+                    "net": income_by_month.get(month, 0.0)
+                    - monthly_actual_totals[index],
+                }
+            )
+
+        total_income = sum(income_by_month.values())
+        total_recommended = sum(monthly_recommended_totals)
+
+        return {
+            "months": month_headers,
+            "monthly_income": [income_by_month[month] for month in month_list],
+            "total_income": total_income,
+            "recommended_rows": recommended_rows,
+            "actual_rows": actual_rows,
+            "recommended_totals": {
+                "monthly": monthly_recommended_totals,
+                "total": total_recommended,
+            },
+            "actual_totals": {
+                "monthly": monthly_actual_totals,
+                "total": total_actual_spent,
+            },
+            "monthly_balances": monthly_balances,
+            "period_balance": {
+                "income": total_income,
+                "recommended_spend": total_recommended,
+                "actual_spend": total_actual_spent,
+                "net": total_income - total_actual_spent,
+            },
         }
 
     def _build_cash_flow_projection(

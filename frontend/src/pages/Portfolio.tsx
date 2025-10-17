@@ -388,7 +388,7 @@ export function Portfolio() {
     };
 
   const handleEdit = (trade: TradeHistory) => {
-    const nextState = {
+    const nextState: TradeFormState = {
       id: trade.id,
       symbol: trade.symbol.toUpperCase(),
       asset_type: trade.asset_type ?? "",
