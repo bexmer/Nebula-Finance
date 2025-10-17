@@ -1566,30 +1566,52 @@ class AppController:
             is_transfer = bool(data.get('is_transfer'))
             transfer_account_value = data.get('transfer_account_id')
 
+            goal_value = data.get('goal_id')
+            debt_value = data.get('debt_id')
+            goal_id = int(goal_value) if goal_value not in (None, "", 0) else None
+            debt_id = int(debt_value) if debt_value not in (None, "", 0) else None
+
+            budget_value = data.get('budget_entry_id')
+            budget_entry_id = int(budget_value) if budget_value not in (None, "", 0) else None
+            budget_entry = None
+            if budget_entry_id:
+                budget_entry = BudgetEntry.get_or_none(BudgetEntry.id == budget_entry_id)
+                if budget_entry is None:
+                    return {"error": "El presupuesto seleccionado no existe."}
+
+                budget_type = getattr(budget_entry, "type", None)
+                budget_category = getattr(budget_entry, "category", None)
+                linked_goal_id = getattr(budget_entry, "goal_id", None)
+                linked_debt_id = getattr(budget_entry, "debt_id", None)
+
+                if budget_type:
+                    data['type'] = budget_type
+                if budget_category:
+                    data['category'] = budget_category
+                if goal_id is None and linked_goal_id:
+                    goal_id = int(linked_goal_id)
+                if debt_id is None and linked_debt_id:
+                    debt_id = int(linked_debt_id)
+
             if is_transfer:
                 if not transfer_account_value:
                     return {"error": "Selecciona la cuenta de destino de la transferencia."}
                 if int(transfer_account_value) == int(data['account_id']):
                     return {"error": "La cuenta de origen y destino deben ser diferentes."}
-                data['type'] = 'Transferencia'
-                data['category'] = data.get('category') or 'Transferencia interna'
-                data['goal_id'] = None
-                data['debt_id'] = None
-                data['budget_entry_id'] = None
+                if not budget_entry:
+                    data['type'] = 'Transferencia'
+                    data['category'] = data.get('category') or 'Transferencia interna'
+                    goal_id = None
+                    debt_id = None
+                data['goal_id'] = goal_id
+                data['debt_id'] = debt_id
             else:
                 data['is_transfer'] = False
                 data['transfer_account_id'] = None
 
-            goal_value = data.get('goal_id')
-            debt_value = data.get('debt_id')
-            goal_id = int(goal_value) if goal_value not in (None, "", 0) else None
-            debt_id = int(debt_value) if debt_value not in (None, "", 0) else None
             data['goal_id'] = goal_id
             data['debt_id'] = debt_id
-
-            budget_value = data.get('budget_entry_id')
-            budget_entry_id = int(budget_value) if budget_value not in (None, "", 0) else None
-            data['budget_entry_id'] = None if is_transfer else budget_entry_id
+            data['budget_entry_id'] = budget_entry_id
 
             with db.atomic():
                 account = Account.get_by_id(data['account_id'])
@@ -1616,13 +1638,12 @@ class AppController:
 
                 transaction = Transaction.create(**data)
 
-                if not is_transfer:
-                    if goal_id:
-                        self._adjust_goal_progress(goal_id, amount)
-                    if debt_id:
-                        self._adjust_debt_balance(debt_id, amount)
-                    if budget_entry_id:
-                        self._adjust_budget_allocation(budget_entry_id, amount)
+                if goal_id:
+                    self._adjust_goal_progress(goal_id, amount)
+                if debt_id:
+                    self._adjust_debt_balance(debt_id, amount)
+                if budget_entry_id:
+                    self._adjust_budget_allocation(budget_entry_id, amount)
 
                 self._sync_transaction_splits(transaction, splits_payload)
                 self._sync_transaction_tags(transaction, tags_payload)
@@ -1660,34 +1681,57 @@ class AppController:
 
             is_transfer = bool(data.get('is_transfer'))
             transfer_account_value = data.get('transfer_account_id')
-            if is_transfer:
-                if not transfer_account_value:
-                    return {"error": "Selecciona la cuenta de destino de la transferencia."}
-                if int(transfer_account_value) == int(data['account_id']):
-                    return {"error": "La cuenta de origen y destino deben ser diferentes."}
-                data['type'] = 'Transferencia'
-                data['category'] = data.get('category') or 'Transferencia interna'
-                data['goal_id'] = None
-                data['debt_id'] = None
-                data['budget_entry_id'] = None
-            else:
-                data['is_transfer'] = False
-                data['transfer_account_id'] = None
 
             goal_value = data.get('goal_id')
             debt_value = data.get('debt_id')
             goal_id = int(goal_value) if goal_value not in (None, "", 0) else None
             debt_id = int(debt_value) if debt_value not in (None, "", 0) else None
-            data['goal_id'] = goal_id
-            data['debt_id'] = debt_id
 
             budget_value = data.get('budget_entry_id')
             budget_entry_id = int(budget_value) if budget_value not in (None, "", 0) else None
-            data['budget_entry_id'] = None if is_transfer else budget_entry_id
+            budget_entry = None
+            if budget_entry_id:
+                budget_entry = BudgetEntry.get_or_none(BudgetEntry.id == budget_entry_id)
+                if budget_entry is None:
+                    return {"error": "El presupuesto seleccionado no existe."}
+
+                budget_type = getattr(budget_entry, "type", None)
+                budget_category = getattr(budget_entry, "category", None)
+                linked_goal_id = getattr(budget_entry, "goal_id", None)
+                linked_debt_id = getattr(budget_entry, "debt_id", None)
+
+                if budget_type:
+                    data['type'] = budget_type
+                if budget_category:
+                    data['category'] = budget_category
+                if goal_id is None and linked_goal_id:
+                    goal_id = int(linked_goal_id)
+                if debt_id is None and linked_debt_id:
+                    debt_id = int(linked_debt_id)
+
+            if is_transfer:
+                if not transfer_account_value:
+                    return {"error": "Selecciona la cuenta de destino de la transferencia."}
+                if int(transfer_account_value) == int(data['account_id']):
+                    return {"error": "La cuenta de origen y destino deben ser diferentes."}
+                if not budget_entry:
+                    data['type'] = 'Transferencia'
+                    data['category'] = data.get('category') or 'Transferencia interna'
+                    goal_id = None
+                    debt_id = None
+            else:
+                data['is_transfer'] = False
+                data['transfer_account_id'] = None
+
+            data['goal_id'] = goal_id
+            data['debt_id'] = debt_id
+            data['budget_entry_id'] = budget_entry_id
 
             with db.atomic():
                 original_transaction = Transaction.get_by_id(transaction_id)
                 original_amount = float(original_transaction.amount or 0)
+                original_goal_id = getattr(original_transaction, 'goal_id', None)
+                original_debt_id = getattr(original_transaction, 'debt_id', None)
                 original_budget_entry_id = getattr(original_transaction, 'budget_entry_id', None)
 
                 if original_transaction.is_transfer:
@@ -1707,14 +1751,12 @@ class AppController:
                         original_account.current_balance += original_amount
                     original_account.save()
 
-                    self._adjust_goal_progress(
-                        original_transaction.goal_id,
-                        -original_amount,
-                    )
-                    self._adjust_debt_balance(
-                        original_transaction.debt_id,
-                        -original_amount,
-                    )
+                if original_goal_id:
+                    self._adjust_goal_progress(original_goal_id, -original_amount)
+                if original_debt_id:
+                    self._adjust_debt_balance(original_debt_id, -original_amount)
+                if original_budget_entry_id:
+                    self._adjust_budget_allocation(original_budget_entry_id, -original_amount)
 
                 new_account = Account.get_by_id(data['account_id'])
 
@@ -1744,16 +1786,12 @@ class AppController:
                 self._sync_transaction_splits(updated, splits_payload)
                 self._sync_transaction_tags(updated, tags_payload)
 
-                if not is_transfer:
-                    if goal_id:
-                        self._adjust_goal_progress(goal_id, amount)
-                    if debt_id:
-                        self._adjust_debt_balance(debt_id, amount)
-                    if budget_entry_id:
-                        self._adjust_budget_allocation(budget_entry_id, amount)
-
-                if not original_transaction.is_transfer and original_budget_entry_id:
-                    self._adjust_budget_allocation(original_budget_entry_id, -original_amount)
+                if goal_id:
+                    self._adjust_goal_progress(goal_id, amount)
+                if debt_id:
+                    self._adjust_debt_balance(debt_id, amount)
+                if budget_entry_id:
+                    self._adjust_budget_allocation(budget_entry_id, amount)
 
             return updated.__data__
         except Exception as e:  # pylint: disable=broad-except
@@ -1762,8 +1800,8 @@ class AppController:
     def delete_transaction(self, transaction_id, adjust_balance: bool = False):
         try:
             transaction = Transaction.get_by_id(transaction_id)
+            amount = float(transaction.amount or 0)
             if adjust_balance:
-                amount = float(transaction.amount or 0)
                 if transaction.is_transfer:
                     source_account = transaction.account
                     target_account = transaction.transfer_account
@@ -1781,13 +1819,13 @@ class AppController:
                         account.current_balance += amount
                     account.save()
 
-            if not transaction.is_transfer:
-                self._adjust_goal_progress(transaction.goal_id, -float(transaction.amount or 0))
-                self._adjust_debt_balance(transaction.debt_id, -float(transaction.amount or 0))
-                self._adjust_budget_allocation(
-                    getattr(transaction, 'budget_entry_id', None),
-                    -float(transaction.amount or 0),
-                )
+            if getattr(transaction, 'goal_id', None):
+                self._adjust_goal_progress(transaction.goal_id, -amount)
+            if getattr(transaction, 'debt_id', None):
+                self._adjust_debt_balance(transaction.debt_id, -amount)
+            budget_entry_id = getattr(transaction, 'budget_entry_id', None)
+            if budget_entry_id:
+                self._adjust_budget_allocation(budget_entry_id, -amount)
             transaction.delete_instance()
             return {"success": True}
         except Transaction.DoesNotExist:
@@ -2255,12 +2293,18 @@ class AppController:
         }
 
     def get_asset_types(self) -> List[str]:
-        return [
+        disallowed_types = {"cuenta de ahorro", "cuenta de ahorros"}
+        raw_items = [
             item["value"]
             for item in Parameter.select()
             .where(Parameter.group == "Tipo de Activo")
             .order_by(Parameter.id)
             .dicts()
+        ]
+        return [
+            value
+            for value in raw_items
+            if value.strip().lower() not in disallowed_types
         ]
 
     def get_asset_type_parameters(self) -> List[Dict[str, Any]]:
