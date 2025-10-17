@@ -38,6 +38,9 @@ interface TradeHistory {
   annual_yield_rate?: number;
   linked_account_id?: number | null;
   linked_goal_id?: number | null;
+  linked_transaction_id?: number | null;
+  linked_budget_entry_id?: number | null;
+  is_planned?: boolean;
 }
 
 interface TradeFormState {
@@ -51,11 +54,32 @@ interface TradeFormState {
   annual_yield_rate: string;
   linked_account_id: string;
   linked_goal_id: string;
+  record_destination: "transaction" | "budget" | "none";
 }
 
 interface SelectOption {
   id: number;
   name: string;
+}
+
+interface PlannedHolding {
+  id: number;
+  date: string;
+  symbol: string;
+  asset_type: string;
+  type: "buy" | "sell";
+  quantity: number;
+  price: number;
+  total_amount: number;
+  linked_budget_entry_id?: number | null;
+  budget_due_date?: string | null;
+  budget_description?: string | null;
+  linked_goal_id?: number | null;
+}
+
+interface PortfolioSummaryResponse {
+  paid: PortfolioSummary[];
+  planned: PlannedHolding[];
 }
 
 export function Portfolio() {
@@ -87,9 +111,11 @@ export function Portfolio() {
     annual_yield_rate: "",
     linked_account_id: "",
     linked_goal_id: "",
+    record_destination: "transaction",
   });
 
   const [summary, setSummary] = useState<PortfolioSummary[]>([]);
+  const [plannedHoldings, setPlannedHoldings] = useState<PlannedHolding[]>([]);
   const [history, setHistory] = useState<TradeHistory[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -104,6 +130,7 @@ export function Portfolio() {
   const [assetTypes, setAssetTypes] = useState<string[]>([]);
   const [accountOptions, setAccountOptions] = useState<SelectOption[]>([]);
   const [goalOptions, setGoalOptions] = useState<SelectOption[]>([]);
+  const [compositionTab, setCompositionTab] = useState<"paid" | "planned">("paid");
   const formRef = useRef<HTMLFormElement | null>(null);
   const symbolInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -143,10 +170,11 @@ export function Portfolio() {
     setFetchError(null);
     try {
       const [summaryRes, historyRes] = await Promise.all([
-        axios.get(apiPath("/portfolio/summary")),
-        axios.get(apiPath("/portfolio/history")),
+        axios.get<PortfolioSummaryResponse>(apiPath("/portfolio/summary")),
+        axios.get<TradeHistory[]>(apiPath("/portfolio/history")),
       ]);
-      setSummary(summaryRes.data);
+      setSummary(summaryRes.data.paid ?? []);
+      setPlannedHoldings(summaryRes.data.planned ?? []);
       setHistory(historyRes.data);
     } catch (error) {
       console.error("Error al obtener datos del portafolio:", error);
@@ -296,6 +324,7 @@ export function Portfolio() {
               linked_goal_id: holding?.linked_goal_id
                 ? String(holding.linked_goal_id)
                 : "",
+              record_destination: "transaction",
             };
           }
 
@@ -338,6 +367,11 @@ export function Portfolio() {
       linked_goal_id: trade.linked_goal_id
         ? String(trade.linked_goal_id)
         : "",
+      record_destination: trade.is_planned
+        ? "budget"
+        : trade.linked_transaction_id
+        ? "transaction"
+        : "none",
     };
     setFormState(nextState);
     setInitialSnapshot(nextState);
@@ -402,6 +436,15 @@ export function Portfolio() {
     holdingSymbols,
     holdingsBySymbol,
   ]);
+
+  useEffect(() => {
+    if (
+      formState.type === "sell" &&
+      formState.record_destination !== "transaction"
+    ) {
+      setFormState((prev) => ({ ...prev, record_destination: "transaction" }));
+    }
+  }, [formState.type, formState.record_destination]);
 
   const handleDelete = async (tradeId: number) => {
     if (!window.confirm("¿Deseas eliminar esta operación?")) {
@@ -482,6 +525,21 @@ export function Portfolio() {
       ? Number.parseInt(formState.linked_goal_id, 10)
       : null;
 
+    if (
+      formState.record_destination === "transaction" &&
+      !formState.linked_account_id
+    ) {
+      setFormError(
+        "Selecciona la cuenta donde registrarás el movimiento de efectivo."
+      );
+      return;
+    }
+
+    if (isSale && formState.record_destination === "budget") {
+      setFormError("Las ventas deben registrarse como transacciones.");
+      return;
+    }
+
     const payload = {
       symbol: normalizedSymbol,
       asset_type: resolvedAssetType,
@@ -492,6 +550,7 @@ export function Portfolio() {
       annual_yield_rate: annualYieldRate,
       linked_account_id: linkedAccountId,
       linked_goal_id: linkedGoalId,
+      sync_destination: formState.record_destination,
     };
 
     if (formState.id && initialSnapshot && initialSnapshot.id === formState.id) {
@@ -504,6 +563,7 @@ export function Portfolio() {
       const initialYield = parseFloat(initialSnapshot.annual_yield_rate || "0");
       const initialAccount = initialSnapshot.linked_account_id || "";
       const initialGoal = initialSnapshot.linked_goal_id || "";
+      const initialDestination = initialSnapshot.record_destination || "transaction";
 
       const unchanged =
         initialSymbol === normalizedSymbol &&
@@ -516,7 +576,8 @@ export function Portfolio() {
         initialPrice === price &&
         initialYield === annualYieldRate &&
         initialAccount === (formState.linked_account_id || "") &&
-        initialGoal === (formState.linked_goal_id || "");
+        initialGoal === (formState.linked_goal_id || "") &&
+        initialDestination === formState.record_destination;
 
       if (unchanged) {
         setFormError("No has realizado cambios en esta operación.");
@@ -705,82 +766,190 @@ export function Portfolio() {
               <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Composición actual</h2>
               {loading && <span className="text-xs text-muted">Actualizando...</span>}
             </div>
+            <div className="mt-4 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCompositionTab("paid")}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                  compositionTab === "paid"
+                    ? "bg-sky-600 text-white shadow shadow-sky-500/30"
+                    : "border border-[var(--app-border)] bg-[var(--app-surface-muted)] text-muted hover:border-sky-400 hover:text-sky-600 dark:hover:text-sky-300"
+                }`}
+              >
+                Pagadas ({summary.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setCompositionTab("planned")}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                  compositionTab === "planned"
+                    ? "bg-sky-600 text-white shadow shadow-sky-500/30"
+                    : "border border-[var(--app-border)] bg-[var(--app-surface-muted)] text-muted hover:border-sky-400 hover:text-sky-600 dark:hover:text-sky-300"
+                }`}
+              >
+                Planificadas ({plannedHoldings.length})
+              </button>
+            </div>
             <div className="mt-4 overflow-x-auto">
-              {enrichedSummary.length ? (
+              {compositionTab === "paid" ? (
+                enrichedSummary.length ? (
+                  <table className="min-w-full divide-y divide-[var(--app-border)] text-sm">
+                    <thead>
+                      <tr className="text-left text-xs uppercase tracking-wide text-muted">
+                        <th className="py-2 pr-4">Activo</th>
+                        <th className="py-2 pr-4">Cantidad</th>
+                        <th className="py-2 pr-4 text-right">Costo prom.</th>
+                        <th className="py-2 pr-4 text-right">Valor mercado</th>
+                        <th className="py-2 pr-4 text-right">G/P</th>
+                        <th className="py-2 pr-4 text-right">ROI</th>
+                        <th className="py-2 pr-4 text-right">Rend. mensual</th>
+                        <th className="py-2 text-right">Vinculado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {enrichedSummary.map((asset) => (
+                        <tr
+                          key={asset.symbol}
+                          className="border-b border-[var(--app-border)] text-sm text-slate-700 dark:text-slate-200"
+                        >
+                          <td className="py-3 pr-4">
+                            <div className="font-semibold text-slate-900 dark:text-white">
+                              {asset.symbol}
+                            </div>
+                            <div className="text-xs text-muted">
+                              {asset.asset_type || asset.name}
+                            </div>
+                          </td>
+                          <td className="py-3 pr-4">{asset.quantity.toFixed(4)}</td>
+                          <td className="py-3 pr-4 text-right font-mono text-slate-600 dark:text-slate-200">
+                            {formatCurrency(asset.avg_cost)}
+                          </td>
+                          <td className="py-3 pr-4 text-right font-mono text-sky-600 dark:text-sky-300">
+                            {formatCurrency(asset.market_value)}
+                          </td>
+                          <td
+                            className={`py-3 pr-4 text-right font-mono ${
+                              asset.unrealized_pnl >= 0
+                                ? "text-emerald-600 dark:text-emerald-300"
+                                : "text-rose-600 dark:text-rose-300"
+                            }`}
+                          >
+                            {formatCurrency(asset.unrealized_pnl)}
+                          </td>
+                          <td
+                            className={`py-3 pr-4 text-right font-semibold ${
+                              asset.roi >= 0
+                                ? "text-emerald-600 dark:text-emerald-300"
+                                : "text-rose-600 dark:text-rose-300"
+                            }`}
+                          >
+                            {formatPercent(asset.roi)}
+                          </td>
+                          <td className="py-3 pr-4 text-right font-mono text-amber-600 dark:text-amber-300">
+                            {formatCurrency(asset.monthly_yield ?? 0)}
+                          </td>
+                          <td className="py-3 text-right text-xs text-muted">
+                            {asset.linked_account_name || asset.linked_goal_name
+                              ? (
+                                  <div className="space-y-1 text-right">
+                                    {asset.linked_account_name && (
+                                      <div className="font-medium text-slate-700 dark:text-slate-200">
+                                        Cuenta: {asset.linked_account_name}
+                                      </div>
+                                    )}
+                                    {asset.linked_goal_name && (
+                                      <div className="text-slate-600 dark:text-slate-300">
+                                        Meta: {asset.linked_goal_name}
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              : (
+                                  <span>—</span>
+                                )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="rounded-lg border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)] p-4 text-sm text-muted">
+                    Aún no tienes posiciones activas registradas.
+                  </p>
+                )
+              ) : plannedHoldings.length ? (
                 <table className="min-w-full divide-y divide-[var(--app-border)] text-sm">
                   <thead>
                     <tr className="text-left text-xs uppercase tracking-wide text-muted">
                       <th className="py-2 pr-4">Activo</th>
-                      <th className="py-2 pr-4">Cantidad</th>
-                      <th className="py-2 pr-4 text-right">Costo prom.</th>
-                      <th className="py-2 pr-4 text-right">Valor mercado</th>
-                      <th className="py-2 pr-4 text-right">G/P</th>
-                      <th className="py-2 pr-4 text-right">ROI</th>
-                      <th className="py-2 pr-4 text-right">Rend. mensual</th>
-                      <th className="py-2 text-right">Vinculado</th>
+                      <th className="py-2 pr-4">Tipo</th>
+                      <th className="py-2 pr-4 text-right">Cantidad</th>
+                      <th className="py-2 pr-4 text-right">Precio</th>
+                      <th className="py-2 pr-4 text-right">Total</th>
+                      <th className="py-2 pr-4">Fecha objetivo</th>
+                      <th className="py-2 pr-4">Meta</th>
+                      <th className="py-2 text-right">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {enrichedSummary.map((asset) => (
+                    {plannedHoldings.map((item) => (
                       <tr
-                        key={asset.symbol}
+                        key={item.id}
                         className="border-b border-[var(--app-border)] text-sm text-slate-700 dark:text-slate-200"
                       >
                         <td className="py-3 pr-4">
                           <div className="font-semibold text-slate-900 dark:text-white">
-                            {asset.symbol}
+                            {item.symbol}
                           </div>
-                          <div className="text-xs text-muted">
-                            {asset.asset_type || asset.name}
-                          </div>
+                          <div className="text-xs text-muted">{item.asset_type}</div>
                         </td>
-                        <td className="py-3 pr-4">{asset.quantity.toFixed(4)}</td>
+                        <td className="py-3 pr-4">
+                          <span
+                            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
+                              item.type === "buy"
+                                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
+                                : "bg-rose-500/15 text-rose-600 dark:text-rose-300"
+                            }`}
+                          >
+                            {item.type === "buy" ? "Compra" : "Venta"}
+                          </span>
+                        </td>
+                        <td className="py-3 pr-4 text-right font-mono">
+                          {item.quantity.toFixed(4)}
+                        </td>
                         <td className="py-3 pr-4 text-right font-mono text-slate-600 dark:text-slate-200">
-                          {formatCurrency(asset.avg_cost)}
+                          {formatCurrency(item.price)}
                         </td>
                         <td className="py-3 pr-4 text-right font-mono text-sky-600 dark:text-sky-300">
-                          {formatCurrency(asset.market_value)}
+                          {formatCurrency(item.total_amount)}
                         </td>
-                        <td
-                          className={`py-3 pr-4 text-right font-mono ${
-                            asset.unrealized_pnl >= 0
-                              ? "text-emerald-600 dark:text-emerald-300"
-                              : "text-rose-600 dark:text-rose-300"
-                          }`}
-                        >
-                          {formatCurrency(asset.unrealized_pnl)}
+                        <td className="py-3 pr-4 text-sm text-muted">
+                          {item.budget_due_date
+                            ? formatDate(item.budget_due_date)
+                            : formatDate(item.date)}
+                          {item.budget_description && (
+                            <div className="text-xs">{item.budget_description}</div>
+                          )}
                         </td>
-                        <td
-                          className={`py-3 pr-4 text-right font-semibold ${
-                            asset.roi >= 0
-                              ? "text-emerald-600 dark:text-emerald-300"
-                              : "text-rose-600 dark:text-rose-300"
-                          }`}
-                        >
-                          {formatPercent(asset.roi)}
+                        <td className="py-3 pr-4 text-xs text-muted">
+                          {item.linked_goal_id ? `Meta #${item.linked_goal_id}` : "—"}
                         </td>
-                        <td className="py-3 pr-4 text-right font-mono text-amber-600 dark:text-amber-300">
-                          {formatCurrency(asset.monthly_yield ?? 0)}
-                        </td>
-                        <td className="py-3 text-right text-xs text-muted">
-                          {asset.linked_account_name || asset.linked_goal_name
-                            ? (
-                                <div className="space-y-1 text-right">
-                                  {asset.linked_account_name && (
-                                    <div className="font-medium text-slate-700 dark:text-slate-200">
-                                      Cuenta: {asset.linked_account_name}
-                                    </div>
-                                  )}
-                                  {asset.linked_goal_name && (
-                                    <div className="text-slate-600 dark:text-slate-300">
-                                      Meta: {asset.linked_goal_name}
-                                    </div>
-                                  )}
-                                </div>
-                              )
-                            : (
-                                <span>—</span>
-                              )}
+                        <td className="py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const trade = history.find((entry) => entry.id === item.id);
+                              if (trade) {
+                                handleEdit(trade);
+                                requestAnimationFrame(() => {
+                                  formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                                });
+                              }
+                            }}
+                            className="inline-flex items-center gap-2 rounded-full border border-[var(--app-border)] px-3 py-1 text-xs font-semibold text-slate-700 transition hover:border-sky-400 hover:text-sky-600 dark:text-slate-200"
+                          >
+                            <Pencil className="h-3.5 w-3.5" /> Editar
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -788,7 +957,7 @@ export function Portfolio() {
                 </table>
               ) : (
                 <p className="rounded-lg border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)] p-4 text-sm text-muted">
-                  Aún no tienes posiciones activas registradas.
+                  Aún no tienes inversiones planificadas desde el presupuesto.
                 </p>
               )}
             </div>
@@ -1029,6 +1198,27 @@ export function Portfolio() {
                     className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
                   />
                 </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                  Registrar en
+                </label>
+                <select
+                  value={formState.record_destination}
+                  onChange={handleFieldChange("record_destination")}
+                  className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                >
+                  <option value="transaction">Transacciones</option>
+                  <option value="budget" disabled={isSale}>
+                    Presupuesto
+                  </option>
+                  <option value="none">Solo portafolio</option>
+                </select>
+                {isSale && (
+                  <p className="text-xs text-muted">
+                    Las ventas se registran automáticamente como transacciones.
+                  </p>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">

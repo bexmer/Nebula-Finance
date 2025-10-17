@@ -155,6 +155,28 @@ def ensure_portfolio_asset_enhancements() -> None:
         )
 
 
+def ensure_trade_enhancements() -> None:
+    """Ensure portfolio trades can link to cash movements and budgets."""
+
+    table_name = Trade._meta.table_name
+    existing_columns = _existing_columns(table_name)
+
+    if "linked_transaction_id" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN linked_transaction_id INTEGER'
+        )
+
+    if "linked_budget_entry_id" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN linked_budget_entry_id INTEGER'
+        )
+
+    if "is_planned" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN is_planned INTEGER DEFAULT 0'
+        )
+
+
 def ensure_savings_category_inheritance() -> None:
     """Guarantee savings and debt types inherit variable expense categories."""
 
@@ -310,6 +332,7 @@ def initialize_database() -> None:
             ensure_budget_entry_enhancements()
             ensure_account_interest_columns()
             ensure_portfolio_asset_enhancements()
+            ensure_trade_enhancements()
             ensure_transaction_budget_link()
             ensure_savings_category_inheritance()
             seed_initial_budget_rules()

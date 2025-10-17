@@ -387,6 +387,29 @@ class TradeResponseModel(BaseModel):
     annual_yield_rate: float
     linked_account_id: Optional[int] = None
     linked_goal_id: Optional[int] = None
+    linked_transaction_id: Optional[int] = None
+    linked_budget_entry_id: Optional[int] = None
+    is_planned: bool
+
+
+class PlannedTradeModel(BaseModel):
+    id: int
+    date: datetime.date
+    symbol: str
+    asset_type: str
+    type: Literal["buy", "sell"]
+    quantity: float
+    price: float
+    total_amount: float
+    linked_budget_entry_id: Optional[int] = None
+    budget_due_date: Optional[datetime.date] = None
+    budget_description: Optional[str] = None
+    linked_goal_id: Optional[int] = None
+
+
+class PortfolioSummaryResponseModel(BaseModel):
+    paid: List[PortfolioSummaryModel]
+    planned: List[PlannedTradeModel]
 
 
 class TradeCreateModel(BaseModel):
@@ -399,6 +422,7 @@ class TradeCreateModel(BaseModel):
     annual_yield_rate: Optional[float] = 0.0
     linked_account_id: Optional[int] = None
     linked_goal_id: Optional[int] = None
+    sync_destination: Optional[Literal["transaction", "budget", "none"]] = "none"
 
     @field_validator("quantity", "price")
     @classmethod
@@ -650,7 +674,10 @@ def delete_budget_entry(entry_id: int):
     return result
 
 
-@app.get("/api/portfolio/summary", response_model=List[PortfolioSummaryModel])
+@app.get(
+    "/api/portfolio/summary",
+    response_model=PortfolioSummaryResponseModel,
+)
 def get_portfolio_summary():
     return controller.get_portfolio_assets()
 

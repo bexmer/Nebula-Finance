@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import axios from "axios";
 import {
   AlertCircle,
@@ -49,6 +56,7 @@ interface ParameterOption {
 }
 
 type BudgetStatusFilter = "active" | "upcoming" | "archived" | "all";
+type BudgetTab = "all" | "goals" | "debts";
 
 interface BudgetSummary {
   planned: number;
@@ -90,6 +98,9 @@ export function Budget() {
   const [monthFilter, setMonthFilter] = useState("all");
   const [yearFilter, setYearFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<BudgetStatusFilter>("active");
+  const [activeTab, setActiveTab] = useState<BudgetTab>("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [referenceDate, setReferenceDate] = useState<string>(
     getTodayDateInputValue(),
   );
@@ -153,6 +164,10 @@ export function Budget() {
   }, [budgetEntries]);
 
   useEffect(() => {
+    setSelectedEntryIds([]);
+  }, [activeTab]);
+
+  useEffect(() => {
     axios
       .get<ParameterOption[]>(apiPath("/parameters/transaction-types"))
       .then((res) => setTransactionTypes(res.data));
@@ -169,6 +184,24 @@ export function Budget() {
     }
     return new Date();
   }, []);
+
+  const tabCounts = useMemo(
+    () => ({
+      total: budgetEntries.length,
+      goals: budgetEntries.filter((entry) => Boolean(entry.goal_id)).length,
+      debts: budgetEntries.filter((entry) => Boolean(entry.debt_id)).length,
+    }),
+    [budgetEntries],
+  );
+
+  const tabOptions = useMemo(
+    () => [
+      { key: "all" as BudgetTab, label: "Todos", count: tabCounts.total },
+      { key: "goals" as BudgetTab, label: "Metas", count: tabCounts.goals },
+      { key: "debts" as BudgetTab, label: "Deudas", count: tabCounts.debts },
+    ],
+    [tabCounts],
+  );
 
   const filteredEntries = useMemo(() => {
     return budgetEntries
@@ -188,10 +221,75 @@ export function Budget() {
         const matchesYear =
           yearFilter === "all" || entryYear === Number(yearFilter);
 
-        return matchesSearch && matchesType && matchesMonth && matchesYear;
+        const matchesTab =
+          activeTab === "all" ||
+          (activeTab === "goals" && Boolean(entry.goal_id)) ||
+          (activeTab === "debts" && Boolean(entry.debt_id));
+
+        return matchesSearch && matchesType && matchesMonth && matchesYear && matchesTab;
       })
-      .sort((a, b) => parseEntryDate(a).getTime() - parseEntryDate(b).getTime());
-  }, [budgetEntries, monthFilter, parseEntryDate, searchTerm, typeFilter, yearFilter]);
+      .sort((a, b) => {
+        const diff = parseEntryDate(b).getTime() - parseEntryDate(a).getTime();
+        if (diff !== 0) {
+          return diff;
+        }
+        return (b.id ?? 0) - (a.id ?? 0);
+      });
+  }, [
+    activeTab,
+    budgetEntries,
+    monthFilter,
+    parseEntryDate,
+    searchTerm,
+    typeFilter,
+    yearFilter,
+  ]);
+
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(filteredEntries.length / pageSize)),
+    [filteredEntries.length, pageSize],
+  );
+
+  const paginatedEntries = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    return filteredEntries.slice(startIndex, startIndex + pageSize);
+  }, [filteredEntries, currentPage, pageSize]);
+
+  const pageNumbers = useMemo(() => {
+    const pages: number[] = [];
+    const maxButtons = 5;
+    let start = Math.max(1, currentPage - 2);
+    let end = Math.min(totalPages, start + maxButtons - 1);
+    if (end - start + 1 < maxButtons) {
+      start = Math.max(1, end - maxButtons + 1);
+    }
+    for (let page = start; page <= end; page += 1) {
+      pages.push(page);
+    }
+    return pages;
+  }, [currentPage, totalPages]);
+
+  const handlePageChange = (page: number) => {
+    if (page < 1 || page > totalPages) {
+      return;
+    }
+    setCurrentPage(page);
+  };
+
+  const handlePageSizeChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    setPageSize(Number(event.target.value));
+  };
+
+  useEffect(() => {
+    const total = Math.max(1, Math.ceil(filteredEntries.length / pageSize));
+    if (currentPage > total) {
+      setCurrentPage(total);
+    }
+  }, [filteredEntries.length, pageSize, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, typeFilter, monthFilter, yearFilter, statusFilter, activeTab]);
 
   const totals = useMemo<BudgetSummary>(() => {
     let today = new Date();
@@ -290,9 +388,16 @@ export function Budget() {
 
   const handleToggleAll = (checked: boolean) => {
     if (checked) {
-      setSelectedEntryIds(filteredEntries.map((entry) => entry.id));
+      setSelectedEntryIds((prev) => {
+        const pageIds = paginatedEntries.map((entry) => entry.id);
+        const merged = new Set(prev);
+        pageIds.forEach((id) => merged.add(id));
+        return Array.from(merged);
+      });
     } else {
-      setSelectedEntryIds([]);
+      setSelectedEntryIds((prev) =>
+        prev.filter((id) => !paginatedEntries.some((entry) => entry.id === id))
+      );
     }
   };
 
@@ -383,8 +488,8 @@ export function Budget() {
   };
 
   const isAllSelected =
-    filteredEntries.length > 0 &&
-    filteredEntries.every((entry) => selectedEntryIds.includes(entry.id));
+    paginatedEntries.length > 0 &&
+    paginatedEntries.every((entry) => selectedEntryIds.includes(entry.id));
 
   useEffect(() => {
     if (budgetInitialLoad.current) {
@@ -632,6 +737,34 @@ export function Budget() {
             </div>
           </div>
         </div>
+        <div className="flex flex-wrap items-center gap-2 border-b border-[var(--app-border)] bg-[var(--app-surface)] px-6 py-3">
+          {tabOptions.map((tab) => {
+            const isActive = activeTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 ${
+                  isActive
+                    ? "bg-sky-600 text-white shadow shadow-sky-500/30"
+                    : "border border-[var(--app-border)] bg-[var(--app-surface-muted)] text-muted hover:border-sky-400 hover:text-sky-600 dark:hover:text-sky-300"
+                }`}
+              >
+                <span>{tab.label}</span>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    isActive
+                      ? "bg-white/20 text-white"
+                      : "bg-[var(--app-surface)] text-muted"
+                  }`}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
         <p className="mb-3 text-xs text-muted">
           Haz doble clic en cualquier fila para editar el presupuesto al instante.
         </p>
@@ -676,12 +809,12 @@ export function Budget() {
             <tbody className="divide-y divide-[var(--app-border)]">
               {filteredEntries.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-muted">
+                  <td colSpan={9} className="px-4 py-10 text-center text-muted">
                     No hay presupuestos que coincidan con los filtros actuales.
                   </td>
                 </tr>
               ) : (
-                filteredEntries.map((entry) => {
+                paginatedEntries.map((entry) => {
                   const entryDate = parseEntryDate(entry);
                   const status = getStatusPill(entry);
                   const isSelected = selectedEntryIds.includes(entry.id);
@@ -773,6 +906,60 @@ export function Budget() {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="flex flex-col gap-4 border-t border-[var(--app-border)] bg-[var(--app-surface)] px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-2 text-sm text-muted">
+            <span>Mostrar</span>
+            <select
+              value={pageSize}
+              onChange={handlePageSizeChange}
+              className="rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-2 py-1 text-sm focus:border-sky-400 focus:outline-none"
+            >
+              {[5, 10, 20, 50].map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+            <span>por página</span>
+          </div>
+          <div className="flex flex-col items-center gap-3 text-sm text-muted md:flex-row md:gap-4">
+            <span>
+              Página {currentPage} de {totalPages}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handlePageChange(currentPage - 1)}
+                disabled={currentPage === 1}
+                className="rounded-lg border border-[var(--app-border)] px-3 py-1 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Anterior
+              </button>
+              {pageNumbers.map((page) => (
+                <button
+                  key={page}
+                  type="button"
+                  onClick={() => handlePageChange(page)}
+                  className={`rounded-lg px-3 py-1 text-sm font-semibold transition ${
+                    currentPage === page
+                      ? "bg-sky-600 text-white"
+                      : "border border-[var(--app-border)] hover:border-sky-400"
+                  }`}
+                >
+                  {page}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => handlePageChange(currentPage + 1)}
+                disabled={currentPage === totalPages}
+                className="rounded-lg border border-[var(--app-border)] px-3 py-1 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 

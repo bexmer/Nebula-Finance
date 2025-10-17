@@ -2786,14 +2786,19 @@ class AppController:
     def delete_goal(self, goal_id):
         try:
             Transaction.update(goal=None).where(Transaction.goal == goal_id).execute()
+            BudgetEntry.update(goal=None).where(BudgetEntry.goal == goal_id).execute()
+            PortfolioAsset.update(linked_goal=None).where(
+                PortfolioAsset.linked_goal == goal_id
+            ).execute()
             Goal.get_by_id(goal_id).delete_instance()
             return {"success": True}
         except Goal.DoesNotExist:
             return {"error": "La meta no existe."}
-            
+
     def delete_debt(self, debt_id):
         try:
             Transaction.update(debt=None).where(Transaction.debt == debt_id).execute()
+            BudgetEntry.update(debt=None).where(BudgetEntry.debt == debt_id).execute()
             Debt.get_by_id(debt_id).delete_instance()
             return {"success": True}
         except Debt.DoesNotExist:
@@ -3155,8 +3160,149 @@ class AppController:
     # --- SECCIÓN: PORTAFOLIO (Portfolio) ---
     # =================================================================
     
+    def _trade_total_amount(self, payload: Dict[str, Any]) -> float:
+        quantity = float(payload.get("quantity") or 0.0)
+        price = float(payload.get("price") or 0.0)
+        return quantity * price
+
+    def _build_trade_transaction_data(
+        self,
+        payload: Dict[str, Any],
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        account = payload.get("linked_account")
+        if account is None:
+            return None, "Selecciona una cuenta para registrar la operación."
+
+        normalized_type = self._normalize_trade_type(payload["trade_type"])
+        amount = self._trade_total_amount(payload)
+        description_prefix = "Venta" if normalized_type == "Venta" else "Compra"
+        goal = payload.get("linked_goal")
+
+        data = {
+            "account_id": account.id,
+            "date": payload["date"].isoformat(),
+            "description": f"[Portafolio] {description_prefix} de {payload['symbol']}",
+            "amount": amount,
+            "type": "Ingreso" if normalized_type == "Venta" else "Gasto",
+            "category": "Otros Ingresos" if normalized_type == "Venta" else "Otros Gastos",
+            "goal_id": getattr(goal, "id", None),
+            "debt_id": None,
+            "budget_entry_id": None,
+            "is_transfer": False,
+        }
+        return data, None
+
+    def _build_trade_budget_data(
+        self,
+        payload: Dict[str, Any],
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        normalized_type = self._normalize_trade_type(payload["trade_type"])
+        if normalized_type == "Venta":
+            return None, "Las ventas deben registrarse como transacciones."
+
+        amount = self._trade_total_amount(payload)
+        description = f"[Portafolio] Compra planificada de {payload['symbol']}"
+        goal = payload.get("linked_goal")
+        date_value = payload["date"].isoformat()
+
+        data = {
+            "description": description,
+            "category": payload.get("asset_type") or f"Inversión {payload['symbol']}",
+            "type": "Gasto",
+            "budgeted_amount": amount,
+            "frequency": "Única vez",
+            "use_custom_schedule": True,
+            "start_date": date_value,
+            "due_date": date_value,
+            "end_date": date_value,
+            "goal_id": getattr(goal, "id", None),
+            "debt_id": None,
+            "is_recurring": False,
+        }
+        return data, None
+
+    def _create_trade_transaction(self, trade: Trade, payload: Dict[str, Any]):
+        data, error = self._build_trade_transaction_data(payload)
+        if error:
+            return {"error": error}
+
+        result = self.add_transaction(data)
+        if "error" in result:
+            return result
+
+        trade.linked_transaction = result["id"]
+        trade.save()
+        return {"success": True}
+
+    def _update_trade_transaction(self, trade: Trade, payload: Dict[str, Any]):
+        data, error = self._build_trade_transaction_data(payload)
+        if error:
+            return {"error": error}
+
+        if not getattr(trade, "linked_transaction_id", None):
+            return self._create_trade_transaction(trade, payload)
+
+        result = self.update_transaction(trade.linked_transaction_id, data)
+        if "error" in result:
+            return result
+        return {"success": True}
+
+    def _delete_trade_transaction(self, trade: Trade):
+        transaction_id = getattr(trade, "linked_transaction_id", None)
+        if not transaction_id:
+            return {"success": True}
+
+        result = self.delete_transaction(transaction_id, adjust_balance=True)
+        if "error" in result:
+            return result
+
+        trade.linked_transaction = None
+        trade.save()
+        return {"success": True}
+
+    def _create_trade_budget(self, trade: Trade, payload: Dict[str, Any]):
+        data, error = self._build_trade_budget_data(payload)
+        if error:
+            return {"error": error}
+
+        result = self.add_budget_entry(data)
+        if "error" in result:
+            return result
+
+        trade.linked_budget_entry = result["id"]
+        trade.save()
+        return {"success": True}
+
+    def _update_trade_budget(self, trade: Trade, payload: Dict[str, Any]):
+        data, error = self._build_trade_budget_data(payload)
+        if error:
+            return {"error": error}
+
+        entry_id = getattr(trade, "linked_budget_entry_id", None)
+        if not entry_id:
+            return self._create_trade_budget(trade, payload)
+
+        result = self.update_budget_entry(entry_id, data)
+        if "error" in result:
+            return result
+        return {"success": True}
+
+    def _delete_trade_budget(self, trade: Trade):
+        entry_id = getattr(trade, "linked_budget_entry_id", None)
+        if not entry_id:
+            return {"success": True}
+
+        result = self.delete_budget_entry(entry_id)
+        if "error" in result:
+            return result
+
+        trade.linked_budget_entry = None
+        trade.save()
+        return {"success": True}
+
     def get_portfolio_assets(self):
-        """Obtiene todos los activos del portafolio listos para la vista del frontend."""
+        """Obtiene los activos ejecutados y las operaciones planificadas."""
+
         assets = (
             PortfolioAsset
             .select(PortfolioAsset, Account, Goal)
@@ -3167,7 +3313,7 @@ class AppController:
             .order_by(PortfolioAsset.symbol)
         )
 
-        summary = []
+        paid = []
         for asset in assets:
             quantity = float(asset.total_quantity or 0)
             avg_cost = float(asset.avg_cost_price or 0)
@@ -3181,7 +3327,7 @@ class AppController:
             linked_account = getattr(asset, "linked_account", None)
             linked_goal = getattr(asset, "linked_goal", None)
 
-            summary.append(
+            paid.append(
                 {
                     "symbol": asset.symbol,
                     "name": asset.asset_type,
@@ -3199,7 +3345,46 @@ class AppController:
                 }
             )
 
-        return summary
+        planned_trades = (
+            Trade
+            .select(Trade, PortfolioAsset, BudgetEntry, Goal)
+            .join(PortfolioAsset)
+            .switch(Trade)
+            .join(BudgetEntry, JOIN.LEFT_OUTER)
+            .switch(PortfolioAsset)
+            .join(Goal, JOIN.LEFT_OUTER)
+            .switch(Trade)
+            .where(Trade.is_planned == True)  # pylint: disable=singleton-comparison
+            .order_by(Trade.date.desc(), Trade.id.desc())
+        )
+
+        planned = []
+        for trade in planned_trades:
+            normalized = self._normalize_trade_type(trade.trade_type)
+            direction = "buy" if normalized == "Compra" else "sell"
+            quantity = float(trade.quantity or 0)
+            price = float(trade.price_per_unit or 0)
+            budget_entry = getattr(trade, "linked_budget_entry", None)
+            linked_goal = getattr(trade.asset, "linked_goal", None)
+
+            planned.append(
+                {
+                    "id": trade.id,
+                    "date": trade.date,
+                    "symbol": trade.asset.symbol,
+                    "asset_type": trade.asset.asset_type,
+                    "type": direction,
+                    "quantity": quantity,
+                    "price": price,
+                    "total_amount": quantity * price,
+                    "linked_budget_entry_id": getattr(trade, "linked_budget_entry_id", None),
+                    "budget_due_date": getattr(budget_entry, "due_date", None),
+                    "budget_description": getattr(budget_entry, "description", None),
+                    "linked_goal_id": getattr(linked_goal, "id", None),
+                }
+            )
+
+        return {"paid": paid, "planned": planned}
 
     def get_trade_history(self):
         """Obtiene el historial de operaciones listo para la vista del frontend."""
@@ -3221,6 +3406,10 @@ class AppController:
             payload = self._parse_trade_payload(data)
         except ValueError as exc:
             return {"error": str(exc)}
+
+        destination = str(data.get("sync_destination") or "none").strip().lower()
+        if destination not in {"transaction", "budget", "none"}:
+            return {"error": "Destino de registro no válido."}
 
         asset, created = PortfolioAsset.get_or_create(
             symbol=payload["symbol"], defaults={"asset_type": payload["asset_type"]}
@@ -3245,32 +3434,62 @@ class AppController:
         if metadata_dirty:
             asset.save()
 
-        projected_entries = self._build_trade_entries(asset)
-        projected_entries.append({
-            "id": None,
-            "date": payload["date"],
-            "trade_type": payload["trade_type"],
-            "quantity": payload["quantity"],
-            "price": payload["price"],
-        })
+        normalized_type = self._normalize_trade_type(payload["trade_type"])
+        is_planned = destination == "budget"
+
+        if destination == "transaction" and payload.get("linked_account") is None:
+            return {"error": "Selecciona una cuenta para registrar la operación."}
+
+        executed_entries = self._build_trade_entries(asset)
+        if not is_planned:
+            projected_entries = executed_entries + [
+                {
+                    "id": None,
+                    "date": payload["date"],
+                    "trade_type": payload["trade_type"],
+                    "quantity": payload["quantity"],
+                    "price": payload["price"],
+                }
+            ]
+            try:
+                self._project_portfolio_asset(projected_entries, strict=True)
+            except ValueError as exc:
+                return {"error": str(exc)}
+        else:
+            if normalized_type == "Venta":
+                current_qty, _, _ = self._project_portfolio_asset(executed_entries, strict=True)
+                if payload["quantity"] - current_qty > 1e-4:
+                    return {
+                        "error": "No puedes vender más activos ejecutados de los que posees."
+                    }
 
         try:
-            total_qty, avg_cost, last_price = self._project_portfolio_asset(projected_entries, strict=True)
+            with db.atomic():
+                trade = Trade.create(
+                    asset=asset,
+                    trade_type=payload["trade_type"],
+                    quantity=payload["quantity"],
+                    price_per_unit=payload["price"],
+                    date=payload["date"],
+                    is_planned=is_planned,
+                )
+
+                if destination == "transaction":
+                    sync_result = self._create_trade_transaction(trade, payload)
+                    if "error" in sync_result:
+                        raise ValueError(sync_result["error"])
+                    trade.is_planned = False
+                    trade.save()
+                elif destination == "budget":
+                    sync_result = self._create_trade_budget(trade, payload)
+                    if "error" in sync_result:
+                        raise ValueError(sync_result["error"])
+                    trade.is_planned = True
+                    trade.save()
+
+                self._recalculate_portfolio_asset(asset, strict=True)
         except ValueError as exc:
             return {"error": str(exc)}
-
-        trade = Trade.create(
-            asset=asset,
-            trade_type=payload["trade_type"],
-            quantity=payload["quantity"],
-            price_per_unit=payload["price"],
-            date=payload["date"],
-        )
-
-        asset.total_quantity = total_qty
-        asset.avg_cost_price = avg_cost
-        asset.current_price = last_price
-        asset.save()
 
         return self._serialize_trade(trade)
 
@@ -3285,10 +3504,31 @@ class AppController:
         except ValueError as exc:
             return {"error": str(exc)}
 
+        raw_destination = data.get("sync_destination")
+        if raw_destination in (None, ""):
+            if getattr(trade, "is_planned", False):
+                destination = "budget"
+            elif getattr(trade, "linked_transaction_id", None):
+                destination = "transaction"
+            else:
+                destination = "none"
+        else:
+            destination = str(raw_destination).strip().lower()
+
+        if destination not in {"transaction", "budget", "none"}:
+            return {"error": "Destino de registro no válido."}
+
+        normalized_type = self._normalize_trade_type(payload["trade_type"])
+        is_planned = destination == "budget"
+
+        if destination == "transaction" and payload.get("linked_account") is None:
+            return {"error": "Selecciona una cuenta para registrar la operación."}
+
         original_asset = trade.asset
         target_asset, created = PortfolioAsset.get_or_create(
             symbol=payload["symbol"], defaults={"asset_type": payload["asset_type"]}
         )
+
         metadata_dirty = False
         if payload["asset_type"] and target_asset.asset_type != payload["asset_type"]:
             target_asset.asset_type = payload["asset_type"]
@@ -3309,48 +3549,77 @@ class AppController:
         if metadata_dirty:
             target_asset.save()
 
-        # Construimos la proyección para el activo destino
-        target_entries = self._build_trade_entries(target_asset, exclude_id=trade.id if target_asset.id == original_asset.id else None)
-        target_entries.append({
+        exclude_id = trade.id if target_asset.id == original_asset.id else None
+        target_entries = self._build_trade_entries(target_asset, exclude_id=exclude_id)
+        new_entry = {
             "id": trade.id,
             "date": payload["date"],
             "trade_type": payload["trade_type"],
             "quantity": payload["quantity"],
             "price": payload["price"],
-        })
+        }
 
-        try:
-            target_qty, target_avg, target_price = self._project_portfolio_asset(target_entries, strict=True)
-        except ValueError as exc:
-            return {"error": str(exc)}
-
-        # Si el activo cambia, recalculamos también el original excluyendo la operación
-        if original_asset.id != target_asset.id:
-            original_entries = self._build_trade_entries(original_asset, exclude_id=trade.id)
+        if not is_planned:
+            projected_entries = target_entries + [new_entry]
             try:
-                orig_qty, orig_avg, orig_price = self._project_portfolio_asset(original_entries, strict=True)
+                self._project_portfolio_asset(projected_entries, strict=True)
             except ValueError as exc:
                 return {"error": str(exc)}
         else:
-            orig_qty, orig_avg, orig_price = target_qty, target_avg, target_price
+            if normalized_type == "Venta":
+                current_qty, _, _ = self._project_portfolio_asset(target_entries, strict=True)
+                if payload["quantity"] - current_qty > 1e-4:
+                    return {
+                        "error": "No puedes vender más activos ejecutados de los que posees."
+                    }
 
-        trade.asset = target_asset
-        trade.trade_type = payload["trade_type"]
-        trade.quantity = payload["quantity"]
-        trade.price_per_unit = payload["price"]
-        trade.date = payload["date"]
-        trade.save()
+        try:
+            with db.atomic():
+                trade.asset = target_asset
+                trade.trade_type = payload["trade_type"]
+                trade.quantity = payload["quantity"]
+                trade.price_per_unit = payload["price"]
+                trade.date = payload["date"]
+                trade.is_planned = is_planned
+                trade.save()
 
-        target_asset.total_quantity = target_qty
-        target_asset.avg_cost_price = target_avg
-        target_asset.current_price = target_price
-        target_asset.save()
+                if destination == "transaction":
+                    if getattr(trade, "linked_budget_entry_id", None):
+                        removal = self._delete_trade_budget(trade)
+                        if "error" in removal:
+                            raise ValueError(removal["error"])
+                    sync_result = self._update_trade_transaction(trade, payload)
+                    if "error" in sync_result:
+                        raise ValueError(sync_result["error"])
+                    trade.is_planned = False
+                    trade.save()
+                elif destination == "budget":
+                    if getattr(trade, "linked_transaction_id", None):
+                        removal = self._delete_trade_transaction(trade)
+                        if "error" in removal:
+                            raise ValueError(removal["error"])
+                    sync_result = self._update_trade_budget(trade, payload)
+                    if "error" in sync_result:
+                        raise ValueError(sync_result["error"])
+                    trade.is_planned = True
+                    trade.save()
+                else:
+                    if getattr(trade, "linked_transaction_id", None):
+                        removal = self._delete_trade_transaction(trade)
+                        if "error" in removal:
+                            raise ValueError(removal["error"])
+                    if getattr(trade, "linked_budget_entry_id", None):
+                        removal = self._delete_trade_budget(trade)
+                        if "error" in removal:
+                            raise ValueError(removal["error"])
+                    trade.is_planned = False
+                    trade.save()
 
-        if original_asset.id != target_asset.id:
-            original_asset.total_quantity = orig_qty
-            original_asset.avg_cost_price = orig_avg
-            original_asset.current_price = orig_price
-            original_asset.save()
+                self._recalculate_portfolio_asset(target_asset, strict=True)
+                if original_asset.id != target_asset.id:
+                    self._recalculate_portfolio_asset(original_asset, strict=True)
+        except ValueError as exc:
+            return {"error": str(exc)}
 
         return self._serialize_trade(trade)
 
@@ -3361,8 +3630,19 @@ class AppController:
             return {"error": "La operación no existe."}
 
         asset = trade.asset
-        trade.delete_instance()
-        self._recalculate_portfolio_asset(asset)
+        try:
+            with db.atomic():
+                removal_tx = self._delete_trade_transaction(trade)
+                if "error" in removal_tx:
+                    raise ValueError(removal_tx["error"])
+                removal_budget = self._delete_trade_budget(trade)
+                if "error" in removal_budget:
+                    raise ValueError(removal_budget["error"])
+                trade.delete_instance()
+                self._recalculate_portfolio_asset(asset, strict=True)
+        except ValueError as exc:
+            return {"error": str(exc)}
+
         return {"success": True}
 
     # --- Métodos de utilidad internos ---
@@ -3470,12 +3750,17 @@ class AppController:
             "annual_yield_rate": float(getattr(trade.asset, "annual_yield_rate", 0) or 0),
             "linked_account_id": getattr(getattr(trade.asset, "linked_account", None), "id", None),
             "linked_goal_id": getattr(getattr(trade.asset, "linked_goal", None), "id", None),
+            "linked_transaction_id": getattr(trade, "linked_transaction_id", None),
+            "linked_budget_entry_id": getattr(trade, "linked_budget_entry_id", None),
+            "is_planned": bool(getattr(trade, "is_planned", False)),
         }
 
-    def _build_trade_entries(self, asset, exclude_id=None):
+    def _build_trade_entries(self, asset, exclude_id=None, include_planned=False):
         entries = []
         for trade in asset.trades:
             if exclude_id and trade.id == exclude_id:
+                continue
+            if not include_planned and getattr(trade, "is_planned", False):
                 continue
             entries.append({
                 "id": trade.id,
@@ -3513,7 +3798,7 @@ class AppController:
                 total_quantity += quantity
                 avg_cost = total_cost / total_quantity if total_quantity > 0 else 0.0
             else:
-                if strict and quantity > total_quantity + 1e-6:
+                if strict and quantity - total_quantity > 1e-4:
                     raise ValueError("No puedes vender más activos de los que posees.")
                 total_quantity = max(total_quantity - quantity, 0.0)
 
