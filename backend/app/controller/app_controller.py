@@ -1383,16 +1383,16 @@ class AppController:
             ]
             transfer_account = getattr(transaction, 'transfer_account', None)
 
-                transaction_data = {
-                    "id": transaction.id,
-                    "date": transaction.date.isoformat(),
-                    "description": transaction.description,
-                    "amount": float(transaction.amount or 0),
-                    "type": transaction.type,
-                    "portfolio_direction": getattr(transaction, 'portfolio_direction', None),
-                    "category": transaction.category,
-                    "account_id": transaction.account_id,
-                    "account": account.__data__ if account else None,
+            transaction_data = {
+                "id": transaction.id,
+                "date": transaction.date.isoformat(),
+                "description": transaction.description,
+                "amount": float(transaction.amount or 0),
+                "type": transaction.type,
+                "portfolio_direction": getattr(transaction, 'portfolio_direction', None),
+                "category": transaction.category,
+                "account_id": transaction.account_id,
+                "account": account.__data__ if account else None,
                 "goal_id": transaction.goal.id if transaction.goal else None,
                 "goal_name": transaction.goal.name if transaction.goal else None,
                 "debt_id": transaction.debt.id if transaction.debt else None,
