@@ -15,6 +15,7 @@ export interface Transaction {
   description: string;
   amount: number;
   type: string;
+  portfolio_direction?: string | null;
   category: string;
   account_id: number;
   account?: { name: string }; // La cuenta puede ser opcional al crear

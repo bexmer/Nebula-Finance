@@ -799,7 +799,12 @@ export function Transactions() {
                 ) : (
                   paginatedTransactions.map((t) => {
                       const isSelected = selectedTransactionIds.includes(t.id);
-                      const isIncome = t.type === "Ingreso";
+                      const normalizedType = (t.type || "").toLowerCase();
+                      const isPortfolioMovement = normalizedType === "movimiento portafolio";
+                      const normalizedDirection = (t.portfolio_direction || "").toLowerCase();
+                      const isIncome =
+                        t.type === "Ingreso" ||
+                        (isPortfolioMovement && normalizedDirection === "venta");
                       const isTransfer = Boolean(t.is_transfer);
                       const splits = t.splits ?? [];
                       const hasSplits = splits.length > 0;
@@ -813,6 +818,13 @@ export function Transactions() {
                         : isIncome
                           ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
                           : "bg-rose-500/15 text-rose-600 dark:text-rose-300";
+                      const typeBadgeText = isTransfer
+                        ? "Transferencia"
+                        : isPortfolioMovement
+                          ? normalizedDirection === "venta"
+                            ? "Portafolio (Venta)"
+                            : "Portafolio (Compra)"
+                          : t.type;
                     return (
                       <tr
                         key={t.id}
@@ -881,7 +893,7 @@ export function Transactions() {
                             <span
                               className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${typeBadgeClass}`}
                             >
-                              {isTransfer ? "Transferencia" : t.type}
+                              {typeBadgeText}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-sm text-muted">

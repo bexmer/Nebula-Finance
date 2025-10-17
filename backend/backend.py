@@ -130,6 +130,7 @@ class TransactionModel(BaseModel):
     amount: float
     date: datetime.date
     type: str
+    portfolio_direction: Optional[str] = None
     category: Optional[str] = None
     account_id: int
     goal_id: Optional[int] = None
@@ -386,6 +387,7 @@ class TradeResponseModel(BaseModel):
     price: float
     annual_yield_rate: float
     linked_account_id: Optional[int] = None
+     linked_account_name: Optional[str] = None
     linked_goal_id: Optional[int] = None
     linked_transaction_id: Optional[int] = None
     linked_budget_entry_id: Optional[int] = None

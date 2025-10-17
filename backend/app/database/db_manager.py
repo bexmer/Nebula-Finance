@@ -62,6 +62,11 @@ def ensure_transaction_enhancements() -> None:
             f'ALTER TABLE "{table_name}" ADD COLUMN transfer_account_id INTEGER'
         )
 
+    if "portfolio_direction" not in existing_columns:
+        db.execute_sql(
+            f'ALTER TABLE "{table_name}" ADD COLUMN portfolio_direction TEXT'
+        )
+
 
 def ensure_account_interest_columns() -> None:
     """Ensure savings account interest metadata columns exist."""
@@ -267,6 +272,12 @@ def seed_initial_parameters() -> None:
         budget_rule=estabilidad,
         extra_data=json.dumps({"inherits": []}),
     )
+    movimiento_portafolio = Parameter.create(
+        group="Tipo de Transacción",
+        value="Movimiento Portafolio",
+        is_deletable=False,
+        budget_rule=crecimiento,
+    )
 
     Parameter.create(group="Categoría", value="Nómina", parent=ingreso)
     Parameter.create(group="Categoría", value="Freelance", parent=ingreso)
@@ -293,10 +304,21 @@ def seed_initial_parameters() -> None:
     Parameter.create(group="Tipo de Cuenta", value="Tarjeta de Crédito")
     Parameter.create(group="Tipo de Cuenta", value="Efectivo")
 
-    Parameter.create(group="Tipo de Activo", value="Acción")
-    Parameter.create(group="Tipo de Activo", value="Fondo de Inversión")
-    Parameter.create(group="Tipo de Activo", value="Criptomoneda")
-    Parameter.create(group="Tipo de Activo", value="Cuenta de Ahorro")
+    asset_type_values = [
+        "Acción",
+        "Fondo de Inversión",
+        "Criptomoneda",
+        "Cuenta de Ahorro",
+    ]
+    for asset_type_value in asset_type_values:
+        Parameter.create(group="Tipo de Activo", value=asset_type_value)
+        if "ahorro" in asset_type_value.lower():
+            continue
+        Parameter.create(
+            group="Categoría",
+            value=asset_type_value,
+            parent=movimiento_portafolio,
+        )
 
     print("Initial parameters seeded with parent-child relationships.")
 
@@ -316,6 +338,42 @@ def ensure_transfer_transaction_type() -> None:
             is_deletable=False,
         )
 
+
+def ensure_portfolio_transaction_catalog() -> None:
+    """Ensure the portfolio transaction type and categories exist."""
+
+    movimiento = Parameter.get_or_none(
+        (Parameter.group == "Tipo de Transacción")
+        & (Parameter.value == "Movimiento Portafolio")
+    )
+
+    if not movimiento:
+        crecimiento = BudgetRule.get_or_none(BudgetRule.name == "Crecimiento")
+        movimiento = Parameter.create(
+            group="Tipo de Transacción",
+            value="Movimiento Portafolio",
+            is_deletable=False,
+            budget_rule=crecimiento,
+        )
+
+    asset_types = Parameter.select().where(Parameter.group == "Tipo de Activo")
+    existing_categories = {
+        parameter.value
+        for parameter in Parameter.select().where(
+            (Parameter.group == "Categoría") & (Parameter.parent == movimiento)
+        )
+    }
+
+    for asset_type in asset_types:
+        if not asset_type.value or "ahorro" in asset_type.value.lower():
+            continue
+        if asset_type.value in existing_categories:
+            continue
+        Parameter.create(
+            group="Categoría",
+            value=asset_type.value,
+            parent=movimiento,
+        )
 
 def initialize_database() -> None:
     """Connect to the database, create tables, and seed initial data."""
@@ -338,6 +396,7 @@ def initialize_database() -> None:
             seed_initial_budget_rules()
             seed_initial_parameters()
             ensure_transfer_transaction_type()
+            ensure_portfolio_transaction_catalog()
 
             print("Database initialization complete.")
     except OperationalError as exc:

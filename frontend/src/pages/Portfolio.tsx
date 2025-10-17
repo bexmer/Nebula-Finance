@@ -37,6 +37,7 @@ interface TradeHistory {
   price: number;
   annual_yield_rate?: number;
   linked_account_id?: number | null;
+  linked_account_name?: string | null;
   linked_goal_id?: number | null;
   linked_transaction_id?: number | null;
   linked_budget_entry_id?: number | null;
@@ -117,6 +118,8 @@ export function Portfolio() {
   const [summary, setSummary] = useState<PortfolioSummary[]>([]);
   const [plannedHoldings, setPlannedHoldings] = useState<PlannedHolding[]>([]);
   const [history, setHistory] = useState<TradeHistory[]>([]);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState(10);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [formState, setFormState] = useState<TradeFormState>(() =>
@@ -165,6 +168,21 @@ export function Portfolio() {
     [assetTypes]
   );
 
+  const paginatedHistory = useMemo(() => {
+    const startIndex = (historyPage - 1) * historyPageSize;
+    return history.slice(startIndex, startIndex + historyPageSize);
+  }, [history, historyPage, historyPageSize]);
+
+  const totalHistoryPages = useMemo(
+    () => Math.max(1, Math.ceil(history.length / historyPageSize)),
+    [history.length, historyPageSize]
+  );
+
+  const historyPageNumbers = useMemo(
+    () => Array.from({ length: totalHistoryPages }, (_, index) => index + 1),
+    [totalHistoryPages]
+  );
+
   const fetchPortfolio = useCallback(async () => {
     setLoading(true);
     setFetchError(null);
@@ -176,6 +194,7 @@ export function Portfolio() {
       setSummary(summaryRes.data.paid ?? []);
       setPlannedHoldings(summaryRes.data.planned ?? []);
       setHistory(historyRes.data);
+      setHistoryPage(1);
     } catch (error) {
       console.error("Error al obtener datos del portafolio:", error);
       setFetchError("No pudimos cargar tu portafolio. Intenta nuevamente.");
@@ -187,6 +206,25 @@ export function Portfolio() {
   useEffect(() => {
     fetchPortfolio();
   }, [fetchPortfolio]);
+
+  useEffect(() => {
+    const total = Math.max(1, Math.ceil(history.length / historyPageSize));
+    if (historyPage > total) {
+      setHistoryPage(total);
+    }
+  }, [history.length, historyPage, historyPageSize]);
+
+  const handleHistoryPageChange = useCallback((page: number) => {
+    setHistoryPage(page);
+  }, []);
+
+  const handleHistoryPageSizeChange = useCallback(
+    (event: ChangeEvent<HTMLSelectElement>) => {
+      setHistoryPageSize(Number(event.target.value));
+      setHistoryPage(1);
+    },
+    []
+  );
 
   useEffect(() => {
     const handleNewTradeRequest = () => {
@@ -1010,10 +1048,11 @@ export function Portfolio() {
                     </tr>
                   </thead>
                   <tbody>
-                    {history.map((trade) => (
+                    {paginatedHistory.map((trade) => (
                       <tr
                         key={trade.id}
-                        className="border-b border-[var(--app-border)] text-sm text-slate-700 dark:text-slate-200"
+                        className="border-b border-[var(--app-border)] text-sm text-slate-700 transition hover:bg-[var(--app-surface-muted)]/60 dark:text-slate-200"
+                        onDoubleClick={() => handleEdit(trade)}
                       >
                         <td className="py-3 pr-4 text-slate-600 dark:text-slate-300">
                           {formatDate(trade.date)}
@@ -1046,10 +1085,16 @@ export function Portfolio() {
                         <td className="py-3 pr-4 text-xs text-muted">
                           {trade.linked_account_id || trade.linked_goal_id ? (
                             <div className="space-y-1">
-                              {trade.linked_account_id && (
+                              {trade.linked_account_name ? (
                                 <div className="font-medium text-slate-700 dark:text-slate-200">
-                                  Cuenta #{trade.linked_account_id}
+                                  {trade.linked_account_name}
                                 </div>
+                              ) : (
+                                trade.linked_account_id && (
+                                  <div className="font-medium text-slate-700 dark:text-slate-200">
+                                    Cuenta #{trade.linked_account_id}
+                                  </div>
+                                )
                               )}
                               {trade.linked_goal_id && (
                                 <div className="text-slate-600 dark:text-slate-300">
@@ -1084,11 +1129,67 @@ export function Portfolio() {
                   </tbody>
                 </table>
               ) : (
-              <p className="rounded-lg border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)] p-4 text-sm text-muted">
+                <p className="rounded-lg border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)] p-4 text-sm text-muted">
                   No hay operaciones registradas todavía.
                 </p>
               )}
             </div>
+            {history.length > 0 && (
+              <div className="mt-4 flex flex-col gap-3 border-t border-[var(--app-border)] pt-4 text-sm text-muted sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2">
+                  <span>Mostrar</span>
+                  <select
+                    value={historyPageSize}
+                    onChange={handleHistoryPageSizeChange}
+                    className="rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-2 py-1 text-sm focus:border-sky-400 focus:outline-none"
+                  >
+                    {[5, 10, 20, 50].map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                  <span>por página</span>
+                </div>
+                <div className="flex flex-col items-center gap-2 sm:flex-row sm:gap-3">
+                  <span>
+                    Página {historyPage} de {totalHistoryPages}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleHistoryPageChange(Math.max(1, historyPage - 1))}
+                      disabled={historyPage === 1}
+                      className="rounded-lg border border-[var(--app-border)] px-3 py-1 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Anterior
+                    </button>
+                    {historyPageNumbers.map((page) => (
+                      <button
+                        key={page}
+                        type="button"
+                        onClick={() => handleHistoryPageChange(page)}
+                        className={`rounded-lg px-3 py-1 text-sm font-semibold transition ${
+                          historyPage === page
+                            ? "bg-sky-600 text-white"
+                            : "border border-[var(--app-border)] hover:border-sky-400"
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => handleHistoryPageChange(Math.min(totalHistoryPages, historyPage + 1))}
+                      disabled={historyPage === totalHistoryPages}
+                      className="rounded-lg border border-[var(--app-border)] px-3 py-1 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Siguiente
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </section>
 

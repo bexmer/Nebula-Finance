@@ -59,6 +59,7 @@ const createInitialState = () => ({
   budget_entry_id: "",
   is_transfer: false,
   transfer_account_id: "",
+  portfolio_direction: "",
 });
 
 const normalizeTypeLabel = (value: string) =>
@@ -130,6 +131,7 @@ export const TransactionModal = () => {
   const shouldShowGoalSelect = requiresGoal || Boolean(formData.goal_id);
   const shouldShowDebtSelect = requiresDebt || Boolean(formData.debt_id);
   const isTransfer = formData.is_transfer;
+  const isPortfolioMovement = normalizedTypeName.includes("portafolio");
 
   const availableDestinationAccounts = useMemo(
     () =>
@@ -138,8 +140,12 @@ export const TransactionModal = () => {
   );
 
   const canUseSplit = useMemo(
-    () => !isTransfer && Boolean(formData.typeId) && categories.length > 0,
-    [categories.length, formData.typeId, isTransfer]
+    () =>
+      !isTransfer &&
+      !isPortfolioMovement &&
+      Boolean(formData.typeId) &&
+      categories.length > 0,
+    [categories.length, formData.typeId, isPortfolioMovement, isTransfer]
   );
 
   const normalizeTagValue = useCallback((value: string) => {
@@ -307,12 +313,14 @@ export const TransactionModal = () => {
         : undefined;
 
       let isTransferSelection = false;
+      let isPortfolioSelection = false;
       let requiresGoal = false;
       let requiresDebt = false;
 
       if (selectedType) {
         const normalized = normalizeTypeLabel(selectedType.value);
         isTransferSelection = normalized.includes("transferencia");
+        isPortfolioSelection = normalized.includes("portafolio");
         requiresGoal = normalized.includes("ahorro");
         requiresDebt = normalized.includes("deuda");
 
@@ -355,11 +363,15 @@ export const TransactionModal = () => {
             : "",
           goal_id: resolvedGoal,
           debt_id: resolvedDebt,
+          portfolio_direction: isPortfolioSelection
+            ? prev.portfolio_direction || "Compra"
+            : "",
         };
 
         if (isTransferSelection) {
           next.goal_id = "";
           next.debt_id = "";
+          next.portfolio_direction = "";
         }
 
         if (categoryOverride) {
@@ -375,11 +387,13 @@ export const TransactionModal = () => {
         return next;
       });
 
-      if (isTransferSelection) {
+      if (isTransferSelection || isPortfolioSelection) {
         setSplitMode(false);
         setSplitItems([]);
-        setCategories([]);
-        return;
+        if (isTransferSelection) {
+          setCategories([]);
+          return;
+        }
       }
 
       if (numericType) {
@@ -712,6 +726,7 @@ export const TransactionModal = () => {
             transfer_account_id: editingTransaction.transfer_account_id
               ? String(editingTransaction.transfer_account_id)
               : "",
+            portfolio_direction: editingTransaction.portfolio_direction || "",
           };
         } else {
           nextFormState = {
@@ -729,6 +744,7 @@ export const TransactionModal = () => {
             transfer_account_id: editingTransaction.transfer_account_id
               ? String(editingTransaction.transfer_account_id)
               : "",
+            portfolio_direction: editingTransaction.portfolio_direction || "",
           };
         }
 
@@ -938,6 +954,14 @@ export const TransactionModal = () => {
       return;
     }
 
+    if (isPortfolioMovement) {
+      const normalizedDirection = formData.portfolio_direction.trim();
+      if (!normalizedDirection) {
+        setError("Selecciona si el movimiento de portafolio es una compra o una venta.");
+        return;
+      }
+    }
+
     if (Number.isNaN(accountIdNumber)) {
       setError("Selecciona una cuenta para registrar la transacción.");
       return;
@@ -1035,6 +1059,9 @@ export const TransactionModal = () => {
       transfer_account_id: transferAccountNumber,
       splits: splitPayload,
       tags: selectedTags,
+      portfolio_direction: isPortfolioMovement
+        ? formData.portfolio_direction
+        : undefined,
     };
 
     const normalizedCurrentTags = selectedTags
@@ -1085,6 +1112,8 @@ export const TransactionModal = () => {
         initialSnapshot.is_transfer === submissionData.is_transfer &&
         (initialSnapshot.transfer_account_id || "") ===
           (formData.transfer_account_id || "") &&
+        (initialSnapshot.portfolio_direction || "") ===
+          (formData.portfolio_direction || "") &&
         tagsEqual &&
         splitsEqual;
 
@@ -1216,6 +1245,27 @@ export const TransactionModal = () => {
                     </option>
                   ))}
                 </select>
+                {isPortfolioMovement && (
+                  <div className="mt-3">
+                    <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
+                      Dirección en portafolio
+                    </label>
+                    <select
+                      name="portfolio_direction"
+                      value={formData.portfolio_direction}
+                      onChange={handleChange}
+                      required
+                      className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                    >
+                      <option value="">-- Selecciona la dirección --</option>
+                      <option value="Compra">Compra (sale dinero de la cuenta)</option>
+                      <option value="Venta">Venta (entra dinero a la cuenta)</option>
+                    </select>
+                    <p className="mt-1 text-xs text-muted">
+                      Usamos esta opción para ajustar el saldo de la cuenta automáticamente.
+                    </p>
+                  </div>
+                )}
               </div>
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">

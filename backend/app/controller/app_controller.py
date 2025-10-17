@@ -1383,15 +1383,16 @@ class AppController:
             ]
             transfer_account = getattr(transaction, 'transfer_account', None)
 
-            transaction_data = {
-                "id": transaction.id,
-                "date": transaction.date.isoformat(),
-                "description": transaction.description,
-                "amount": float(transaction.amount or 0),
-                "type": transaction.type,
-                "category": transaction.category,
-                "account_id": transaction.account_id,
-                "account": account.__data__ if account else None,
+                transaction_data = {
+                    "id": transaction.id,
+                    "date": transaction.date.isoformat(),
+                    "description": transaction.description,
+                    "amount": float(transaction.amount or 0),
+                    "type": transaction.type,
+                    "portfolio_direction": getattr(transaction, 'portfolio_direction', None),
+                    "category": transaction.category,
+                    "account_id": transaction.account_id,
+                    "account": account.__data__ if account else None,
                 "goal_id": transaction.goal.id if transaction.goal else None,
                 "goal_name": transaction.goal.name if transaction.goal else None,
                 "debt_id": transaction.debt.id if transaction.debt else None,
@@ -1548,6 +1549,19 @@ class AppController:
         entry.actual_amount = new_value
         entry.save()
 
+    def _resolve_transaction_cash_flow(
+        self,
+        transaction_type: Optional[str],
+        portfolio_direction: Optional[str] = None,
+    ) -> str:
+        """Return 'Ingreso' or 'Gasto' describing the cash impact."""
+
+        normalized_type = (transaction_type or "").strip().lower()
+        if normalized_type == "movimiento portafolio":
+            normalized_direction = (portfolio_direction or "").strip().lower()
+            return "Ingreso" if normalized_direction == "venta" else "Gasto"
+        return "Ingreso" if normalized_type == "ingreso" else "Gasto"
+
     def add_transaction(self, data):
         try:
             is_recurring = data.pop('is_recurring', False)
@@ -1561,6 +1575,18 @@ class AppController:
             if amount <= 0:
                 return {"error": "El monto debe ser mayor a cero."}
 
+            type_value = data.get('type')
+            is_portfolio_movement = str(type_value or "").strip().lower() == "movimiento portafolio"
+            if is_portfolio_movement:
+                direction_value = (data.get('portfolio_direction') or "").strip().lower()
+                if direction_value not in {"compra", "venta"}:
+                    return {"error": "Selecciona si el movimiento de portafolio es una compra o una venta."}
+                data['portfolio_direction'] = "Venta" if direction_value == "venta" else "Compra"
+                if splits_payload:
+                    return {"error": "Los movimientos de portafolio no admiten divisiones."}
+            else:
+                data['portfolio_direction'] = None
+
             if splits_payload:
                 total_splits = sum(split['amount'] for split in splits_payload)
                 if abs(total_splits - amount) > 0.01:
@@ -1571,6 +1597,8 @@ class AppController:
             transfer_account_value = data.get('transfer_account_id')
 
             if is_transfer:
+                if is_portfolio_movement:
+                    return {"error": "Los movimientos de portafolio no pueden registrarse como transferencias."}
                 if not transfer_account_value:
                     return {"error": "Selecciona la cuenta de destino de la transferencia."}
                 if int(transfer_account_value) == int(data['account_id']):
@@ -1597,6 +1625,9 @@ class AppController:
 
             with db.atomic():
                 account = Account.get_by_id(data['account_id'])
+                cash_flow = self._resolve_transaction_cash_flow(
+                    data.get('type'), data.get('portfolio_direction')
+                )
 
                 if is_transfer:
                     if float(account.current_balance or 0) + 1e-9 < amount:
@@ -1612,7 +1643,7 @@ class AppController:
                     data['is_transfer'] = True
                     data['transfer_account_id'] = destination.id
                 else:
-                    if data['type'] == 'Ingreso':
+                    if cash_flow == 'Ingreso':
                         account.current_balance += amount
                     else:
                         account.current_balance -= amount
@@ -1656,6 +1687,18 @@ class AppController:
             if amount <= 0:
                 return {"error": "El monto debe ser mayor a cero."}
 
+            type_value = data.get('type')
+            is_portfolio_movement = str(type_value or "").strip().lower() == "movimiento portafolio"
+            if is_portfolio_movement:
+                direction_value = (data.get('portfolio_direction') or "").strip().lower()
+                if direction_value not in {"compra", "venta"}:
+                    return {"error": "Selecciona si el movimiento de portafolio es una compra o una venta."}
+                data['portfolio_direction'] = "Venta" if direction_value == "venta" else "Compra"
+                if splits_payload:
+                    return {"error": "Los movimientos de portafolio no admiten divisiones."}
+            else:
+                data['portfolio_direction'] = None
+
             if splits_payload:
                 total_splits = sum(split['amount'] for split in splits_payload)
                 if abs(total_splits - amount) > 0.01:
@@ -1665,6 +1708,8 @@ class AppController:
             is_transfer = bool(data.get('is_transfer'))
             transfer_account_value = data.get('transfer_account_id')
             if is_transfer:
+                if is_portfolio_movement:
+                    return {"error": "Los movimientos de portafolio no pueden registrarse como transferencias."}
                 if not transfer_account_value:
                     return {"error": "Selecciona la cuenta de destino de la transferencia."}
                 if int(transfer_account_value) == int(data['account_id']):
@@ -1694,6 +1739,11 @@ class AppController:
                 original_amount = float(original_transaction.amount or 0)
                 original_budget_entry_id = getattr(original_transaction, 'budget_entry_id', None)
 
+                original_cash_flow = self._resolve_transaction_cash_flow(
+                    original_transaction.type,
+                    getattr(original_transaction, 'portfolio_direction', None),
+                )
+
                 if original_transaction.is_transfer:
                     source_account = original_transaction.account
                     target_account = original_transaction.transfer_account
@@ -1705,7 +1755,7 @@ class AppController:
                         target_account.save()
                 else:
                     original_account = Account.get_by_id(original_transaction.account_id)
-                    if original_transaction.type == 'Ingreso':
+                    if original_cash_flow == 'Ingreso':
                         original_account.current_balance -= original_amount
                     else:
                         original_account.current_balance += original_amount
@@ -1721,6 +1771,9 @@ class AppController:
                     )
 
                 new_account = Account.get_by_id(data['account_id'])
+                new_cash_flow = self._resolve_transaction_cash_flow(
+                    data.get('type'), data.get('portfolio_direction')
+                )
 
                 if is_transfer:
                     if float(new_account.current_balance or 0) + 1e-9 < amount:
@@ -1736,7 +1789,7 @@ class AppController:
                     data['is_transfer'] = True
                     data['transfer_account_id'] = destination.id
                 else:
-                    if data['type'] == 'Ingreso':
+                    if new_cash_flow == 'Ingreso':
                         new_account.current_balance += amount
                     else:
                         new_account.current_balance -= amount
@@ -1779,7 +1832,11 @@ class AppController:
                         target_account.save()
                 else:
                     account = transaction.account
-                    if transaction.type == 'Ingreso':
+                    cash_flow = self._resolve_transaction_cash_flow(
+                        transaction.type,
+                        getattr(transaction, 'portfolio_direction', None),
+                    )
+                    if cash_flow == 'Ingreso':
                         account.current_balance -= amount
                     else:
                         account.current_balance += amount
@@ -3165,6 +3222,50 @@ class AppController:
         price = float(payload.get("price") or 0.0)
         return quantity * price
 
+    def _ensure_portfolio_category(self, category: str) -> None:
+        """Guarantee that the portfolio transaction category exists."""
+
+        normalized = (category or "").strip()
+        if not normalized:
+            return
+
+        movimiento = Parameter.get_or_none(
+            (Parameter.group == "Tipo de Transacción")
+            & (Parameter.value == "Movimiento Portafolio")
+        )
+
+        if not movimiento:
+            return
+
+        exists = Parameter.get_or_none(
+            (Parameter.group == "Categoría")
+            & (Parameter.parent == movimiento)
+            & (Parameter.value == normalized)
+        )
+
+        if exists:
+            return
+
+        Parameter.create(
+            group="Categoría",
+            value=normalized,
+            parent=movimiento,
+        )
+
+    def _resolve_trade_account_name(self, trade: Trade) -> Optional[str]:
+        """Return the most relevant account name linked to a trade."""
+
+        transaction = getattr(trade, "linked_transaction", None)
+        account = getattr(transaction, "account", None)
+        if account and getattr(account, "name", None):
+            return account.name
+
+        linked_account = getattr(trade.asset, "linked_account", None)
+        if linked_account and getattr(linked_account, "name", None):
+            return linked_account.name
+
+        return None
+
     def _build_trade_transaction_data(
         self,
         payload: Dict[str, Any],
@@ -3177,14 +3278,17 @@ class AppController:
         amount = self._trade_total_amount(payload)
         description_prefix = "Venta" if normalized_type == "Venta" else "Compra"
         goal = payload.get("linked_goal")
+        category = payload.get("asset_type") or f"Inversión {payload['symbol']}"
+        self._ensure_portfolio_category(category)
 
         data = {
             "account_id": account.id,
             "date": payload["date"].isoformat(),
             "description": f"[Portafolio] {description_prefix} de {payload['symbol']}",
             "amount": amount,
-            "type": "Ingreso" if normalized_type == "Venta" else "Gasto",
-            "category": "Otros Ingresos" if normalized_type == "Venta" else "Otros Gastos",
+            "type": "Movimiento Portafolio",
+            "portfolio_direction": normalized_type,
+            "category": category,
             "goal_id": getattr(goal, "id", None),
             "debt_id": None,
             "budget_entry_id": None,
@@ -3388,11 +3492,24 @@ class AppController:
 
     def get_trade_history(self):
         """Obtiene el historial de operaciones listo para la vista del frontend."""
-        trades = (
-            Trade
-            .select(Trade, PortfolioAsset)
-            .join(PortfolioAsset)
-            .order_by(Trade.date.desc())
+        asset_query = (
+            PortfolioAsset
+            .select(PortfolioAsset, Account, Goal)
+            .join(Account, JOIN.LEFT_OUTER)
+            .switch(PortfolioAsset)
+            .join(Goal, JOIN.LEFT_OUTER)
+        )
+
+        transaction_query = (
+            Transaction
+            .select(Transaction, Account)
+            .join(Account, JOIN.LEFT_OUTER)
+        )
+
+        trades = prefetch(
+            Trade.select().order_by(Trade.date.desc(), Trade.id.desc()),
+            asset_query,
+            transaction_query,
         )
 
         history = []
@@ -3441,7 +3558,12 @@ class AppController:
             return {"error": "Selecciona una cuenta para registrar la operación."}
 
         executed_entries = self._build_trade_entries(asset)
+        available_quantity = float(getattr(asset, "total_quantity", 0) or 0.0)
+
         if not is_planned:
+            if normalized_type == "Venta" and payload["quantity"] - available_quantity > 1e-4:
+                return {"error": "No puedes vender más activos de los que posees."}
+
             projected_entries = executed_entries + [
                 {
                     "id": None,
@@ -3456,12 +3578,10 @@ class AppController:
             except ValueError as exc:
                 return {"error": str(exc)}
         else:
-            if normalized_type == "Venta":
-                current_qty, _, _ = self._project_portfolio_asset(executed_entries, strict=True)
-                if payload["quantity"] - current_qty > 1e-4:
-                    return {
-                        "error": "No puedes vender más activos ejecutados de los que posees."
-                    }
+            if normalized_type == "Venta" and payload["quantity"] - available_quantity > 1e-4:
+                return {
+                    "error": "No puedes vender más activos ejecutados de los que posees."
+                }
 
         try:
             with db.atomic():
@@ -3749,6 +3869,7 @@ class AppController:
             "price": float(trade.price_per_unit or 0),
             "annual_yield_rate": float(getattr(trade.asset, "annual_yield_rate", 0) or 0),
             "linked_account_id": getattr(getattr(trade.asset, "linked_account", None), "id", None),
+            "linked_account_name": self._resolve_trade_account_name(trade),
             "linked_goal_id": getattr(getattr(trade.asset, "linked_goal", None), "id", None),
             "linked_transaction_id": getattr(trade, "linked_transaction_id", None),
             "linked_budget_entry_id": getattr(trade, "linked_budget_entry_id", None),
