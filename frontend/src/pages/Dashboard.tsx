@@ -536,7 +536,7 @@ export function Dashboard() {
       )}
 
       {!isLoading && !error && data && (
-        <div className="grid auto-rows-max gap-4 xl:grid-cols-12 2xl:gap-5">
+        <div className="grid auto-rows-max gap-4 xl:grid-cols-12 xl:grid-flow-row-dense 2xl:gap-5">
           <div className="xl:col-span-12">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <KpiCard
@@ -631,21 +631,6 @@ export function Dashboard() {
             />
           </div>
 
-          <div className="xl:col-span-7 2xl:col-span-8">
-            <div className="grid gap-4 md:grid-cols-2">
-              <BudgetSummaryCard
-                title="Ingresos PPTO"
-                summary={data.budget_vs_actual.income}
-                accentClass="from-emerald-500/80 to-sky-500/80"
-              />
-              <BudgetSummaryCard
-                title="Gastos PPTO"
-                summary={data.budget_vs_actual.expense}
-                accentClass="from-rose-500/80 to-orange-500/80"
-              />
-            </div>
-          </div>
-
           <div className="xl:col-span-5 2xl:col-span-4">
             <AccountsCard
               accounts={accounts}
@@ -662,6 +647,21 @@ export function Dashboard() {
               }
               activeAccount={activeAccount}
             />
+          </div>
+
+          <div className="xl:col-span-7 2xl:col-span-8">
+            <div className="grid gap-4 md:grid-cols-2">
+              <BudgetSummaryCard
+                title="Ingresos PPTO"
+                summary={data.budget_vs_actual.income}
+                accentClass="from-emerald-500/80 to-sky-500/80"
+              />
+              <BudgetSummaryCard
+                title="Gastos PPTO"
+                summary={data.budget_vs_actual.expense}
+                accentClass="from-rose-500/80 to-orange-500/80"
+              />
+            </div>
           </div>
 
           <div className="xl:col-span-7 2xl:col-span-8">
