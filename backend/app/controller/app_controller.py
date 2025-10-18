@@ -3349,7 +3349,10 @@ class AppController:
         """Calculate the remaining planned funds as a virtual account."""
 
         reference = reference_date or datetime.date.today()
-        remaining_total = 0.0
+        planned_income_total = 0.0
+        planned_expense_total = 0.0
+        actual_income_total = 0.0
+        actual_expense_total = 0.0
 
         for entry in BudgetEntry.select():
             start, end = self._resolve_entry_bounds(entry)
@@ -3357,21 +3360,30 @@ class AppController:
                 continue
 
             entry_type = (getattr(entry, "type", "") or "").strip().lower()
-            if entry_type == "ingreso":
-                continue
-
             planned = float(getattr(entry, "budgeted_amount", 0) or 0)
             actual = float(getattr(entry, "actual_amount", 0) or 0)
-            remaining = planned - actual
-            if remaining > 0:
-                remaining_total += remaining
+
+            if entry_type == "ingreso":
+                planned_income_total += planned
+                actual_income_total += actual
+            else:
+                planned_expense_total += planned
+                actual_expense_total += actual
+
+        planned_net = planned_income_total - planned_expense_total
+        executed_net = actual_income_total - actual_expense_total
+
+        if (actual_income_total > 0.0) or (actual_expense_total > 0.0):
+            balance = executed_net
+        else:
+            balance = planned_net
 
         return {
             "id": -1,
             "name": "Saldo de Presupuesto",
             "account_type": "Virtual",
             "initial_balance": 0.0,
-            "current_balance": remaining_total,
+            "current_balance": balance,
             "is_virtual": True,
             "annual_interest_rate": 0.0,
             "compounding_frequency": "Mensual",

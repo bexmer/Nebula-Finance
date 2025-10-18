@@ -64,6 +64,7 @@ type BudgetStatusFilter = "active" | "upcoming" | "archived" | "all";
 type BudgetTab = "all" | "goals" | "debts";
 
 interface BudgetSummary {
+  /** Valores netos (ingresos menos gastos) para el periodo filtrado. */
   planned: number;
   executed: number;
   available: number;
@@ -403,8 +404,10 @@ export function Budget() {
     const next30 = new Date(today.getTime());
     next30.setDate(today.getDate() + 30);
 
-    let planned = 0;
-    let executed = 0;
+    let plannedIncome = 0;
+    let plannedExpense = 0;
+    let executedIncome = 0;
+    let executedExpense = 0;
     let available = 0;
     let upcoming = 0;
     let overdueCount = 0;
@@ -414,31 +417,57 @@ export function Budget() {
       const date = parseEntryDate(entry);
       const plannedAmount = entry.budgeted_amount ?? 0;
       const actualAmount = entry.actual_amount ?? 0;
-      const remainingAmount = Math.max(plannedAmount - actualAmount, 0);
-      const isOverBudget = (entry.over_budget_amount ?? 0) > 0.01;
+      const type = (entry.type ?? "").trim().toLowerCase();
+      const isIncome = type === "ingreso";
 
-      planned += plannedAmount;
-      executed += actualAmount;
-      available += Math.max(plannedAmount - actualAmount, 0);
+      if (isIncome) {
+        plannedIncome += plannedAmount;
+        executedIncome += actualAmount;
+      } else {
+        plannedExpense += plannedAmount;
+        executedExpense += actualAmount;
 
-      if (!isOverBudget && remainingAmount > 0 && date >= today && date <= next30) {
-        upcoming += remainingAmount;
-      }
+        const remainingAmount = Math.max(plannedAmount - actualAmount, 0);
+        const isOverBudget = (entry.over_budget_amount ?? 0) > 0.01;
 
-      if (date < today && remainingAmount > 0) {
-        overdueCount += 1;
-      }
+        if (!isOverBudget && remainingAmount > 0 && date >= today && date <= next30) {
+          upcoming += remainingAmount;
+        }
 
-      if (!nextEntry || date < nextEntry.date) {
-        nextEntry = {
-          amount: remainingAmount > 0 ? remainingAmount : Math.max(actualAmount, plannedAmount),
-          description: entry.description || entry.category,
-          date,
-        };
+        if (date < today && remainingAmount > 0) {
+          overdueCount += 1;
+        }
+
+        if (!nextEntry || date < nextEntry.date) {
+          nextEntry = {
+            amount:
+              remainingAmount > 0
+                ? remainingAmount
+                : Math.max(actualAmount, plannedAmount),
+            description: entry.description || entry.category,
+            date,
+          };
+        }
       }
     });
 
-    return { planned, executed, available, upcoming, overdueCount, nextEntry };
+    const plannedNet = plannedIncome - plannedExpense;
+    const executedNet = executedIncome - executedExpense;
+
+    if (executedIncome > 0 || executedExpense > 0) {
+      available = executedNet;
+    } else {
+      available = plannedNet;
+    }
+
+    return {
+      planned: plannedNet,
+      executed: executedNet,
+      available,
+      upcoming,
+      overdueCount,
+      nextEntry,
+    };
   }, [budgetEntries, parseEntryDate, referenceDate]);
 
   const availableYears = useMemo(() => {
@@ -650,7 +679,7 @@ export function Budget() {
             </span>
           </div>
           <p className="mt-3 text-sm text-muted">
-            Suma total de compromisos registrados.
+            Saldo neto planificado (ingresos menos gastos).
           </p>
         </div>
         <div className="glow-card glow-card--sky sm:p-6">
@@ -668,7 +697,7 @@ export function Budget() {
             </span>
           </div>
           <p className="mt-3 text-sm text-muted">
-            Monto aplicado a transacciones vinculadas al presupuesto.
+            Saldo neto ejecutado con base en las transacciones registradas.
           </p>
         </div>
         <div className="glow-card glow-card--amber sm:p-6">
@@ -686,7 +715,7 @@ export function Budget() {
             </span>
           </div>
           <p className="mt-3 text-sm text-muted">
-            Recursos aún libres dentro de tus límites presupuestados.
+            Diferencia neta entre ingresos y gastos del periodo seleccionado.
           </p>
         </div>
         <div className="glow-card glow-card--rose sm:p-6">
