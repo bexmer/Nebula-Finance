@@ -408,7 +408,6 @@ export function Budget() {
     let plannedExpense = 0;
     let executedIncome = 0;
     let executedExpense = 0;
-    let available = 0;
     let upcoming = 0;
     let overdueCount = 0;
     let nextEntry: { amount: number; description: string; date: Date } | null = null;
@@ -453,12 +452,7 @@ export function Budget() {
 
     const plannedNet = plannedIncome - plannedExpense;
     const executedNet = executedIncome - executedExpense;
-
-    if (executedIncome > 0 || executedExpense > 0) {
-      available = executedNet;
-    } else {
-      available = plannedNet;
-    }
+    const available = plannedExpense - executedExpense;
 
     return {
       planned: plannedNet,

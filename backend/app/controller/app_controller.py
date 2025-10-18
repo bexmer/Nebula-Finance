@@ -3370,13 +3370,10 @@ class AppController:
                 planned_expense_total += planned
                 actual_expense_total += actual
 
-        planned_net = planned_income_total - planned_expense_total
-        executed_net = actual_income_total - actual_expense_total
-
-        if (actual_income_total > 0.0) or (actual_expense_total > 0.0):
-            balance = executed_net
+        if actual_expense_total or actual_income_total:
+            balance = planned_expense_total - actual_expense_total
         else:
-            balance = planned_net
+            balance = planned_expense_total
 
         return {
             "id": -1,
