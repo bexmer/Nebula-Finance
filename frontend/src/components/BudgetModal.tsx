@@ -18,6 +18,10 @@ import {
   normalizeDateInputValue,
   parseDateOnly,
 } from "../utils/date";
+import {
+  GoalDebtModal,
+  type GoalDebtModalSavePayload,
+} from "./GoalDebtModal";
 
 Modal.setAppElement("#root");
 
@@ -190,6 +194,9 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [catalogNotice, setCatalogNotice] = useState<string | null>(null);
+  const [isGoalDebtModalOpen, setIsGoalDebtModalOpen] = useState(false);
+  const [goalDebtMode, setGoalDebtMode] = useState<"goal" | "debt">("goal");
+  const [goalDebtFeedback, setGoalDebtFeedback] = useState<string | null>(null);
   const yearOptions = useMemo(buildYearOptions, []);
 
   const sortedCategories = useMemo(
@@ -222,6 +229,29 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
     formData.referenceYear,
     formData.use_custom_schedule,
   ]);
+
+  const fetchGoalDebtCatalogs = useCallback(async () => {
+    const [goalsResponse, debtsResponse] = await Promise.all([
+      axios.get<SelectOption[]>(apiPath("/goals")),
+      axios.get<SelectOption[]>(apiPath("/debts")),
+    ]);
+
+    const goalOptions = goalsResponse.data
+      .map((goal) => ({
+        id: goal.id,
+        name: goal.name,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, "es"));
+
+    const debtOptions = debtsResponse.data
+      .map((debt) => ({
+        id: debt.id,
+        name: debt.name,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, "es"));
+
+    return { goalOptions, debtOptions };
+  }, []);
 
   const activeType = useMemo(() => {
     if (!formData.typeId) {
@@ -298,21 +328,13 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
     setCatalogNotice(null);
 
     try {
-      const [typesResponse, goalsResponse, debtsResponse] = await Promise.all([
+      const [typesResponse, goalDebtData] = await Promise.all([
         axios.get<ParameterOption[]>(apiPath("/parameters/transaction-types")),
-        axios.get<SelectOption[]>(apiPath("/goals")),
-        axios.get<SelectOption[]>(apiPath("/debts")),
+        fetchGoalDebtCatalogs(),
       ]);
 
       const typeOptions = typesResponse.data;
-      const goalOptions = goalsResponse.data.map((goal) => ({
-        id: goal.id,
-        name: goal.name,
-      }));
-      const debtOptions = debtsResponse.data.map((debt) => ({
-        id: debt.id,
-        name: debt.name,
-      }));
+      const { goalOptions, debtOptions } = goalDebtData;
 
       if (typeOptions.length === 0) {
         throw new Error("missing-types");
@@ -425,7 +447,7 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [entry, fetchCategoriesByType]);
+  }, [entry, fetchCategoriesByType, fetchGoalDebtCatalogs]);
 
   useEffect(() => {
     if (isOpen) {
@@ -439,6 +461,8 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
       setCatalogNotice(null);
       setIsSubmitting(false);
       setIsLoading(false);
+      setGoalDebtFeedback(null);
+      setIsGoalDebtModalOpen(false);
     }
   }, [isOpen, loadModalData]);
 
@@ -452,6 +476,7 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
       goalId: "",
       debtId: "",
     }));
+    setGoalDebtFeedback(null);
 
     const nextCategories = await fetchCategoriesByType(nextTypeId);
     setCategories(nextCategories);
@@ -512,11 +537,72 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
 
   const handleGoalChange = (event: ChangeEvent<HTMLSelectElement>) => {
     setFormData((prev) => ({ ...prev, goalId: event.target.value }));
+    setGoalDebtFeedback(null);
   };
 
   const handleDebtChange = (event: ChangeEvent<HTMLSelectElement>) => {
     setFormData((prev) => ({ ...prev, debtId: event.target.value }));
+    setGoalDebtFeedback(null);
   };
+
+  const handleGoalDebtSave = useCallback(
+    async (payload?: GoalDebtModalSavePayload) => {
+      setIsGoalDebtModalOpen(false);
+
+      if (!payload) {
+        return;
+      }
+
+      const { mode, item, isNew } = payload;
+      if (!item || typeof item.id !== "number") {
+        return;
+      }
+
+      if (mode === "goal") {
+        const option = { id: item.id, name: item.name };
+        setGoals((prev) => {
+          const filtered = prev.filter((goal) => goal.id !== option.id);
+          const next = [...filtered, option].sort((a, b) =>
+            a.name.localeCompare(b.name, "es"),
+          );
+          return next;
+        });
+        setFormData((prev) => ({ ...prev, goalId: String(option.id) }));
+        setGoalDebtFeedback(
+          isNew
+            ? "Meta creada y vinculada al presupuesto."
+            : "Meta actualizada exitosamente.",
+        );
+      } else {
+        const option = { id: item.id, name: item.name };
+        setDebts((prev) => {
+          const filtered = prev.filter((debt) => debt.id !== option.id);
+          const next = [...filtered, option].sort((a, b) =>
+            a.name.localeCompare(b.name, "es"),
+          );
+          return next;
+        });
+        setFormData((prev) => ({ ...prev, debtId: String(option.id) }));
+        setGoalDebtFeedback(
+          isNew
+            ? "Deuda creada y vinculada al presupuesto."
+            : "Deuda actualizada exitosamente.",
+        );
+      }
+
+      try {
+        const catalogs = await fetchGoalDebtCatalogs();
+        setGoals(catalogs.goalOptions);
+        setDebts(catalogs.debtOptions);
+      } catch (catalogError) {
+        console.error(
+          "No se pudieron refrescar los catálogos de metas y deudas:",
+          catalogError,
+        );
+      }
+    },
+    [fetchGoalDebtCatalogs],
+  );
 
   const handleReferenceMonthChange = (
     event: ChangeEvent<HTMLSelectElement>
@@ -833,70 +919,101 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
           </div>
 
           {(shouldShowGoalSelect || shouldShowDebtSelect) && (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {shouldShowGoalSelect && (
-                goals.length > 0 ? (
-                  <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
-                    <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
-                      Meta
-                    </span>
-                    <select
-                      name="goalId"
-                      value={formData.goalId}
-                      onChange={handleGoalChange}
-                      required={requiresGoal}
-                      className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+            <div className="space-y-3">
+              {goalDebtFeedback ? (
+                <p className="text-xs font-semibold text-sky-600 dark:text-sky-300">
+                  {goalDebtFeedback}
+                </p>
+              ) : null}
+              <div className="grid gap-4 sm:grid-cols-2">
+                {shouldShowGoalSelect && (
+                  <div className="space-y-2">
+                    {goals.length > 0 ? (
+                      <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
+                        <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
+                          Meta
+                        </span>
+                        <select
+                          name="goalId"
+                          value={formData.goalId}
+                          onChange={handleGoalChange}
+                          required={requiresGoal}
+                          className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                        >
+                          <option value="">
+                            {requiresGoal
+                              ? "Selecciona una meta"
+                              : "Asociar meta (opcional)"}
+                          </option>
+                          {goals.map((goal) => (
+                            <option key={goal.id} value={goal.id}>
+                              {goal.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)]/80 px-3 py-2 text-sm text-muted">
+                        Crea una meta para vincular este presupuesto de ahorro.
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGoalDebtMode("goal");
+                        setIsGoalDebtModalOpen(true);
+                      }}
+                      className="inline-flex items-center justify-center rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-[var(--app-text)] transition hover:border-sky-400 hover:text-sky-600"
                     >
-                      <option value="">
-                        {requiresGoal
-                          ? "Selecciona una meta"
-                          : "Asociar meta (opcional)"}
-                      </option>
-                      {goals.map((goal) => (
-                        <option key={goal.id} value={goal.id}>
-                          {goal.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : (
-                  <div className="rounded-lg border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)]/80 px-3 py-2 text-sm text-muted">
-                    Crea una meta para vincular este presupuesto de ahorro.
+                      Nueva meta
+                    </button>
                   </div>
-                )
-              )}
+                )}
 
-              {shouldShowDebtSelect && (
-                debts.length > 0 ? (
-                  <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
-                    <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
-                      Deuda
-                    </span>
-                    <select
-                      name="debtId"
-                      value={formData.debtId}
-                      onChange={handleDebtChange}
-                      required={requiresDebt}
-                      className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                {shouldShowDebtSelect && (
+                  <div className="space-y-2">
+                    {debts.length > 0 ? (
+                      <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
+                        <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">
+                          Deuda
+                        </span>
+                        <select
+                          name="debtId"
+                          value={formData.debtId}
+                          onChange={handleDebtChange}
+                          required={requiresDebt}
+                          className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                        >
+                          <option value="">
+                            {requiresDebt
+                              ? "Selecciona una deuda"
+                              : "Asociar deuda (opcional)"}
+                          </option>
+                          {debts.map((debt) => (
+                            <option key={debt.id} value={debt.id}>
+                              {debt.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)]/80 px-3 py-2 text-sm text-muted">
+                        Registra una deuda para asignar este presupuesto de pago.
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGoalDebtMode("debt");
+                        setIsGoalDebtModalOpen(true);
+                      }}
+                      className="inline-flex items-center justify-center rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-[var(--app-text)] transition hover:border-sky-400 hover:text-sky-600"
                     >
-                      <option value="">
-                        {requiresDebt
-                          ? "Selecciona una deuda"
-                          : "Asociar deuda (opcional)"}
-                      </option>
-                      {debts.map((debt) => (
-                        <option key={debt.id} value={debt.id}>
-                          {debt.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : (
-                  <div className="rounded-lg border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)]/80 px-3 py-2 text-sm text-muted">
-                    Registra una deuda para asignar este presupuesto de pago.
+                      Nueva deuda
+                    </button>
                   </div>
-                )
-              )}
+                )}
+              </div>
             </div>
           )}
 
@@ -1087,6 +1204,13 @@ export function BudgetModal({ isOpen, onClose, onSave, entry }: ModalProps) {
           </div>
         </form>
       </div>
+      <GoalDebtModal
+        isOpen={isGoalDebtModalOpen}
+        onClose={() => setIsGoalDebtModalOpen(false)}
+        onSave={handleGoalDebtSave}
+        mode={goalDebtMode}
+        item={null}
+      />
     </Modal>
   );
 }
