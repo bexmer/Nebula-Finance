@@ -1,11 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
-import { Filter, Plus, Scale, Target, Trash2, TrendingDown, TrendingUp, Wallet } from "lucide-react";
+import {
+  Download,
+  Eye,
+  Filter,
+  Image as ImageIcon,
+  Plus,
+  Scale,
+  Target,
+  Trash2,
+  TrendingDown,
+  TrendingUp,
+  Wallet,
+  X,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { KeyboardEvent } from "react";
 
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 import { useStore, TransactionFilters } from "../store/useStore";
+import type { ReceiptItem, Transaction } from "../store/useStore";
 import { apiPath } from "../utils/api";
 import { formatDateForDisplay } from "../utils/date";
 
@@ -15,13 +29,18 @@ interface ParameterOption {
   value: string;
 }
 
-type TransactionsTab = "all" | "goals" | "debts";
+type TransactionsTab = "all" | "goals" | "debts" | "receipts";
 
 interface TabOption {
   key: TransactionsTab;
   label: string;
   count: number;
   icon: LucideIcon;
+}
+
+interface ReceiptGalleryItem {
+  receipt: ReceiptItem;
+  transaction: Transaction | null;
 }
 
 export function Transactions() {
@@ -44,6 +63,105 @@ export function Transactions() {
   const [activeTab, setActiveTab] = useState<TransactionsTab>("all");
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [tagFilterInput, setTagFilterInput] = useState("");
+  const [activeReceipt, setActiveReceipt] = useState<ReceiptGalleryItem | null>(
+    null
+  );
+
+  const receiptItems = useMemo<ReceiptGalleryItem[]>(() => {
+    const items: ReceiptGalleryItem[] = [];
+
+    const parseTimestamp = (value?: string | null) => {
+      if (!value) {
+        return 0;
+      }
+      const timestamp = Date.parse(value);
+      return Number.isNaN(timestamp) ? 0 : timestamp;
+    };
+
+    transactions.forEach((transaction) => {
+      (transaction.receipts ?? []).forEach((receipt) => {
+        items.push({
+          receipt,
+          transaction,
+        });
+      });
+    });
+
+    return items.sort((a, b) => {
+      const aTime =
+        parseTimestamp(a.receipt.uploaded_at) ||
+        parseTimestamp(a.transaction?.date);
+      const bTime =
+        parseTimestamp(b.receipt.uploaded_at) ||
+        parseTimestamp(b.transaction?.date);
+      return bTime - aTime;
+    });
+  }, [transactions]);
+
+  const receiptMap = useMemo(
+    () => new Map(receiptItems.map((item) => [item.receipt.id, item])),
+    [receiptItems]
+  );
+
+  const activeReceiptData = useMemo(() => {
+    if (!activeReceipt) {
+      return null;
+    }
+
+    const { receipt, transaction } = activeReceipt;
+    const normalizedType = (transaction?.type || "").toLowerCase();
+    const normalizedDirection = (transaction?.portfolio_direction || "").toLowerCase();
+    const isPortfolioMovement = normalizedType === "movimiento portafolio";
+    const isIncome = Boolean(
+      transaction &&
+        (transaction.type === "Ingreso" ||
+          (isPortfolioMovement && normalizedDirection === "venta"))
+    );
+    const isTransfer = Boolean(transaction?.is_transfer);
+    const amountClass = isTransfer
+      ? "text-muted"
+      : isIncome
+        ? "text-emerald-600 dark:text-emerald-300"
+        : "text-rose-600 dark:text-rose-300";
+    const typeBadgeClass = !transaction
+      ? "bg-[var(--app-surface-muted)] text-muted"
+      : isTransfer
+        ? "bg-indigo-500/15 text-indigo-600 dark:text-indigo-300"
+        : isIncome
+          ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
+          : "bg-rose-500/15 text-rose-600 dark:text-rose-300";
+
+    return {
+      receipt,
+      transaction,
+      amountClass,
+      typeBadgeClass,
+      uploadDateLabel: formatDateForDisplay(receipt.uploaded_at ?? ""),
+      transactionDateLabel: formatDateForDisplay(transaction?.date ?? ""),
+      accountName: transaction?.account?.name ?? "Sin cuenta",
+    };
+  }, [activeReceipt]);
+
+  useEffect(() => {
+    if (activeReceipt && !receiptMap.has(activeReceipt.receipt.id)) {
+      setActiveReceipt(null);
+    }
+  }, [activeReceipt, receiptMap]);
+
+  useEffect(() => {
+    if (!activeReceiptData) {
+      return;
+    }
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setActiveReceipt(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [activeReceiptData]);
 
   const normalizeTagValue = useCallback((value: string) => value.replace(/^#+/, "").trim(), []);
 
@@ -56,8 +174,9 @@ export function Transactions() {
       total: transactions.length,
       goals: transactions.filter((transaction) => Boolean(transaction.goal_id)).length,
       debts: transactions.filter((transaction) => Boolean(transaction.debt_id)).length,
+      receipts: receiptItems.length,
     }),
-    [transactions]
+    [transactions, receiptItems.length]
   );
 
   const tabOptions = useMemo<TabOption[]>(
@@ -79,6 +198,12 @@ export function Transactions() {
         label: "Deudas",
         count: transactionCounts.debts,
         icon: Scale,
+      },
+      {
+        key: "receipts",
+        label: "Recibos",
+        count: transactionCounts.receipts,
+        icon: ImageIcon,
       },
     ],
     [transactionCounts]
@@ -325,6 +450,40 @@ export function Transactions() {
       .slice(0, 10);
   }, [availableTags, filters.tags, normalizeTagValue, tagFilterInput]);
 
+  const getReceiptUrl = useCallback(
+    (receipt: ReceiptItem) =>
+      apiPath(receipt.download_url.replace(/^\/api/, "")),
+    []
+  );
+
+  const formatFileSize = useCallback((bytes?: number | null) => {
+    if (!bytes) {
+      return "";
+    }
+    if (bytes < 1024) {
+      return `${bytes} B`;
+    }
+    if (bytes < 1024 * 1024) {
+      return `${(bytes / 1024).toFixed(1)} KB`;
+    }
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  }, []);
+
+  const handleOpenReceipt = useCallback(
+    (receiptId: number) => {
+      const item = receiptMap.get(receiptId);
+      if (!item) {
+        return;
+      }
+      setActiveReceipt(item);
+    },
+    [receiptMap]
+  );
+
+  const handleCloseReceipt = useCallback(() => {
+    setActiveReceipt(null);
+  }, []);
+
   const handleTabChange = (tab: TransactionsTab) => {
     if (tab === activeTab) {
       return;
@@ -332,6 +491,7 @@ export function Transactions() {
     setActiveTab(tab);
     setCurrentPage(1);
     setSelectedTransactionIds([]);
+    setActiveReceipt(null);
   };
 
   const handleToggleTransaction = (id: number, checked: boolean) => {
@@ -754,263 +914,528 @@ export function Transactions() {
           })}
         </div>
         <div key={activeTab} className="tab-transition">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-[var(--app-border)] table-animate">
-              <thead className="bg-[var(--app-surface-muted)]">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
-                    <input
-                      type="checkbox"
-                      checked={isAllSelected}
-                      onChange={(e) => handleToggleAll(e.target.checked)}
-                      className="h-4 w-4 cursor-pointer rounded border border-[var(--app-border)]"
-                    />
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
-                    Fecha
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
-                    Descripción
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
-                    Cuenta
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
-                    Tipo
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
-                    Categoría
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">
-                    Monto
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted">
-                    Acciones
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--app-border)]">
-                {paginatedTransactions.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-muted">
-                      No se encontraron transacciones con los filtros seleccionados.
-                    </td>
-                  </tr>
-                ) : (
-                  paginatedTransactions.map((t) => {
-                      const isSelected = selectedTransactionIds.includes(t.id);
-                      const normalizedType = (t.type || "").toLowerCase();
-                      const isPortfolioMovement = normalizedType === "movimiento portafolio";
-                      const normalizedDirection = (t.portfolio_direction || "").toLowerCase();
-                      const isIncome =
-                        t.type === "Ingreso" ||
-                        (isPortfolioMovement && normalizedDirection === "venta");
-                      const isTransfer = Boolean(t.is_transfer);
-                      const splits = t.splits ?? [];
-                      const hasSplits = splits.length > 0;
-                      const amountClass = isTransfer
-                        ? "text-muted"
-                        : isIncome
-                          ? "text-emerald-600 dark:text-emerald-300"
-                          : "text-rose-600 dark:text-rose-300";
-                      const typeBadgeClass = isTransfer
+          {activeTab === "receipts" ? (
+            <div className="space-y-4 p-6">
+              {receiptItems.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-[var(--app-border)] bg-[var(--app-surface)] p-8 text-center">
+                  <p className="text-sm text-muted">
+                    Aún no hay recibos disponibles con los filtros aplicados. Guarda imágenes desde el formulario de transacciones para verlas aquí.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+                  {receiptItems.map(({ receipt, transaction }) => {
+                    const transactionDescription = transaction?.description ?? "Movimiento sin descripción";
+                    const transactionDateLabel = formatDateForDisplay(transaction?.date ?? "");
+                    const uploadDateLabel = formatDateForDisplay(receipt.uploaded_at ?? "");
+                    const accountName = transaction?.account?.name ?? "Sin cuenta";
+                    const normalizedType = (transaction?.type || "").toLowerCase();
+                    const normalizedDirection = (transaction?.portfolio_direction || "").toLowerCase();
+                    const isPortfolioMovement = normalizedType === "movimiento portafolio";
+                    const isIncome = Boolean(
+                      transaction &&
+                        (transaction.type === "Ingreso" ||
+                          (isPortfolioMovement && normalizedDirection === "venta"))
+                    );
+                    const isTransfer = Boolean(transaction?.is_transfer);
+                    const amountClass = isTransfer
+                      ? "text-muted"
+                      : isIncome
+                        ? "text-emerald-600 dark:text-emerald-300"
+                        : "text-rose-600 dark:text-rose-300";
+                    const typeBadgeClass = !transaction
+                      ? "bg-[var(--app-surface-muted)] text-muted"
+                      : isTransfer
                         ? "bg-indigo-500/15 text-indigo-600 dark:text-indigo-300"
                         : isIncome
                           ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
                           : "bg-rose-500/15 text-rose-600 dark:text-rose-300";
-                      const typeBadgeText = isTransfer
-                        ? "Transferencia"
-                        : isPortfolioMovement
-                          ? normalizedDirection === "venta"
-                            ? "Portafolio (Venta)"
-                            : "Portafolio (Compra)"
-                          : t.type;
+
                     return (
-                      <tr
-                        key={t.id}
-                        onDoubleClick={() => openTransactionModal(t)}
-                        className={`group cursor-pointer transition hover:bg-[var(--app-surface-muted)] ${
-                          isSelected ? "bg-[var(--app-surface-muted)]" : ""
+                      <article
+                        key={receipt.id}
+                        className="flex h-full flex-col overflow-hidden rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)] shadow-sm"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleOpenReceipt(receipt.id)}
+                          className="group relative block aspect-video w-full overflow-hidden bg-[var(--app-surface-muted)]"
+                          aria-label={`Abrir recibo ${receipt.original_filename}`}
+                        >
+                          <img
+                            src={getReceiptUrl(receipt)}
+                            alt={receipt.original_filename}
+                            className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
+                          />
+                          <span className="pointer-events-none absolute inset-0 bg-black/30 opacity-0 transition group-hover:opacity-100" />
+                          <Eye className="pointer-events-none absolute inset-0 m-auto h-6 w-6 text-white opacity-0 transition group-hover:opacity-100" />
+                        </button>
+                        <div className="flex flex-1 flex-col gap-3 p-4">
+                          <div className="space-y-1">
+                            <h3 className="text-sm font-semibold text-[var(--app-text)]">
+                              {transactionDescription}
+                            </h3>
+                            <p className="text-xs text-muted">
+                              {transaction ? `Transacción #${transaction.id}` : "Recibo sin transacción vinculada"}
+                              {transactionDateLabel
+                                ? ` · Fecha del movimiento: ${transactionDateLabel}`
+                                : ""}
+                            </p>
+                          </div>
+                          <div className="space-y-1 text-xs text-muted">
+                            <p>
+                              Cuenta: <span className="font-semibold text-[var(--app-text)]">{accountName}</span>
+                            </p>
+                            <p className="flex flex-wrap items-center gap-2">
+                              <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${typeBadgeClass}`}>
+                                {transaction?.type ?? "Sin tipo"}
+                              </span>
+                              {transaction?.category ? (
+                                <span className="rounded-full bg-[var(--app-surface-muted)] px-3 py-1 text-xs font-semibold text-[var(--app-text)]">
+                                  {transaction.category}
+                                </span>
+                              ) : null}
+                            </p>
+                            <p>
+                              Archivo: <span className="font-semibold text-[var(--app-text)]">{receipt.original_filename}</span>
+                              {receipt.file_size ? ` · ${formatFileSize(receipt.file_size)}` : ""}
+                            </p>
+                          </div>
+                          <div className="mt-auto flex flex-wrap items-center justify-between gap-3">
+                            <span className={`text-sm font-semibold ${transaction ? amountClass : "text-muted"}`}>
+                              {transaction ? formatCurrency(transaction.amount) : "Monto no disponible"}
+                            </span>
+                            <span className="text-xs text-muted">
+                              Subido: {uploadDateLabel || "Sin fecha"}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            {transaction ? (
+                              <button
+                                type="button"
+                                onClick={() => openTransactionModal(transaction)}
+                                className="inline-flex items-center gap-2 rounded-lg border border-sky-400/70 px-3 py-1.5 text-xs font-semibold text-sky-600 transition hover:border-sky-400 hover:text-sky-500 dark:text-sky-300"
+                              >
+                                Ver transacción
+                              </button>
+                            ) : null}
+                            <a
+                              href={getReceiptUrl(receipt)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-2 rounded-lg border border-[var(--app-border)] px-3 py-1.5 text-xs font-semibold text-muted transition hover:border-sky-400 hover:text-sky-600"
+                            >
+                              <Download className="h-4 w-4" />
+                              Descargar
+                            </a>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-[var(--app-border)] table-animate">
+                  <thead className="bg-[var(--app-surface-muted)]">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                        <input
+                          type="checkbox"
+                          checked={isAllSelected}
+                          onChange={(e) => handleToggleAll(e.target.checked)}
+                          className="h-4 w-4 cursor-pointer rounded border border-[var(--app-border)]"
+                        />
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                        Fecha
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                        Descripción
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                        Cuenta
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                        Tipo
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                        Categoría
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                        Recibos
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">
+                        Monto
+                      </th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted">
+                        Acciones
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--app-border)]">
+                    {paginatedTransactions.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-10 text-center text-muted">
+                          No se encontraron transacciones con los filtros seleccionados.
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedTransactions.map((t) => {
+                        const isSelected = selectedTransactionIds.includes(t.id);
+                        const normalizedType = (t.type || "").toLowerCase();
+                        const isPortfolioMovement = normalizedType === "movimiento portafolio";
+                        const normalizedDirection = (t.portfolio_direction || "").toLowerCase();
+                        const isIncome =
+                          t.type === "Ingreso" ||
+                          (isPortfolioMovement && normalizedDirection === "venta");
+                        const isTransfer = Boolean(t.is_transfer);
+                        const splits = t.splits ?? [];
+                        const hasSplits = splits.length > 0;
+                        const receipts = t.receipts ?? [];
+                        const visibleReceipts = receipts.slice(0, 3);
+                        const hiddenReceipts = receipts.length - visibleReceipts.length;
+                        const amountClass = isTransfer
+                          ? "text-muted"
+                          : isIncome
+                            ? "text-emerald-600 dark:text-emerald-300"
+                            : "text-rose-600 dark:text-rose-300";
+                        const typeBadgeClass = isTransfer
+                          ? "bg-indigo-500/15 text-indigo-600 dark:text-indigo-300"
+                          : isIncome
+                            ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
+                            : "bg-rose-500/15 text-rose-600 dark:text-rose-300";
+                        const typeBadgeText = isTransfer
+                          ? "Transferencia"
+                          : isPortfolioMovement
+                            ? normalizedDirection === "venta"
+                              ? "Portafolio (Venta)"
+                              : "Portafolio (Compra)"
+                            : t.type;
+
+                        return (
+                          <tr
+                            key={t.id}
+                            onDoubleClick={() => openTransactionModal(t)}
+                            className={`group cursor-pointer transition hover:bg-[var(--app-surface-muted)] ${
+                              isSelected ? "bg-[var(--app-surface-muted)]" : ""
+                            }`}
+                          >
+                            <td className="px-4 py-3">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={(e) => handleToggleTransaction(t.id, e.target.checked)}
+                                onDoubleClick={(e) => e.stopPropagation()}
+                                className="h-4 w-4 cursor-pointer rounded border border-[var(--app-border)]"
+                              />
+                            </td>
+                            <td className="px-4 py-3 text-sm text-muted">
+                              {formatDateForDisplay(t.date) || t.date}
+                            </td>
+                            <td className="px-4 py-3 text-sm font-medium text-[var(--app-text)]">
+                              <div className="flex flex-col gap-1">
+                                <span className="block max-w-xs truncate" title={t.description}>
+                                  {t.description}
+                                </span>
+                                {(t.goal_name || t.debt_name) && (
+                                  <div className="flex flex-wrap gap-2 text-xs text-muted">
+                                    {t.goal_name && (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-300">
+                                        Meta: {t.goal_name}
+                                      </span>
+                                    )}
+                                    {t.debt_name && (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-rose-600 dark:text-rose-300">
+                                        Deuda: {t.debt_name}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                                {isTransfer && t.transfer_account_name && (
+                                  <span className="text-xs text-muted">
+                                    Transferencia hacia {t.transfer_account_name}
+                                  </span>
+                                )}
+                                {t.tags && t.tags.length > 0 && (
+                                  <div className="flex flex-wrap gap-2 text-xs text-muted">
+                                    {t.tags.map((tag) => {
+                                      const sanitized = normalizeTagValue(tag);
+                                      return (
+                                        <span
+                                          key={tag}
+                                          className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 font-semibold text-sky-600 dark:text-sky-300"
+                                        >
+                                          #{sanitized || tag}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-muted">{t.account?.name ?? "-"}</td>
+                            <td className="px-4 py-3 text-sm">
+                              <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${typeBadgeClass}`}>
+                                {typeBadgeText}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-muted">
+                              {isTransfer ? (
+                                <div className="space-y-1">
+                                  <span className="inline-flex rounded-full bg-[var(--app-surface-muted)] px-3 py-1 text-xs font-semibold text-[var(--app-text)]">
+                                    Transferencia interna
+                                  </span>
+                                  <span className="block text-xs text-muted">
+                                    Destino: {t.transfer_account_name ?? "Sin cuenta definida"}
+                                  </span>
+                                </div>
+                              ) : hasSplits ? (
+                                <div className="space-y-2">
+                                  <span className="inline-flex rounded-full bg-[var(--app-surface-muted)] px-3 py-1 text-xs font-semibold text-[var(--app-text)]">
+                                    Múltiples categorías
+                                  </span>
+                                  <div className="space-y-1 text-xs">
+                                    {splits.map((split, splitIndex) => (
+                                      <div
+                                        key={`${split.category}-${splitIndex}`}
+                                        className="flex items-center justify-between gap-2 text-muted"
+                                      >
+                                        <span className="truncate">{split.category}</span>
+                                        <span className="font-semibold text-[var(--app-text)]">
+                                          {formatCurrency(split.amount)}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="inline-flex rounded-full bg-[var(--app-surface-muted)] px-3 py-1 text-xs">
+                                  {t.category}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              {receipts.length === 0 ? (
+                                <span className="text-xs text-muted">—</span>
+                              ) : (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {visibleReceipts.map((receipt) => (
+                                    <button
+                                      key={receipt.id}
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        handleOpenReceipt(receipt.id);
+                                      }}
+                                      onDoubleClick={(event) => event.stopPropagation()}
+                                      className="group relative h-12 w-12 overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)]"
+                                      aria-label={`Ver recibo ${receipt.original_filename}`}
+                                    >
+                                      <img
+                                        src={getReceiptUrl(receipt)}
+                                        alt={receipt.original_filename}
+                                        className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
+                                      />
+                                      <span className="pointer-events-none absolute inset-0 bg-black/30 opacity-0 transition group-hover:opacity-100" />
+                                      <Eye className="pointer-events-none absolute inset-0 m-auto h-4 w-4 text-white opacity-0 transition group-hover:opacity-100" />
+                                    </button>
+                                  ))}
+                                  {hiddenReceipts > 0 ? (
+                                    <span className="rounded-lg border border-dashed border-[var(--app-border)] px-2 py-1 text-xs font-semibold text-muted">
+                                      +{hiddenReceipts}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              )}
+                            </td>
+                            <td className={`px-4 py-3 text-right text-sm font-semibold ${amountClass}`}>
+                              {formatCurrency(t.amount)}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleDeleteTransaction(t.id);
+                                }}
+                                className="inline-flex items-center justify-center rounded-full border border-rose-400/60 p-2 text-rose-600 transition hover:border-rose-300 hover:text-rose-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/60"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex flex-col gap-4 border-t border-[var(--app-border)] bg-[var(--app-surface)] px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-center gap-2 text-sm text-muted">
+                  <span>Mostrar</span>
+                  <select
+                    value={pageSize}
+                    onChange={handlePageSizeChange}
+                    className="rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-2 py-1 text-sm focus:border-sky-400 focus:outline-none"
+                  >
+                    {[5, 10, 20, 50].map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                  <span>por página</span>
+                </div>
+                <div className="flex flex-col items-center gap-3 text-sm text-muted md:flex-row md:gap-4">
+                  <span>
+                    Página {currentPage} de {totalPages}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+                      disabled={currentPage === 1}
+                      className="rounded-lg border border-[var(--app-border)] px-3 py-1 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Anterior
+                    </button>
+                    {pageNumbers.map((page) => (
+                      <button
+                        key={page}
+                        type="button"
+                        onClick={() => handlePageChange(page)}
+                        className={`rounded-lg px-3 py-1 text-sm font-semibold transition ${
+                          currentPage === page
+                            ? "bg-sky-600 text-white"
+                            : "border border-[var(--app-border)] hover:border-sky-400"
                         }`}
                       >
-                          <td className="px-4 py-3">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={(e) => handleToggleTransaction(t.id, e.target.checked)}
-                              onDoubleClick={(e) => e.stopPropagation()}
-                              className="h-4 w-4 cursor-pointer rounded border border-[var(--app-border)]"
-                            />
-                          </td>
-                          <td className="px-4 py-3 text-sm text-muted">
-                            {formatDateForDisplay(t.date) || t.date}
-                          </td>
-                          <td className="px-4 py-3 text-sm font-medium text-[var(--app-text)]">
-                            <div className="flex flex-col gap-1">
-                              <span className="block max-w-xs truncate" title={t.description}>
-                                {t.description}
-                              </span>
-                              {(t.goal_name || t.debt_name) && (
-                                <div className="flex flex-wrap gap-2 text-xs text-muted">
-                                  {t.goal_name && (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-300">
-                                      Meta: {t.goal_name}
-                                    </span>
-                                  )}
-                                  {t.debt_name && (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-rose-600 dark:text-rose-300">
-                                      Deuda: {t.debt_name}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
-                              {isTransfer && t.transfer_account_name && (
-                                <span className="text-xs text-muted">
-                                  Transferencia hacia {t.transfer_account_name}
-                                </span>
-                              )}
-                              {t.tags && t.tags.length > 0 && (
-                                <div className="flex flex-wrap gap-2 text-xs text-muted">
-                                  {t.tags.map((tag) => {
-                                    const sanitized = normalizeTagValue(tag);
-                                    return (
-                                      <span
-                                        key={tag}
-                                        className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 font-semibold text-sky-600 dark:text-sky-300"
-                                      >
-                                        #{sanitized || tag}
-                                      </span>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-sm text-muted">
-                            {t.account?.name ?? "-"}
-                          </td>
-                          <td className="px-4 py-3 text-sm">
-                            <span
-                              className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${typeBadgeClass}`}
-                            >
-                              {typeBadgeText}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-sm text-muted">
-                            {isTransfer ? (
-                              <div className="space-y-1">
-                                <span className="inline-flex rounded-full bg-[var(--app-surface-muted)] px-3 py-1 text-xs font-semibold text-[var(--app-text)]">
-                                  Transferencia interna
-                                </span>
-                                <span className="block text-xs text-muted">
-                                  Destino: {t.transfer_account_name ?? "Sin cuenta definida"}
-                                </span>
-                              </div>
-                            ) : hasSplits ? (
-                              <div className="space-y-2">
-                                <span className="inline-flex rounded-full bg-[var(--app-surface-muted)] px-3 py-1 text-xs font-semibold text-[var(--app-text)]">
-                                  Múltiples categorías
-                                </span>
-                                <div className="space-y-1 text-xs">
-                                  {splits.map((split, splitIndex) => (
-                                    <div
-                                      key={`${split.category}-${splitIndex}`}
-                                      className="flex items-center justify-between gap-2 text-muted"
-                                    >
-                                      <span className="truncate">{split.category}</span>
-                                      <span className="font-semibold text-[var(--app-text)]">
-                                        {formatCurrency(split.amount)}
-                                      </span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            ) : (
-                              <span className="inline-flex rounded-full bg-[var(--app-surface-muted)] px-3 py-1 text-xs">
-                                {t.category}
-                              </span>
-                            )}
-                          </td>
-                          <td
-                            className={`px-4 py-3 text-right text-sm font-semibold ${amountClass}`}
-                          >
-                            {formatCurrency(t.amount)}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleDeleteTransaction(t.id);
-                              }}
-                              className="inline-flex items-center justify-center rounded-full border border-rose-400/60 p-2 text-rose-600 transition hover:border-rose-300 hover:text-rose-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/60"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
-                )}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex flex-col gap-4 border-t border-[var(--app-border)] bg-[var(--app-surface)] px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-2 text-sm text-muted">
-              <span>Mostrar</span>
-              <select
-                value={pageSize}
-                onChange={handlePageSizeChange}
-                  className="rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-2 py-1 text-sm focus:border-sky-400 focus:outline-none"
-                >
-                  {[5, 10, 20, 50].map((size) => (
-                    <option key={size} value={size}>
-                      {size}
-                    </option>
-                  ))}
-                </select>
-                <span>por página</span>
-              </div>
-              <div className="flex flex-col items-center gap-3 text-sm text-muted md:flex-row md:gap-4">
-                <span>
-                  Página {currentPage} de {totalPages}
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
-                    disabled={currentPage === 1}
-                    className="rounded-lg border border-[var(--app-border)] px-3 py-1 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    Anterior
-                  </button>
-                  {pageNumbers.map((page) => (
+                        {page}
+                      </button>
+                    ))}
                     <button
-                      key={page}
                       type="button"
-                      onClick={() => handlePageChange(page)}
-                      className={`rounded-lg px-3 py-1 text-sm font-semibold transition ${
-                        currentPage === page
-                          ? "bg-sky-600 text-white"
-                          : "border border-[var(--app-border)] hover:border-sky-400"
-                      }`}
+                      onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+                      disabled={currentPage === totalPages}
+                      className="rounded-lg border border-[var(--app-border)] px-3 py-1 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      {page}
+                      Siguiente
                     </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
-                    disabled={currentPage === totalPages}
-                    className="rounded-lg border border-[var(--app-border)] px-3 py-1 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    Siguiente
-                  </button>
+                  </div>
                 </div>
               </div>
-          </div>
+            </>
+          )}
         </div>
       </section>
+      {activeReceiptData ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={handleCloseReceipt}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="relative w-full max-w-5xl overflow-hidden rounded-2xl bg-[var(--app-surface)] shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={handleCloseReceipt}
+              className="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80"
+              aria-label="Cerrar visor de recibo"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <div className="grid gap-0 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+              <div className="relative bg-black">
+                <img
+                  src={getReceiptUrl(activeReceiptData.receipt)}
+                  alt={activeReceiptData.receipt.original_filename}
+                  className="h-full w-full object-contain"
+                />
+              </div>
+              <div className="flex flex-col gap-4 p-6">
+                <div className="space-y-1">
+                  <h3 className="text-lg font-semibold text-[var(--app-text)]">
+                    {activeReceiptData.transaction?.description ?? "Recibo sin transacción"}
+                  </h3>
+                  <p className="text-sm text-muted">
+                    {activeReceiptData.transaction
+                      ? `Transacción #${activeReceiptData.transaction.id}`
+                      : "Sin transacción asociada"}
+                  </p>
+                </div>
+                <div className="space-y-2 text-sm text-muted">
+                  <p>
+                    <span className="font-semibold text-[var(--app-text)]">Cuenta:</span> {activeReceiptData.accountName}
+                  </p>
+                  {activeReceiptData.transaction ? (
+                    <>
+                      <p>
+                        <span className="font-semibold text-[var(--app-text)]">Fecha:</span> {activeReceiptData.transactionDateLabel || "Sin fecha"}
+                      </p>
+                      <p className="flex flex-wrap items-center gap-2">
+                        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${activeReceiptData.typeBadgeClass}`}>
+                          {activeReceiptData.transaction.type}
+                        </span>
+                        {activeReceiptData.transaction.category ? (
+                          <span className="rounded-full bg-[var(--app-surface-muted)] px-3 py-1 text-xs font-semibold text-[var(--app-text)]">
+                            {activeReceiptData.transaction.category}
+                          </span>
+                        ) : null}
+                      </p>
+                    </>
+                  ) : null}
+                  <p>
+                    <span className="font-semibold text-[var(--app-text)]">Archivo:</span> {activeReceiptData.receipt.original_filename}
+                    {activeReceiptData.receipt.file_size
+                      ? ` · ${formatFileSize(activeReceiptData.receipt.file_size)}`
+                      : ""}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-[var(--app-text)]">Subido:</span> {activeReceiptData.uploadDateLabel || "Sin fecha"}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className={`text-xl font-semibold ${activeReceiptData.transaction ? activeReceiptData.amountClass : "text-muted"}`}>
+                    {activeReceiptData.transaction
+                      ? formatCurrency(activeReceiptData.transaction.amount)
+                      : "Monto no disponible"}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {activeReceiptData.transaction ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        openTransactionModal(activeReceiptData.transaction);
+                        handleCloseReceipt();
+                      }}
+                      className="inline-flex items-center gap-2 rounded-lg border border-sky-400/70 px-3 py-1.5 text-xs font-semibold text-sky-600 transition hover:border-sky-400 hover:text-sky-500 dark:text-sky-300"
+                    >
+                      Ver transacción
+                    </button>
+                  ) : null}
+                  <a
+                    href={getReceiptUrl(activeReceiptData.receipt)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 rounded-lg border border-[var(--app-border)] px-3 py-1.5 text-xs font-semibold text-muted transition hover:border-sky-400 hover:text-sky-600"
+                  >
+                    <Download className="h-4 w-4" />
+                    Descargar
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

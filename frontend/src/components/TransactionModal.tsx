@@ -1272,7 +1272,6 @@ export const TransactionModal = () => {
             )}
 
             <div className="space-y-4 lg:col-start-1">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <input
                 type="text"
                 name="description"
@@ -1281,28 +1280,30 @@ export const TransactionModal = () => {
                 placeholder="Descripción"
                 required
                 maxLength={100}
-                className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100 sm:col-span-3"
-              />
-              <input
-                type="number"
-                step="0.01"
-                name="amount"
-                value={formData.amount}
-                onChange={handleChange}
-                placeholder="Monto"
-                required
-                inputMode="decimal"
                 className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
               />
-              <input
-                type="date"
-                name="date"
-                value={formData.date}
-                onChange={handleChange}
-                required
-                max={todayInputValue}
-                className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
-              />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <input
+                  type="number"
+                  step="0.01"
+                  name="amount"
+                  value={formData.amount}
+                  onChange={handleChange}
+                  placeholder="Monto"
+                  required
+                  inputMode="decimal"
+                  className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                />
+                <input
+                  type="date"
+                  name="date"
+                  value={formData.date}
+                  onChange={handleChange}
+                  required
+                  max={todayInputValue}
+                  className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                />
+              </div>
               <div className="space-y-2">
                 <label className="text-xs font-semibold uppercase tracking-wide text-muted">
                   Cuenta
@@ -1314,7 +1315,7 @@ export const TransactionModal = () => {
                   required
                   className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
                 >
-                  <option value="">-- Selecciona una Cuenta --</option>
+                  <option value="">-- Selecciona una cuenta --</option>
                   {accounts.map((account) => (
                     <option key={account.id} value={account.id}>
                       {account.name}
@@ -1323,16 +1324,18 @@ export const TransactionModal = () => {
                 </select>
                 <button
                   type="button"
-                  onClick={() => setIsAccountModalOpen(true)}
-                  className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-semibold text-[var(--app-text)] transition hover:border-sky-400 hover:text-sky-600"
+                  onClick={() => {
+                    setGoalDebtFeedback(null);
+                    setIsAccountModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-2 text-xs font-semibold text-sky-600 transition hover:text-sky-500 dark:text-sky-300"
                 >
-                  Nueva cuenta
+                  ¿Necesitas una cuenta nueva?
                 </button>
-              </div>
               </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
+                <div>
                 <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
                   Tipo de movimiento
                 </label>
