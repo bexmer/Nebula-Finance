@@ -1,39 +1,26 @@
-import { useEffect, useState, useCallback, useMemo, type CSSProperties } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, type CSSProperties } from "react";
 import axios from "axios";
 
-import { useStore, TransactionSplit as TransactionSplitData } from "../store/useStore";
+import {
+  useStore,
+  TransactionSplit as TransactionSplitData,
+  Transaction,
+  ReceiptItem,
+} from "../store/useStore";
 import { apiPath } from "../utils/api";
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 import {
   formatDateForDisplay,
   getTodayDateInputValue,
   normalizeDateInputValue,
-  parseDateOnly,
 } from "../utils/date";
+import { GoalDebtModal, GoalDebtModalSavePayload } from "./GoalDebtModal";
+import { BudgetPickerModal, BudgetPickerItem } from "./BudgetPickerModal";
+import { QuickAccountModal } from "./QuickAccountModal";
 
 interface SelectOption {
   id: number;
   name: string;
-}
-
-interface BudgetEntryOption {
-  id: number;
-  description: string;
-  category: string;
-  type: string;
-  frequency: string;
-  start_date?: string | null;
-  end_date?: string | null;
-  due_date?: string | null;
-  budgeted_amount: number;
-  actual_amount: number;
-  remaining_amount: number;
-  over_budget_amount?: number;
-  is_recurring?: boolean;
-  goal_id?: number | null;
-  goal_name?: string | null;
-  debt_id?: number | null;
-  debt_name?: string | null;
 }
 
 interface ParameterOption {
@@ -59,6 +46,7 @@ const createInitialState = () => ({
   budget_entry_id: "",
   is_transfer: false,
   transfer_account_id: "",
+  portfolio_direction: "",
 });
 
 const normalizeTypeLabel = (value: string) =>
@@ -92,7 +80,7 @@ export const TransactionModal = () => {
   const [categories, setCategories] = useState<ParameterOption[]>([]);
   const [goals, setGoals] = useState<SelectOption[]>([]);
   const [debts, setDebts] = useState<SelectOption[]>([]);
-  const [budgetEntries, setBudgetEntries] = useState<BudgetEntryOption[]>([]);
+  const [budgetEntries, setBudgetEntries] = useState<BudgetPickerItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [catalogNotice, setCatalogNotice] = useState<string | null>(null);
@@ -108,6 +96,17 @@ export const TransactionModal = () => {
   const [initialTags, setInitialTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [availableTags, setAvailableTags] = useState<string[]>([]);
+  const [selectedBudget, setSelectedBudget] = useState<BudgetPickerItem | null>(null);
+  const [isBudgetPickerOpen, setIsBudgetPickerOpen] = useState(false);
+  const [existingReceipts, setExistingReceipts] = useState<ReceiptItem[]>([]);
+  const [pendingReceipts, setPendingReceipts] = useState<File[]>([]);
+  const [receiptsToDelete, setReceiptsToDelete] = useState<number[]>([]);
+  const [receiptError, setReceiptError] = useState<string | null>(null);
+  const receiptInputRef = useRef<HTMLInputElement | null>(null);
+  const [isGoalDebtModalOpen, setIsGoalDebtModalOpen] = useState(false);
+  const [goalDebtMode, setGoalDebtMode] = useState<"goal" | "debt">("goal");
+  const [goalDebtFeedback, setGoalDebtFeedback] = useState<string | null>(null);
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const todayInputValue = useMemo(() => getTodayDateInputValue(), []);
 
   const activeType = useMemo(() => {
@@ -130,6 +129,7 @@ export const TransactionModal = () => {
   const shouldShowGoalSelect = requiresGoal || Boolean(formData.goal_id);
   const shouldShowDebtSelect = requiresDebt || Boolean(formData.debt_id);
   const isTransfer = formData.is_transfer;
+  const isPortfolioMovement = normalizedTypeName.includes("portafolio");
 
   const availableDestinationAccounts = useMemo(
     () =>
@@ -138,8 +138,12 @@ export const TransactionModal = () => {
   );
 
   const canUseSplit = useMemo(
-    () => !isTransfer && Boolean(formData.typeId) && categories.length > 0,
-    [categories.length, formData.typeId, isTransfer]
+    () =>
+      !isTransfer &&
+      !isPortfolioMovement &&
+      Boolean(formData.typeId) &&
+      categories.length > 0,
+    [categories.length, formData.typeId, isPortfolioMovement, isTransfer]
   );
 
   const normalizeTagValue = useCallback((value: string) => {
@@ -193,90 +197,7 @@ export const TransactionModal = () => {
       .slice(0, 8);
   }, [availableTags, normalizeTagValue, selectedTags, tagInput]);
 
-  const selectedBudgetId = formData.budget_entry_id
-    ? Number(formData.budget_entry_id)
-    : null;
-
-  const budgetOptions = useMemo(() => {
-    if (budgetEntries.length === 0) {
-      return [] as BudgetEntryOption[];
-    }
-
-    const targetType = activeType?.value ?? "";
-    const normalizedTarget = normalizeTypeLabel(targetType);
-
-    const parseDate = (entry: BudgetEntryOption) => {
-      const dateValue = entry.due_date || entry.end_date || entry.start_date;
-      const parsed = parseDateOnly(dateValue);
-      return parsed ? parsed.getTime() : Number.MAX_SAFE_INTEGER;
-    };
-
-    return budgetEntries
-      .filter((entry) => {
-        if (selectedBudgetId && entry.id === selectedBudgetId) {
-          return true;
-        }
-        if (!normalizedTarget) {
-          return true;
-        }
-
-        if (normalizedTarget.includes("transferencia")) {
-          return false;
-        }
-
-        const normalizedEntryType = normalizeTypeLabel(entry.type ?? "");
-
-        if (normalizedEntryType === normalizedTarget) {
-          return true;
-        }
-
-        if (normalizedTarget.includes("gasto")) {
-          return (
-            normalizedEntryType.includes("gasto") ||
-            normalizedEntryType.includes("egreso")
-          );
-        }
-
-        if (normalizedTarget.includes("ingreso")) {
-          return normalizedEntryType.includes("ingreso");
-        }
-
-        if (normalizedTarget.includes("ahorro")) {
-          return normalizedEntryType.includes("ahorro");
-        }
-
-        if (normalizedTarget.includes("deuda")) {
-          return normalizedEntryType.includes("deuda");
-        }
-
-        return normalizedEntryType.includes(normalizedTarget);
-      })
-      .sort((a, b) => parseDate(a) - parseDate(b));
-  }, [activeType, budgetEntries, selectedBudgetId]);
-
   const hasAnyBudgets = budgetEntries.length > 0;
-
-  const selectedBudget = useMemo(() => {
-    if (!selectedBudgetId) {
-      return null;
-    }
-    const found = budgetEntries.find((entry) => entry.id === selectedBudgetId);
-    if (!found) {
-      return null;
-    }
-    const planned = found.budgeted_amount ?? 0;
-    const actual = found.actual_amount ?? 0;
-    const remaining =
-      found.remaining_amount !== undefined && found.remaining_amount !== null
-        ? found.remaining_amount
-        : planned - actual;
-    return {
-      ...found,
-      budgeted_amount: planned,
-      actual_amount: actual,
-      remaining_amount: remaining,
-    };
-  }, [budgetEntries, selectedBudgetId]);
 
   const fetchCategoriesByType = useCallback(async (typeId: number) => {
     try {
@@ -307,12 +228,14 @@ export const TransactionModal = () => {
         : undefined;
 
       let isTransferSelection = false;
+      let isPortfolioSelection = false;
       let requiresGoal = false;
       let requiresDebt = false;
 
       if (selectedType) {
         const normalized = normalizeTypeLabel(selectedType.value);
         isTransferSelection = normalized.includes("transferencia");
+        isPortfolioSelection = normalized.includes("portafolio");
         requiresGoal = normalized.includes("ahorro");
         requiresDebt = normalized.includes("deuda");
 
@@ -355,11 +278,15 @@ export const TransactionModal = () => {
             : "",
           goal_id: resolvedGoal,
           debt_id: resolvedDebt,
+          portfolio_direction: isPortfolioSelection
+            ? prev.portfolio_direction || "Compra"
+            : "",
         };
 
         if (isTransferSelection) {
           next.goal_id = "";
           next.debt_id = "";
+          next.portfolio_direction = "";
         }
 
         if (categoryOverride) {
@@ -375,11 +302,13 @@ export const TransactionModal = () => {
         return next;
       });
 
-      if (isTransferSelection) {
+      if (isTransferSelection || isPortfolioSelection) {
         setSplitMode(false);
         setSplitItems([]);
-        setCategories([]);
-        return;
+        if (isTransferSelection) {
+          setCategories([]);
+          return;
+        }
       }
 
       if (numericType) {
@@ -538,52 +467,158 @@ export const TransactionModal = () => {
     );
   }, [normalizeTagValue]);
 
-  const handleBudgetEntryChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = event.target.value;
-    const numericId = value ? Number(value) : null;
-    const matchedBudget =
-      numericId && !Number.isNaN(numericId)
-        ? budgetEntries.find((entry) => entry.id === numericId)
-        : undefined;
-
-    setFormData((prev) => ({
-      ...prev,
-      budget_entry_id: value,
-      goal_id: matchedBudget?.goal_id ? String(matchedBudget.goal_id) : "",
-      debt_id: matchedBudget?.debt_id ? String(matchedBudget.debt_id) : "",
-    }));
-
-    if (matchedBudget) {
-      const normalizedType = normalizeTypeLabel(matchedBudget.type ?? "");
-      const matchedType = transactionTypes.find(
-        (type) => normalizeTypeLabel(type.value) === normalizedType
-      );
-
-      if (matchedType) {
-        applyTypeChange(String(matchedType.id), {
-          categoryOverride: matchedBudget.category,
-          keepBudget: true,
-          preserveCategory: true,
-          goalOverride: matchedBudget.goal_id
-            ? String(matchedBudget.goal_id)
-            : "",
-          debtOverride: matchedBudget.debt_id
-            ? String(matchedBudget.debt_id)
-            : "",
-        });
-      } else if (matchedBudget.category) {
+  const handleBudgetSelection = useCallback(
+    (entry: BudgetPickerItem | null) => {
+      if (entry) {
+        const budgetIdValue = String(entry.id);
+        setSelectedBudget(entry);
         setFormData((prev) => ({
           ...prev,
-          categoryValue: matchedBudget.category,
+          budget_entry_id: budgetIdValue,
+          goal_id: entry.goal_id ? String(entry.goal_id) : "",
+          debt_id: entry.debt_id ? String(entry.debt_id) : "",
+        }));
+
+        const normalizedType = normalizeTypeLabel(entry.type ?? "");
+        const matchedType = transactionTypes.find(
+          (type) => normalizeTypeLabel(type.value) === normalizedType,
+        );
+
+        if (matchedType) {
+          applyTypeChange(String(matchedType.id), {
+            categoryOverride: entry.category,
+            keepBudget: true,
+            preserveCategory: true,
+            goalOverride: entry.goal_id ? String(entry.goal_id) : "",
+            debtOverride: entry.debt_id ? String(entry.debt_id) : "",
+          });
+        } else if (entry.category) {
+          setFormData((prev) => ({
+            ...prev,
+            categoryValue: entry.category,
+          }));
+        }
+      } else {
+        setSelectedBudget(null);
+        setFormData((prev) => ({
+          ...prev,
+          budget_entry_id: "",
         }));
       }
-    } else {
-      setFormData((prev) => ({
-        ...prev,
-        categoryValue: prev.categoryValue,
-      }));
+    },
+    [applyTypeChange, normalizeTypeLabel, transactionTypes],
+  );
+
+  const formatFileSize = (bytes: number | undefined | null) => {
+    if (!Number.isFinite(bytes ?? NaN)) {
+      return "";
     }
+    const value = bytes ?? 0;
+    if (value >= 1024 * 1024) {
+      return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+    }
+    if (value >= 1024) {
+      return `${(value / 1024).toFixed(1)} KB`;
+    }
+    return `${value} B`;
   };
+
+  const handleReceiptFilesSelected = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files ?? []);
+      event.target.value = "";
+      if (files.length === 0) {
+        return;
+      }
+      let added = 0;
+      let invalid = 0;
+      setPendingReceipts((prev) => {
+        const signatures = new Set(prev.map((file) => `${file.name}-${file.size}`));
+        const additions: File[] = [];
+        files.forEach((file) => {
+          if (!file.type.startsWith("image/")) {
+            invalid += 1;
+            return;
+          }
+          const signature = `${file.name}-${file.size}`;
+          if (signatures.has(signature)) {
+            return;
+          }
+          signatures.add(signature);
+          additions.push(file);
+        });
+        added = additions.length;
+        if (additions.length === 0) {
+          return prev;
+        }
+        return [...prev, ...additions];
+      });
+      if (invalid > 0) {
+        setReceiptError("Algunos archivos no son imágenes y se omitieron.");
+      } else if (added > 0) {
+        setReceiptError(null);
+      }
+    },
+    [],
+  );
+
+  const handleRemovePendingReceipt = useCallback((index: number) => {
+    setPendingReceipts((prev) => prev.filter((_, idx) => idx !== index));
+  }, []);
+
+  const handleRemoveExistingReceipt = useCallback((receiptId: number) => {
+    setExistingReceipts((prev) => prev.filter((item) => item.id !== receiptId));
+    setReceiptsToDelete((prev) =>
+      prev.includes(receiptId) ? prev : [...prev, receiptId],
+    );
+  }, []);
+
+  const handleGoalDebtSave = useCallback(
+    (payload?: GoalDebtModalSavePayload) => {
+      setIsGoalDebtModalOpen(false);
+      if (!payload) {
+        return;
+      }
+
+      if (payload.mode === "goal") {
+        setGoals((prev) => {
+          const filtered = prev.filter((goal) => goal.id !== payload.item.id);
+          const updated = [...filtered, { id: payload.item.id, name: payload.item.name }];
+          return updated.sort((a, b) => a.name.localeCompare(b.name, "es"));
+        });
+        setFormData((prev) => ({
+          ...prev,
+          goal_id: payload.item.id ? String(payload.item.id) : prev.goal_id,
+        }));
+        setGoalDebtFeedback("Meta guardada correctamente.");
+      } else {
+        setDebts((prev) => {
+          const filtered = prev.filter((debt) => debt.id !== payload.item.id);
+          const updated = [...filtered, { id: payload.item.id, name: payload.item.name }];
+          return updated.sort((a, b) => a.name.localeCompare(b.name, "es"));
+        });
+        setFormData((prev) => ({
+          ...prev,
+          debt_id: payload.item.id ? String(payload.item.id) : prev.debt_id,
+        }));
+        setGoalDebtFeedback("Deuda guardada correctamente.");
+      }
+    },
+    [],
+  );
+
+  const handleAccountCreated = useCallback(async (accountId: number) => {
+    try {
+      const response = await axios.get(apiPath("/accounts"));
+      const refreshedAccounts = (response.data as any[])
+        .filter((account) => !account.is_virtual)
+        .map((account) => ({ id: account.id, name: account.name }));
+      setAccounts(refreshedAccounts);
+      setFormData((prev) => ({ ...prev, account_id: String(accountId) }));
+    } catch (accountError) {
+      console.error("Error al actualizar el listado de cuentas:", accountError);
+    }
+  }, []);
 
   const loadModalData = useCallback(async () => {
     setIsLoading(true);
@@ -634,7 +669,7 @@ export const TransactionModal = () => {
 
       let fetchedBudgets =
         budgetsResult.status === "fulfilled"
-          ? (budgetsResult.value.data as BudgetEntryOption[])
+          ? (budgetsResult.value.data as BudgetPickerItem[])
           : [];
 
       if (
@@ -644,7 +679,7 @@ export const TransactionModal = () => {
         )
       ) {
         try {
-          const fallback = await axios.get<BudgetEntryOption[]>(
+          const fallback = await axios.get<BudgetPickerItem[]>(
             apiPath("/budget"),
           );
           fetchedBudgets = fallback.data;
@@ -687,6 +722,7 @@ export const TransactionModal = () => {
       let nextCategories: ParameterOption[] = [];
       let nextFormState = createInitialState();
       let transactionTags: string[] = [];
+      let initialBudgetSelection: BudgetPickerItem | null = null;
 
       if (editingTransaction) {
         const typeObject = typeList.find(
@@ -712,6 +748,7 @@ export const TransactionModal = () => {
             transfer_account_id: editingTransaction.transfer_account_id
               ? String(editingTransaction.transfer_account_id)
               : "",
+            portfolio_direction: editingTransaction.portfolio_direction || "",
           };
         } else {
           nextFormState = {
@@ -729,6 +766,7 @@ export const TransactionModal = () => {
             transfer_account_id: editingTransaction.transfer_account_id
               ? String(editingTransaction.transfer_account_id)
               : "",
+            portfolio_direction: editingTransaction.portfolio_direction || "",
           };
         }
 
@@ -737,6 +775,14 @@ export const TransactionModal = () => {
         );
         setSelectedTags(transactionTags);
         setInitialTags(transactionTags);
+        initialBudgetSelection =
+          fetchedBudgets.find(
+            (entry) => entry.id === editingTransaction.budget_entry_id,
+          ) ?? null;
+        setExistingReceipts(editingTransaction.receipts ?? []);
+        setReceiptsToDelete([]);
+        setPendingReceipts([]);
+        setReceiptError(null);
 
         const splitsFromTransaction = editingTransaction.splits ?? [];
         if (splitsFromTransaction.length > 0) {
@@ -787,6 +833,10 @@ export const TransactionModal = () => {
         setInitialSplits([]);
         setSelectedTags([]);
         setInitialTags([]);
+        setExistingReceipts([]);
+        setReceiptsToDelete([]);
+        setPendingReceipts([]);
+        setReceiptError(null);
 
         if (transactionPrefill.type) {
           const typeObject = typeList.find(
@@ -801,12 +851,23 @@ export const TransactionModal = () => {
             };
           }
         }
+
+        if (transactionPrefill.budget_entry_id) {
+          initialBudgetSelection =
+            fetchedBudgets.find(
+              (entry) => entry.id === transactionPrefill.budget_entry_id,
+            ) ?? null;
+        }
       } else {
         setSplitMode(false);
         setSplitItems([]);
         setInitialSplits([]);
         setSelectedTags([]);
         setInitialTags([]);
+        setExistingReceipts([]);
+        setReceiptsToDelete([]);
+        setPendingReceipts([]);
+        setReceiptError(null);
       }
 
       const combinedTags = Array.from(
@@ -816,6 +877,8 @@ export const TransactionModal = () => {
 
       setCategories(nextCategories);
       setFormData(nextFormState);
+      setSelectedBudget(initialBudgetSelection);
+      setGoalDebtFeedback(null);
       if (editingTransaction) {
         setInitialSnapshot(nextFormState);
         setTagInput("");
@@ -853,6 +916,15 @@ export const TransactionModal = () => {
       setSelectedTags([]);
       setInitialTags([]);
       setBudgetEntries([]);
+      setSelectedBudget(null);
+      setExistingReceipts([]);
+      setPendingReceipts([]);
+      setReceiptsToDelete([]);
+      setReceiptError(null);
+      setGoalDebtFeedback(null);
+      setIsBudgetPickerOpen(false);
+      setIsGoalDebtModalOpen(false);
+      setIsAccountModalOpen(false);
       setTagInput("");
     }
   }, [isTransactionModalOpen, loadModalData]);
@@ -936,6 +1008,14 @@ export const TransactionModal = () => {
     if (parsedTransactionDate > today) {
       setError("La fecha no puede ser posterior al día de hoy.");
       return;
+    }
+
+    if (isPortfolioMovement) {
+      const normalizedDirection = formData.portfolio_direction.trim();
+      if (!normalizedDirection) {
+        setError("Selecciona si el movimiento de portafolio es una compra o una venta.");
+        return;
+      }
     }
 
     if (Number.isNaN(accountIdNumber)) {
@@ -1035,6 +1115,9 @@ export const TransactionModal = () => {
       transfer_account_id: transferAccountNumber,
       splits: splitPayload,
       tags: selectedTags,
+      portfolio_direction: isPortfolioMovement
+        ? formData.portfolio_direction
+        : undefined,
     };
 
     const normalizedCurrentTags = selectedTags
@@ -1085,6 +1168,8 @@ export const TransactionModal = () => {
         initialSnapshot.is_transfer === submissionData.is_transfer &&
         (initialSnapshot.transfer_account_id || "") ===
           (formData.transfer_account_id || "") &&
+        (initialSnapshot.portfolio_direction || "") ===
+          (formData.portfolio_direction || "") &&
         tagsEqual &&
         splitsEqual;
 
@@ -1095,14 +1180,43 @@ export const TransactionModal = () => {
     }
 
     try {
-      if (editingTransaction) {
-        await axios.put(
-          apiPath(`/transactions/${editingTransaction.id}`),
-          submissionData
+      const response = editingTransaction
+        ? await axios.put(
+            apiPath(`/transactions/${editingTransaction.id}`),
+            submissionData,
+          )
+        : await axios.post(apiPath("/transactions"), submissionData);
+
+      const savedTransaction = response?.data as
+        | (Transaction & { id: number })
+        | undefined;
+      const transactionId = savedTransaction?.id ?? editingTransaction?.id ?? null;
+
+      let receiptSyncError = false;
+      if (
+        transactionId &&
+        (pendingReceipts.length > 0 || receiptsToDelete.length > 0)
+      ) {
+        const deletionRequests = receiptsToDelete.map((receiptId) =>
+          axios.delete(apiPath(`/receipts/${receiptId}`)),
         );
-      } else {
-        await axios.post(apiPath("/transactions"), submissionData);
+        const uploadRequests = pendingReceipts.map((file) => {
+          const payload = new FormData();
+          payload.append("file", file);
+          payload.append("transaction_id", String(transactionId));
+          return axios.post(apiPath("/receipts"), payload, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+        });
+
+        try {
+          await Promise.all([...deletionRequests, ...uploadRequests]);
+        } catch (receiptSync) {
+          receiptSyncError = true;
+          console.error("Error al sincronizar los recibos:", receiptSync);
+        }
       }
+
       await fetchTransactions();
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("nebula:goals-refresh"));
@@ -1110,6 +1224,14 @@ export const TransactionModal = () => {
       if (transactionSuccessHandler) {
         await Promise.resolve(transactionSuccessHandler());
       }
+
+      if (receiptSyncError) {
+        setError(
+          "La transacción se guardó, pero algunos recibos no pudieron sincronizarse. Revisa los archivos e inténtalo nuevamente.",
+        );
+        return;
+      }
+
       closeTransactionModal();
     } catch (submitError) {
       console.error("Error al guardar la transacción:", submitError);
@@ -1150,7 +1272,6 @@ export const TransactionModal = () => {
             )}
 
             <div className="space-y-4 lg:col-start-1">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <input
                 type="text"
                 name="description"
@@ -1159,46 +1280,62 @@ export const TransactionModal = () => {
                 placeholder="Descripción"
                 required
                 maxLength={100}
-                className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100 sm:col-span-3"
-              />
-              <input
-                type="number"
-                step="0.01"
-                name="amount"
-                value={formData.amount}
-                onChange={handleChange}
-                placeholder="Monto"
-                required
-                inputMode="decimal"
                 className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
               />
-              <input
-                type="date"
-                name="date"
-                value={formData.date}
-                onChange={handleChange}
-                required
-                max={todayInputValue}
-                className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
-              />
-              <select
-                name="account_id"
-                value={formData.account_id}
-                onChange={handleChange}
-                required
-                className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
-              >
-                <option value="">-- Selecciona una Cuenta --</option>
-                {accounts.map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {account.name}
-                  </option>
-                ))}
-              </select>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <input
+                  type="number"
+                  step="0.01"
+                  name="amount"
+                  value={formData.amount}
+                  onChange={handleChange}
+                  placeholder="Monto"
+                  required
+                  inputMode="decimal"
+                  className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                />
+                <input
+                  type="date"
+                  name="date"
+                  value={formData.date}
+                  onChange={handleChange}
+                  required
+                  max={todayInputValue}
+                  className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-semibold uppercase tracking-wide text-muted">
+                  Cuenta
+                </label>
+                <select
+                  name="account_id"
+                  value={formData.account_id}
+                  onChange={handleChange}
+                  required
+                  className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                >
+                  <option value="">-- Selecciona una cuenta --</option>
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGoalDebtFeedback(null);
+                    setIsAccountModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-2 text-xs font-semibold text-sky-600 transition hover:text-sky-500 dark:text-sky-300"
+                >
+                  ¿Necesitas una cuenta nueva?
+                </button>
               </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
+                <div>
                 <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
                   Tipo de movimiento
                 </label>
@@ -1216,6 +1353,27 @@ export const TransactionModal = () => {
                     </option>
                   ))}
                 </select>
+                {isPortfolioMovement && (
+                  <div className="mt-3">
+                    <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">
+                      Dirección en portafolio
+                    </label>
+                    <select
+                      name="portfolio_direction"
+                      value={formData.portfolio_direction}
+                      onChange={handleChange}
+                      required
+                      className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                    >
+                      <option value="">-- Selecciona la dirección --</option>
+                      <option value="Compra">Compra (sale dinero de la cuenta)</option>
+                      <option value="Venta">Venta (entra dinero a la cuenta)</option>
+                    </select>
+                    <p className="mt-1 text-xs text-muted">
+                      Usamos esta opción para ajustar el saldo de la cuenta automáticamente.
+                    </p>
+                  </div>
+                )}
               </div>
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1446,161 +1604,290 @@ export const TransactionModal = () => {
               )}
             </div>
 
+            {goalDebtFeedback ? (
+              <p className="text-xs text-sky-600">{goalDebtFeedback}</p>
+            ) : null}
+
             {(shouldShowGoalSelect || shouldShowDebtSelect) && (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {shouldShowGoalSelect && (
-                  goals.length > 0 ? (
-                    <select
-                      name="goal_id"
-                      value={formData.goal_id}
-                      onChange={handleChange}
-                      required={requiresGoal}
-                      className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
-                    >
-                      <option value="">
-                        {requiresGoal
-                          ? "-- Selecciona una meta --"
-                          : "-- Asociar meta (opcional) --"}
-                      </option>
-                      {goals.map((goal) => (
-                        <option key={goal.id} value={goal.id}>
-                          {goal.name}
+                  <div className="space-y-2">
+                    {goals.length > 0 ? (
+                      <select
+                        name="goal_id"
+                        value={formData.goal_id}
+                        onChange={handleChange}
+                        required={requiresGoal}
+                        className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                      >
+                        <option value="">
+                          {requiresGoal
+                            ? "-- Selecciona una meta --"
+                            : "-- Asociar meta (opcional) --"}
                         </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <div className="rounded-xl border border-dashed border-[var(--app-border)] px-3 py-2 text-sm text-muted">
-                      Crea una meta para poder registrar este ahorro.
-                    </div>
-                  )
+                        {goals.map((goal) => (
+                          <option key={goal.id} value={goal.id}>
+                            {goal.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-[var(--app-border)] px-3 py-2 text-sm text-muted">
+                        Crea una meta para poder registrar este ahorro.
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGoalDebtMode("goal");
+                        setIsGoalDebtModalOpen(true);
+                      }}
+                      className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-semibold text-[var(--app-text)] transition hover:border-sky-400 hover:text-sky-600"
+                    >
+                      Nueva meta
+                    </button>
+                  </div>
                 )}
                 {shouldShowDebtSelect && (
-                  debts.length > 0 ? (
-                    <select
-                      name="debt_id"
-                      value={formData.debt_id}
-                      onChange={handleChange}
-                      required={requiresDebt}
-                      className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
-                    >
-                      <option value="">
-                        {requiresDebt
-                          ? "-- Selecciona una deuda --"
-                          : "-- Asociar deuda (opcional) --"}
-                      </option>
-                      {debts.map((debt) => (
-                        <option key={debt.id} value={debt.id}>
-                          {debt.name}
+                  <div className="space-y-2">
+                    {debts.length > 0 ? (
+                      <select
+                        name="debt_id"
+                        value={formData.debt_id}
+                        onChange={handleChange}
+                        required={requiresDebt}
+                        className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+                      >
+                        <option value="">
+                          {requiresDebt
+                            ? "-- Selecciona una deuda --"
+                            : "-- Asociar deuda (opcional) --"}
                         </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <div className="rounded-xl border border-dashed border-[var(--app-border)] px-3 py-2 text-sm text-muted">
-                      Registra una deuda para poder vincular este pago.
-                    </div>
-                  )
+                        {debts.map((debt) => (
+                          <option key={debt.id} value={debt.id}>
+                            {debt.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-[var(--app-border)] px-3 py-2 text-sm text-muted">
+                        Registra una deuda para poder vincular este pago.
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGoalDebtMode("debt");
+                        setIsGoalDebtModalOpen(true);
+                      }}
+                      className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-semibold text-[var(--app-text)] transition hover:border-sky-400 hover:text-sky-600"
+                    >
+                      Nueva deuda
+                    </button>
+                  </div>
                 )}
               </div>
             )}
 
-            {!isTransfer && (
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-[var(--app-text)]">
-                  Asociar a presupuesto (opcional)
-                </label>
-                <select
-                  name="budget_entry_id"
-                  value={formData.budget_entry_id}
-                  onChange={handleBudgetEntryChange}
-                  disabled={budgetOptions.length === 0}
-                  className="w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100"
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-[var(--app-text)]">
+                Asociar a presupuesto (opcional)
+              </label>
+              {isTransfer ? (
+                <p className="text-xs text-muted">
+                  Vincular esta transferencia a un presupuesto actualizará el tipo y la categoría con los datos del presupuesto seleccionado.
+                </p>
+              ) : null}
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <button
+                  type="button"
+                  onClick={() => setIsBudgetPickerOpen(true)}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-300 px-4 py-2 text-sm font-semibold text-sky-600 transition hover:border-sky-400 hover:text-sky-700 dark:border-sky-500/60 dark:text-sky-200"
                 >
-                  <option value="">-- Sin asociación --</option>
-                  {budgetOptions.map((entry) => {
-                    const remaining = entry.remaining_amount ?? 0;
-                    const overBudget =
-                      entry.over_budget_amount ??
-                      Math.max((entry.actual_amount ?? 0) - (entry.budgeted_amount ?? 0), 0);
-                    const remainingText =
-                      overBudget > 0
-                        ? `Excedido ${formatCurrency(overBudget)}`
-                        : remaining <= 0
-                        ? "Completado"
-                        : `${formatCurrency(Math.max(remaining, 0))} disponibles`;
-                    const deadline = entry.due_date || entry.end_date || entry.start_date;
-                    const deadlineDate = parseDateOnly(deadline);
-                    const deadlineText = deadlineDate
-                      ? formatDateForDisplay(deadlineDate)
-                      : "sin fecha límite";
-                    return (
-                      <option key={entry.id} value={String(entry.id)}>
-                        {(entry.description || entry.category) ?? "Presupuesto"} · {remainingText} · vence {deadlineText}
-                      </option>
-                    );
-                  })}
-                </select>
-                {budgetOptions.length === 0 ? (
-                  <p className="text-xs text-muted">
-                    {hasAnyBudgets
-                      ? "No hay presupuestos activos compatibles con el tipo seleccionado."
-                      : "No hay presupuestos activos disponibles para este periodo."}
-                  </p>
-                ) : selectedBudget ? (
-                  <div className="space-y-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-3 text-xs text-muted">
-                    <div className="flex items-center justify-between text-[var(--app-text)]">
-                      <span className="font-semibold">{selectedBudget.description || selectedBudget.category}</span>
-                      <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-300">
-                        {selectedBudget.frequency}
-                      </span>
-                    </div>
-                    <div className="space-y-1 text-[var(--app-text)]">
-                      <div className="flex items-center justify-between">
-                        <span>Planificado</span>
-                        <span className="font-semibold">{formatCurrency(selectedBudget.budgeted_amount)}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span>Ejecutado</span>
-                        <span className="font-semibold">{formatCurrency(selectedBudget.actual_amount)}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span>{selectedBudget.remaining_amount <= 0 ? "Restante" : "Disponible"}</span>
-                        <span
-                          className={`font-semibold ${
-                            selectedBudget.remaining_amount < 0
-                              ? "text-rose-600 dark:text-rose-300"
-                              : ""
-                          }`}
-                        >
-                          {formatCurrency(selectedBudget.remaining_amount)}
-                        </span>
-                      </div>
-                    </div>
-                    {selectedBudget.budgeted_amount > 0 ? (
-                      <div className="h-2 rounded-full bg-[var(--app-border)]">
-                        <div
-                          className={`h-2 rounded-full ${
-                            selectedBudget.remaining_amount < 0
-                              ? "bg-rose-500"
-                              : "bg-sky-500"
-                          }`}
-                          style={{
-                            width: `${Math.min(
-                              100,
-                              Math.max(
-                                0,
-                                (selectedBudget.actual_amount /
-                                  selectedBudget.budgeted_amount) *
-                                  100,
-                              ),
-                            )}%`,
-                          }}
-                        />
-                      </div>
-                    ) : null}
-                  </div>
+                  {selectedBudget ? "Cambiar presupuesto" : "Seleccionar presupuesto"}
+                </button>
+                {selectedBudget ? (
+                  <button
+                    type="button"
+                    onClick={() => handleBudgetSelection(null)}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--app-border)] px-4 py-2 text-sm font-semibold text-muted transition hover:border-rose-400 hover:text-rose-600"
+                  >
+                    Quitar asociación
+                  </button>
                 ) : null}
               </div>
-            )}
+              {selectedBudget ? (
+                <div className="space-y-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-3 text-xs text-muted">
+                  <div className="flex items-center justify-between text-[var(--app-text)]">
+                    <span className="font-semibold">{selectedBudget.description || selectedBudget.category}</span>
+                    <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-300">
+                      {selectedBudget.frequency}
+                    </span>
+                  </div>
+                  <div className="space-y-1 text-[var(--app-text)]">
+                    <div className="flex items-center justify-between">
+                      <span>Planificado</span>
+                      <span className="font-semibold">{formatCurrency(selectedBudget.budgeted_amount)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Ejecutado</span>
+                      <span className="font-semibold">{formatCurrency(selectedBudget.actual_amount)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>{selectedBudget.remaining_amount <= 0 ? "Restante" : "Disponible"}</span>
+                      <span
+                        className={`font-semibold ${
+                          selectedBudget.remaining_amount < 0
+                            ? "text-rose-600 dark:text-rose-300"
+                            : ""
+                        }`}
+                      >
+                        {formatCurrency(selectedBudget.remaining_amount)}
+                      </span>
+                    </div>
+                  </div>
+                  {selectedBudget.budgeted_amount > 0 ? (
+                    <div className="h-2 rounded-full bg-[var(--app-border)]">
+                      <div
+                        className={`h-2 rounded-full ${
+                          selectedBudget.remaining_amount < 0
+                            ? "bg-rose-500"
+                            : "bg-sky-500"
+                        }`}
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            Math.max(
+                              0,
+                              (selectedBudget.actual_amount /
+                                selectedBudget.budgeted_amount) *
+                                100,
+                            ),
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-xs text-muted">
+                  {hasAnyBudgets
+                    ? "Selecciona un presupuesto para vincular la transacción."
+                    : "No hay presupuestos disponibles todavía."}
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-[var(--app-text)]">
+                Recibos (opcional)
+              </label>
+              <p className="text-xs text-muted">
+                Adjunta fotografías de tus comprobantes para respaldar la transacción.
+              </p>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <input
+                  ref={receiptInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handleReceiptFilesSelected}
+                />
+                <button
+                  type="button"
+                  onClick={() => receiptInputRef.current?.click()}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-[var(--app-text)] transition hover:border-sky-400 hover:text-sky-600"
+                >
+                  {pendingReceipts.length > 0
+                    ? "Agregar más recibos"
+                    : "Agregar recibos"}
+                </button>
+                {(existingReceipts.length > 0 || pendingReceipts.length > 0) && (
+                  <span className="text-xs text-muted">
+                    {existingReceipts.length + pendingReceipts.length} archivo(s) listos.
+                  </span>
+                )}
+              </div>
+              {receiptError ? (
+                <p className="text-xs text-rose-500">{receiptError}</p>
+              ) : null}
+              {existingReceipts.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                    Recibos guardados
+                  </p>
+                  <ul className="space-y-2">
+                    {existingReceipts.map((receipt) => {
+                      const downloadHref = apiPath(
+                        receipt.download_url.replace(/^\/api/, ""),
+                      );
+                      return (
+                        <li
+                          key={receipt.id}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm"
+                        >
+                          <div className="space-y-0.5">
+                            <a
+                              href={downloadHref}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-semibold text-[var(--app-text)] underline-offset-2 hover:underline"
+                            >
+                              {receipt.original_filename}
+                            </a>
+                            <p className="text-[10px] text-muted">
+                              {formatDateForDisplay(receipt.uploaded_at ?? "")}
+                              {receipt.file_size
+                                ? ` · ${formatFileSize(receipt.file_size)}`
+                                : ""}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveExistingReceipt(receipt.id)}
+                            className="rounded-full border border-rose-300 px-3 py-1 text-xs font-semibold text-rose-600 transition hover:border-rose-400 hover:text-rose-500"
+                          >
+                            Eliminar
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : null}
+              {receiptsToDelete.length > 0 ? (
+                <p className="text-xs text-rose-500">
+                  Se eliminarán {receiptsToDelete.length} recibo(s) al guardar la transacción.
+                </p>
+              ) : null}
+              {pendingReceipts.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                    Recibos nuevos
+                  </p>
+                  <ul className="space-y-2">
+                    {pendingReceipts.map((file, index) => (
+                      <li
+                        key={`${file.name}-${file.size}-${index}`}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-sm"
+                      >
+                        <div className="space-y-0.5">
+                          <p className="font-semibold text-[var(--app-text)]">{file.name}</p>
+                          <p className="text-[10px] text-muted">{formatFileSize(file.size)}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemovePendingReceipt(index)}
+                          className="rounded-full border border-[var(--app-border)] px-3 py-1 text-xs font-semibold text-muted transition hover:border-rose-400 hover:text-rose-600"
+                        >
+                          Quitar
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
             </div>
 
             <div className="flex flex-col-reverse gap-3 pt-6 sm:flex-row sm:justify-end lg:col-span-2">
@@ -1621,6 +1908,24 @@ export const TransactionModal = () => {
           </form>
         )}
       </div>
+      <BudgetPickerModal
+        isOpen={isBudgetPickerOpen}
+        onClose={() => setIsBudgetPickerOpen(false)}
+        onSelect={(entry) => handleBudgetSelection(entry)}
+        selectedId={selectedBudget ? selectedBudget.id : null}
+      />
+      <GoalDebtModal
+        isOpen={isGoalDebtModalOpen}
+        onClose={() => setIsGoalDebtModalOpen(false)}
+        onSave={handleGoalDebtSave}
+        mode={goalDebtMode}
+        item={null}
+      />
+      <QuickAccountModal
+        isOpen={isAccountModalOpen}
+        onClose={() => setIsAccountModalOpen(false)}
+        onCreated={handleAccountCreated}
+      />
     </div>
   );
 };

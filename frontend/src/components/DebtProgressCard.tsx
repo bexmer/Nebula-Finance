@@ -15,8 +15,8 @@ interface DebtData {
 
 interface CardProps {
   debt: DebtData;
-  onEdit: () => void;
-  onDelete: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
 }
 
 export function DebtProgressCard({ debt, onEdit, onDelete }: CardProps) {
@@ -69,26 +69,32 @@ export function DebtProgressCard({ debt, onEdit, onDelete }: CardProps) {
           </div>
         )}
       </div>
-      <div className="mt-4 flex flex-wrap items-center justify-end gap-3 text-xs">
-        <button
-          type="button"
-          onClick={onEdit}
-          aria-label="Editar deuda"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-sky-200 bg-sky-50 text-sky-600 transition hover:bg-sky-100 dark:border-sky-500/50 dark:bg-sky-500/15 dark:text-sky-200"
-        >
-          <Pencil className="h-4 w-4" />
-          <span className="sr-only">Editar deuda</span>
-        </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          aria-label="Eliminar deuda"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200"
-        >
-          <Trash2 className="h-4 w-4" />
-          <span className="sr-only">Eliminar deuda</span>
-        </button>
-      </div>
+      {(onEdit || onDelete) && (
+        <div className="mt-4 flex flex-wrap items-center justify-end gap-3 text-xs">
+          {onEdit && (
+            <button
+              type="button"
+              onClick={onEdit}
+              aria-label="Editar deuda"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-sky-200 bg-sky-50 text-sky-600 transition hover:bg-sky-100 dark:border-sky-500/50 dark:bg-sky-500/15 dark:text-sky-200"
+            >
+              <Pencil className="h-4 w-4" />
+              <span className="sr-only">Editar deuda</span>
+            </button>
+          )}
+          {onDelete && (
+            <button
+              type="button"
+              onClick={onDelete}
+              aria-label="Eliminar deuda"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200"
+            >
+              <Trash2 className="h-4 w-4" />
+              <span className="sr-only">Eliminar deuda</span>
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -33,6 +33,7 @@ class Transaction(BaseModel):
         column_name="budget_entry_id",
     )
     is_transfer = BooleanField(default=False)
+    portfolio_direction = CharField(null=True)
     transfer_account = ForeignKeyField(
         Account,
         backref="incoming_transfers",
