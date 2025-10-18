@@ -452,7 +452,7 @@ export function Budget() {
 
     const plannedNet = plannedIncome - plannedExpense;
     const executedNet = executedIncome - executedExpense;
-    const available = plannedExpense - executedExpense;
+    const available = plannedNet - executedExpense;
 
     return {
       planned: plannedNet,
