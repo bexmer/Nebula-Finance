@@ -5,6 +5,7 @@ import datetime
 import json
 import unicodedata
 from collections import defaultdict
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
@@ -24,6 +25,7 @@ from app.model.trade import Trade
 from app.model.transaction import Transaction
 from app.model.transaction_split import TransactionSplit
 from app.model.transaction_tag import TransactionTag
+from app.model.receipt import Receipt
 from app.model.base_model import db
 
 
@@ -49,6 +51,12 @@ DEFAULT_APP_SETTINGS = {
     "decimal_places": 2,
     "theme": "dark",
 }
+
+
+RECEIPT_STORAGE_DIR = (
+    Path(__file__).resolve().parents[1] / "storage" / "receipts"
+)
+RECEIPT_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class AppController:
@@ -300,6 +308,7 @@ class AppController:
                 BudgetEntry,
                 TransactionSplit,
                 tag_links,
+                Receipt,
             )
         )
 
@@ -1542,6 +1551,10 @@ class AppController:
                 if link.tag is not None
             ]
             transfer_account = getattr(transaction, 'transfer_account', None)
+            receipts = [
+                self._serialize_receipt(receipt)
+                for receipt in getattr(transaction, "receipts", [])
+            ]
 
             transaction_data = {
                 "id": transaction.id,
@@ -1568,9 +1581,99 @@ class AppController:
                 "transfer_account_name": getattr(transfer_account, 'name', None),
                 "splits": splits,
                 "tags": tags,
+                "receipts": receipts,
             }
             results.append(transaction_data)
         return results
+
+    @staticmethod
+    def _serialize_receipt(receipt: Receipt) -> Dict[str, Any]:
+        """Return a serializable representation of a receipt object."""
+
+        uploaded_at = receipt.uploaded_at.isoformat() if receipt.uploaded_at else None
+        return {
+            "id": receipt.id,
+            "transaction_id": receipt.transaction_id,
+            "budget_entry_id": receipt.budget_entry_id,
+            "original_filename": receipt.original_filename,
+            "content_type": receipt.content_type,
+            "file_size": receipt.file_size,
+            "uploaded_at": uploaded_at,
+            "download_url": f"/api/receipts/{receipt.id}",
+        }
+
+    def get_transaction_receipts(self, transaction_id: int):
+        """Return every receipt associated with a transaction."""
+
+        try:
+            Transaction.get_by_id(transaction_id)
+        except Transaction.DoesNotExist:
+            return {"error": "La transacción no existe."}
+
+        query = (
+            Receipt.select()
+            .where(Receipt.transaction_id == transaction_id)
+            .order_by(Receipt.uploaded_at.desc())
+        )
+        return [self._serialize_receipt(receipt) for receipt in query]
+
+    def register_receipt(
+        self,
+        *,
+        file_path: str,
+        original_filename: str,
+        content_type: Optional[str] = None,
+        file_size: Optional[int] = None,
+        transaction_id: Optional[int] = None,
+        budget_entry_id: Optional[int] = None,
+    ):
+        """Create a receipt row linked to a transaction or budget entry."""
+
+        if not transaction_id and not budget_entry_id:
+            return {"error": "Debes asociar el recibo a una transacción o presupuesto."}
+
+        if transaction_id:
+            try:
+                Transaction.get_by_id(transaction_id)
+            except Transaction.DoesNotExist:
+                return {"error": "La transacción especificada no existe."}
+
+        if budget_entry_id:
+            try:
+                BudgetEntry.get_by_id(budget_entry_id)
+            except BudgetEntry.DoesNotExist:
+                return {"error": "El presupuesto especificado no existe."}
+
+        receipt = Receipt.create(
+            transaction=transaction_id,
+            budget_entry=budget_entry_id,
+            file_path=file_path,
+            original_filename=original_filename,
+            content_type=content_type,
+            file_size=file_size,
+        )
+        return self._serialize_receipt(receipt)
+
+    def get_receipt_record(self, receipt_id: int):
+        """Return the underlying receipt instance or None."""
+
+        try:
+            return Receipt.get_by_id(receipt_id)
+        except Receipt.DoesNotExist:
+            return None
+
+    def delete_receipt(self, receipt_id: int):
+        """Delete a receipt and return its serialized data and storage key."""
+
+        try:
+            receipt = Receipt.get_by_id(receipt_id)
+        except Receipt.DoesNotExist:
+            return None, None, "El recibo solicitado no existe."
+
+        file_path = receipt.file_path
+        payload = self._serialize_receipt(receipt)
+        receipt.delete_instance()
+        return payload, file_path, None
 
 
     def get_all_tags(self) -> List[Dict[str, Any]]:

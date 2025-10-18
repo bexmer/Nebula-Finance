@@ -15,6 +15,7 @@ from app.model.parameter import Parameter
 from app.model.portfolio_asset import PortfolioAsset
 from app.model.recurring_transaction import RecurringTransaction
 from app.model.tag import Tag
+from app.model.receipt import Receipt
 from app.model.trade import Trade
 from app.model.transaction import Transaction
 from app.model.transaction_split import TransactionSplit
@@ -35,6 +36,7 @@ MODELS = [
     Tag,
     TransactionSplit,
     TransactionTag,
+    Receipt,
     Goal,
     Debt,
     BudgetEntry,

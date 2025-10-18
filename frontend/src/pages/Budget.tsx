@@ -15,9 +15,14 @@ import {
   PiggyBank,
   Plus,
   Trash2,
+  Wallet,
 } from "lucide-react";
 import { BudgetModal } from "../components/BudgetModal";
-import { useStore } from "../store/useStore";
+import {
+  BudgetPickerModal,
+  type BudgetPickerItem,
+} from "../components/BudgetPickerModal";
+import { useStore, type TransactionPrefill } from "../store/useStore";
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 import { apiPath } from "../utils/api";
 import {
@@ -97,10 +102,11 @@ export function Budget() {
   const [typeFilter, setTypeFilter] = useState("");
   const [monthFilter, setMonthFilter] = useState("all");
   const [yearFilter, setYearFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState<BudgetStatusFilter>("active");
+  const [statusFilter, setStatusFilter] = useState<BudgetStatusFilter>("all");
   const [activeTab, setActiveTab] = useState<BudgetTab>("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [isPaymentPickerOpen, setIsPaymentPickerOpen] = useState(false);
   const [referenceDate, setReferenceDate] = useState<string>(
     getTodayDateInputValue(),
   );
@@ -280,6 +286,101 @@ export function Budget() {
     setPageSize(Number(event.target.value));
   };
 
+  const handleBudgetPayment = useCallback(
+    (entry: BudgetEntry) => {
+      if (!entry) {
+        return;
+      }
+
+      const plannedAmount = Number(entry.budgeted_amount ?? 0);
+      const actualAmount = Number(entry.actual_amount ?? 0);
+      const recordedRemaining = Number(entry.remaining_amount ?? 0);
+      const computedRemaining = plannedAmount - actualAmount;
+      const candidateRemaining = Number.isFinite(recordedRemaining)
+        ? recordedRemaining
+        : computedRemaining;
+
+      let amountCandidate = Number.isFinite(candidateRemaining)
+        ? candidateRemaining
+        : 0;
+
+      if (amountCandidate <= 0) {
+        if (plannedAmount > 0) {
+          amountCandidate = plannedAmount;
+        } else if (actualAmount > 0) {
+          amountCandidate = actualAmount;
+        }
+      }
+
+      const normalizedAmount =
+        amountCandidate > 0
+          ? Number.parseFloat(amountCandidate.toFixed(2))
+          : undefined;
+
+      const descriptionBase =
+        entry.description?.trim().length
+          ? entry.description.trim()
+          : entry.category;
+
+      const prefill: TransactionPrefill = {
+        description: `Pago presupuesto: ${descriptionBase}`,
+        amount: normalizedAmount,
+        date: getTodayDateInputValue(),
+        type: entry.type,
+        category: entry.category,
+        goal_id: entry.goal_id ?? null,
+        debt_id: entry.debt_id ?? null,
+        budget_entry_id: entry.id,
+      };
+
+      openTransactionModal(null, prefill, async () => {
+        await fetchBudgetEntries();
+      });
+    },
+    [fetchBudgetEntries, openTransactionModal],
+  );
+
+  const handleBudgetPaymentFromPicker = useCallback(
+    (entry: BudgetPickerItem | null) => {
+      if (!entry) {
+        return;
+      }
+
+      const planned =
+        entry.budgeted_amount ?? (entry as { amount?: number }).amount ?? 0;
+      const actual = entry.actual_amount ?? 0;
+      const normalizedEntry: BudgetEntry = {
+        id: entry.id,
+        category: entry.category,
+        description: entry.description,
+        type: entry.type,
+        frequency: entry.frequency,
+        budgeted_amount: planned,
+        actual_amount: actual,
+        remaining_amount:
+          entry.remaining_amount !== undefined && entry.remaining_amount !== null
+            ? entry.remaining_amount
+            : planned - actual,
+        over_budget_amount:
+          entry.over_budget_amount !== undefined &&
+          entry.over_budget_amount !== null
+            ? entry.over_budget_amount
+            : Math.max(actual - planned, 0),
+        start_date: entry.start_date ?? null,
+        end_date: entry.end_date ?? null,
+        due_date: entry.due_date ?? null,
+        goal_id: entry.goal_id ?? null,
+        goal_name: entry.goal_name ?? null,
+        debt_id: entry.debt_id ?? null,
+        debt_name: entry.debt_name ?? null,
+        is_recurring: Boolean(entry.is_recurring),
+      };
+
+      handleBudgetPayment(normalizedEntry);
+    },
+    [handleBudgetPayment],
+  );
+
   useEffect(() => {
     const total = Math.max(1, Math.ceil(filteredEntries.length / pageSize));
     if (currentPage > total) {
@@ -428,7 +529,7 @@ export function Budget() {
     setTypeFilter("");
     setMonthFilter("all");
     setYearFilter("all");
-    setStatusFilter("active");
+    setStatusFilter("all");
     setReferenceDate(getTodayDateInputValue());
   };
 
@@ -517,6 +618,12 @@ export function Budget() {
             className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 font-semibold shadow-lg shadow-blue-600/20 transition hover:bg-blue-500"
           >
             <Plus className="h-4 w-4" /> Añadir entrada
+          </button>
+          <button
+            onClick={() => setIsPaymentPickerOpen(true)}
+            className="inline-flex items-center gap-2 rounded-lg border border-sky-300 px-4 py-2 text-sm font-semibold text-sky-600 transition hover:border-sky-400 hover:text-sky-700 dark:border-sky-500/60 dark:text-sky-200"
+          >
+            <Wallet className="h-4 w-4" /> Registrar pago
           </button>
           <button
             onClick={resetFilters}
@@ -691,10 +798,10 @@ export function Budget() {
               }
               className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
             >
+              <option value="all">Todos</option>
               <option value="active">Activos</option>
               <option value="upcoming">Próximos</option>
               <option value="archived">Cerrados</option>
-              <option value="all">Todos</option>
             </select>
           </div>
           <div>
@@ -893,6 +1000,12 @@ export function Budget() {
                       <td className="px-4 py-4 text-right text-sm">
                         <div className="flex flex-wrap justify-end gap-2">
                           <button
+                            onClick={() => handleBudgetPayment(entry)}
+                            className="inline-flex items-center gap-1 rounded-full border border-emerald-300 px-3 py-1.5 text-xs font-semibold text-emerald-600 transition hover:border-emerald-400 hover:text-emerald-700 dark:border-emerald-500/60 dark:text-emerald-200"
+                          >
+                            Registrar pago
+                          </button>
+                          <button
                             onClick={() => handleOpenModal(entry)}
                             className="inline-flex items-center gap-1 rounded-full border border-sky-300 px-3 py-1.5 text-xs font-semibold text-sky-600 transition hover:border-sky-400 hover:text-sky-700 dark:border-sky-500/60 dark:text-sky-200"
                           >
@@ -968,6 +1081,14 @@ export function Budget() {
         onClose={() => setIsModalOpen(false)}
         onSave={handleSave}
         entry={selectedEntry}
+      />
+      <BudgetPickerModal
+        isOpen={isPaymentPickerOpen}
+        onClose={() => setIsPaymentPickerOpen(false)}
+        onSelect={handleBudgetPaymentFromPicker}
+        mode="pay"
+        title="Selecciona un presupuesto para pagar"
+        actionLabel="Continuar"
       />
     </div>
   );
