@@ -1,9 +1,12 @@
 import os
+import re
 import sys
+import uuid
 import uvicorn
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, field_validator, constr
 import datetime
 from typing import Optional, List, Dict, Any, Literal
@@ -24,11 +27,24 @@ def enforce_digit_limit(value: Optional[float], field_name: str) -> Optional[flo
         )
     return value
 
+
+_SAFE_FILENAME_PATTERN = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _sanitize_filename(filename: Optional[str]) -> str:
+    """Return a filesystem-safe representation of the provided filename."""
+
+    if not filename:
+        return "recibo"
+    base_name = os.path.basename(filename)
+    sanitized = _SAFE_FILENAME_PATTERN.sub("_", base_name).strip("._")
+    return sanitized or "recibo"
+
 # --- CONFIGURACIÓN DE PATH ---
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # --- IMPORTACIONES ---
-from app.controller.app_controller import AppController
+from app.controller.app_controller import AppController, RECEIPT_STORAGE_DIR
 from app.database.db_manager import initialize_database, close_db
 from app.model.base_model import db
 
@@ -125,11 +141,23 @@ class TransactionSplitModel(BaseModel):
         return enforce_digit_limit(value, "amount")
 
 
+class ReceiptResponseModel(BaseModel):
+    id: int
+    transaction_id: Optional[int] = None
+    budget_entry_id: Optional[int] = None
+    original_filename: str
+    content_type: Optional[str] = None
+    file_size: Optional[int] = None
+    uploaded_at: Optional[datetime.datetime] = None
+    download_url: str
+
+
 class TransactionModel(BaseModel):
     description: constr(max_length=100)
     amount: float
     date: datetime.date
     type: str
+    portfolio_direction: Optional[str] = None
     category: Optional[str] = None
     account_id: int
     goal_id: Optional[int] = None
@@ -386,7 +414,31 @@ class TradeResponseModel(BaseModel):
     price: float
     annual_yield_rate: float
     linked_account_id: Optional[int] = None
+    linked_account_name: Optional[str] = None
     linked_goal_id: Optional[int] = None
+    linked_transaction_id: Optional[int] = None
+    linked_budget_entry_id: Optional[int] = None
+    is_planned: bool
+
+
+class PlannedTradeModel(BaseModel):
+    id: int
+    date: datetime.date
+    symbol: str
+    asset_type: str
+    type: Literal["buy", "sell"]
+    quantity: float
+    price: float
+    total_amount: float
+    linked_budget_entry_id: Optional[int] = None
+    budget_due_date: Optional[datetime.date] = None
+    budget_description: Optional[str] = None
+    linked_goal_id: Optional[int] = None
+
+
+class PortfolioSummaryResponseModel(BaseModel):
+    paid: List[PortfolioSummaryModel]
+    planned: List[PlannedTradeModel]
 
 
 class TradeCreateModel(BaseModel):
@@ -399,6 +451,7 @@ class TradeCreateModel(BaseModel):
     annual_yield_rate: Optional[float] = 0.0
     linked_account_id: Optional[int] = None
     linked_goal_id: Optional[int] = None
+    sync_destination: Optional[Literal["transaction", "budget", "none"]] = "none"
 
     @field_validator("quantity", "price")
     @classmethod
@@ -555,6 +608,111 @@ def delete_transaction(transaction_id: int, adjust_balance: bool = Query(False))
     if "error" in result: raise HTTPException(status_code=404, detail=result["error"])
     return result
 
+
+@app.post("/api/receipts", response_model=ReceiptResponseModel, status_code=201)
+async def upload_receipt(
+    file: UploadFile = File(...),
+    transaction_id: Optional[str] = Form(None),
+    budget_entry_id: Optional[str] = Form(None),
+):
+    """Store a receipt image and register it in the database."""
+
+    if file.filename is None:
+        raise HTTPException(status_code=400, detail="Debes seleccionar un archivo de recibo.")
+
+    transaction_value = (
+        int(transaction_id)
+        if transaction_id not in (None, "", "null", "undefined")
+        else None
+    )
+    budget_value = (
+        int(budget_entry_id)
+        if budget_entry_id not in (None, "", "null", "undefined")
+        else None
+    )
+
+    if not transaction_value and not budget_value:
+        raise HTTPException(
+            status_code=400,
+            detail="Debes asociar el recibo a una transacción o presupuesto.",
+        )
+
+    safe_original = _sanitize_filename(file.filename)
+    storage_key = f"{uuid.uuid4().hex}_{safe_original}"
+    storage_path = RECEIPT_STORAGE_DIR / storage_key
+    content = await file.read()
+
+    if not content:
+        raise HTTPException(status_code=400, detail="El archivo del recibo está vacío.")
+
+    try:
+        with open(storage_path, "wb") as handle:
+            handle.write(content)
+    except OSError as exc:  # pragma: no cover - filesystem failure
+        raise HTTPException(
+            status_code=500,
+            detail=f"No se pudo guardar el archivo del recibo: {exc}",
+        ) from exc
+
+    result = controller.register_receipt(
+        file_path=storage_key,
+        original_filename=safe_original,
+        content_type=file.content_type,
+        file_size=len(content),
+        transaction_id=transaction_value,
+        budget_entry_id=budget_value,
+    )
+
+    if isinstance(result, dict) and "error" in result:
+        try:
+            storage_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return result
+
+
+@app.get(
+    "/api/transactions/{transaction_id}/receipts",
+    response_model=List[ReceiptResponseModel],
+)
+def list_transaction_receipts(transaction_id: int):
+    result = controller.get_transaction_receipts(transaction_id)
+    if isinstance(result, dict) and "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@app.get("/api/receipts/{receipt_id}")
+def download_receipt(receipt_id: int):
+    receipt = controller.get_receipt_record(receipt_id)
+    if receipt is None:
+        raise HTTPException(status_code=404, detail="El recibo solicitado no existe.")
+
+    storage_path = RECEIPT_STORAGE_DIR / receipt.file_path
+    if not storage_path.exists():
+        raise HTTPException(status_code=404, detail="El archivo del recibo no está disponible.")
+
+    filename = receipt.original_filename or f"recibo-{receipt.id}"
+    media_type = receipt.content_type or "application/octet-stream"
+    return FileResponse(storage_path, media_type=media_type, filename=filename)
+
+
+@app.delete("/api/receipts/{receipt_id}", response_model=ReceiptResponseModel)
+def delete_receipt(receipt_id: int):
+    payload, storage_key, error = controller.delete_receipt(receipt_id)
+    if error:
+        raise HTTPException(status_code=404, detail=error)
+
+    if storage_key:
+        try:
+            (RECEIPT_STORAGE_DIR / storage_key).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    return payload
+
 @app.get("/api/goals")
 def get_goals():
     """Devuelve todas las metas para el select del formulario."""
@@ -650,7 +808,10 @@ def delete_budget_entry(entry_id: int):
     return result
 
 
-@app.get("/api/portfolio/summary", response_model=List[PortfolioSummaryModel])
+@app.get(
+    "/api/portfolio/summary",
+    response_model=PortfolioSummaryResponseModel,
+)
 def get_portfolio_summary():
     return controller.get_portfolio_assets()
 

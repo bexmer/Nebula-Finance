@@ -27,9 +27,10 @@ import {
 } from "lucide-react";
 import { KpiCard } from "../components/KpiCard";
 import { GoalProgressCard, GoalData } from "../components/GoalProgressCard";
+import { DebtProgressCard } from "../components/DebtProgressCard";
 import { API_BASE_URL } from "../utils/api";
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
-import { parseDateOnly } from "../utils/date";
+import { formatDateForDisplay, parseDateOnly } from "../utils/date";
 
 ChartJS.register(
   CategoryScale,
@@ -93,6 +94,33 @@ interface AccountSummary {
   is_virtual: boolean;
 }
 
+interface DebtSummary {
+  id: number;
+  name: string;
+  total_amount: number;
+  current_balance: number;
+  percentage: number;
+  minimum_payment?: number;
+  interest_rate?: number;
+}
+
+interface UpcomingBudgetPayment {
+  id: number;
+  description?: string | null;
+  category?: string | null;
+  type?: string | null;
+  frequency: string;
+  budgeted_amount: number;
+  actual_amount: number;
+  remaining_amount: number;
+  over_budget_amount?: number;
+  due_date?: string | null;
+  end_date?: string | null;
+  start_date?: string | null;
+  goal_name?: string | null;
+  debt_name?: string | null;
+}
+
 interface DashboardData {
   kpis: {
     income: AmountComparison;
@@ -115,6 +143,8 @@ interface DashboardData {
   budget_rule_control: BudgetRuleItem[];
   accounts: AccountSummary[];
   goals: GoalData[];
+  debts?: DebtSummary[];
+  upcoming_budget_payments?: UpcomingBudgetPayment[];
   expense_distribution: {
     categories: string[];
     amounts: number[];
@@ -143,11 +173,19 @@ export function Dashboard() {
     "netWorth",
   );
   const [activeAccountIndex, setActiveAccountIndex] = useState(0);
+  const [activeProgressView, setActiveProgressView] = useState<"goals" | "debts">(
+    "goals",
+  );
+  const [incomeSource, setIncomeSource] = useState<"period" | "accounts">(
+    "accounts",
+  );
+  const [selectedAccountIds, setSelectedAccountIds] = useState<number[]>([]);
   const [refreshToken, setRefreshToken] = useState(0);
   const [viewportWidth, setViewportWidth] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth : 0,
   );
   const { formatCurrency, formatPercent } = useNumberFormatter();
+  const hasInitializedAccounts = useRef(false);
 
   const formatSignedCurrency = (value: number) => {
     if (!Number.isFinite(value) || value === 0) {
@@ -195,6 +233,107 @@ export function Dashboard() {
       isMounted = false;
     };
   }, [year, selectedMonths, refreshToken]);
+
+  const accounts = data?.accounts ?? [];
+  const realAccounts = useMemo(
+    () => accounts.filter((account) => !account.is_virtual),
+    [accounts],
+  );
+  const canUseAccountIncome = realAccounts.length > 0;
+  const availableAccountIds = useMemo(
+    () => realAccounts.map((account) => account.id),
+    [realAccounts],
+  );
+
+  useEffect(() => {
+    if (availableAccountIds.length === 0) {
+      hasInitializedAccounts.current = false;
+      setSelectedAccountIds([]);
+      return;
+    }
+
+    setSelectedAccountIds((previous) => {
+      if (!hasInitializedAccounts.current) {
+        hasInitializedAccounts.current = true;
+        return availableAccountIds;
+      }
+
+      if (previous.length === 0) {
+        return previous;
+      }
+
+      const filtered = previous.filter((id) => availableAccountIds.includes(id));
+      if (filtered.length === previous.length) {
+        return previous;
+      }
+
+      if (filtered.length === 0) {
+        return availableAccountIds;
+      }
+
+      return filtered;
+    });
+  }, [availableAccountIds]);
+
+  useEffect(() => {
+    if (!canUseAccountIncome && incomeSource === "accounts") {
+      setIncomeSource("period");
+    }
+  }, [canUseAccountIncome, incomeSource]);
+
+  const totalRealBalance = useMemo(() => {
+    return realAccounts.reduce((sum, account) => {
+      const current = Number.isFinite(account.current_balance)
+        ? account.current_balance
+        : 0;
+      return sum + current;
+    }, 0);
+  }, [realAccounts]);
+
+  const selectedAccountsBalance = useMemo(() => {
+    if (realAccounts.length === 0 || selectedAccountIds.length === 0) {
+      return 0;
+    }
+
+    const idSet = new Set(selectedAccountIds);
+    return realAccounts.reduce((sum, account) => {
+      if (!idSet.has(account.id)) {
+        return sum;
+      }
+
+      const current = Number.isFinite(account.current_balance)
+        ? account.current_balance
+        : 0;
+      return sum + current;
+    }, 0);
+  }, [realAccounts, selectedAccountIds]);
+
+  const effectiveAccountIncome =
+    selectedAccountIds.length > 0 ? selectedAccountsBalance : totalRealBalance;
+
+  const incomeAmount = data?.kpis.income.amount ?? 0;
+  const incomeComparison = incomeSource === "accounts"
+    ? null
+    : data?.kpis.income.comparison ?? null;
+  const incomeBasis = incomeSource === "accounts"
+    ? effectiveAccountIncome
+    : incomeAmount;
+  const incomeKpiTitle = incomeSource === "accounts"
+    ? "Ingresos Totales"
+    : "Ganancias";
+  const incomeKpiValue = formatCurrency(incomeBasis);
+  const incomeComparisonLabel =
+    incomeSource === "accounts"
+      ? "Saldo actual de cuentas"
+      : "vs. período anterior";
+  const incomeBasisLabel =
+    incomeSource === "accounts"
+      ? `Basado en ${formatCurrency(incomeBasis)} de ${
+          selectedAccountIds.length > 0
+            ? "saldos seleccionados"
+            : "saldos de todas las cuentas"
+        }`
+      : `Basado en ${formatCurrency(incomeBasis)} de ingresos`;
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -443,7 +582,9 @@ export function Dashboard() {
     },
   }), []);
 
-  const accounts = data?.accounts ?? [];
+  const goals = data?.goals ?? [];
+  const debts = data?.debts ?? [];
+  const upcomingBudgetPayments = data?.upcoming_budget_payments ?? [];
   const activeAccount = accounts[activeAccountIndex] ?? null;
 
   return (
@@ -484,6 +625,71 @@ export function Dashboard() {
               onChange={setSelectedMonths}
             />
           </div>
+          {canUseAccountIncome && (
+            <div className="flex min-w-[240px] flex-col gap-2">
+              <label className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted">
+                <Wallet className="h-4 w-4" /> Cuentas
+              </label>
+              <AccountMultiSelect
+                accounts={realAccounts}
+                value={selectedAccountIds}
+                onChange={setSelectedAccountIds}
+              />
+              <div className="space-y-1 text-xs text-muted">
+                <p>
+                  Seleccionadas:
+                  <span className="ml-1 font-semibold">
+                    {formatCurrency(
+                      selectedAccountIds.length > 0
+                        ? selectedAccountsBalance
+                        : 0,
+                    )}
+                  </span>
+                  {selectedAccountIds.length === 0 && (
+                    <span className="ml-1 text-[0.65rem] uppercase tracking-wide">
+                      Sin selección
+                    </span>
+                  )}
+                </p>
+                <p>
+                  Total cuentas:
+                  <span className="ml-1 font-semibold">
+                    {formatCurrency(totalRealBalance)}
+                  </span>
+                </p>
+              </div>
+            </div>
+          )}
+          <div className="flex min-w-[220px] flex-col gap-2">
+            <label className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted">
+              <TrendingUp className="h-4 w-4" /> Base de ingresos
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setIncomeSource("accounts")}
+                disabled={!canUseAccountIncome}
+                className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                  incomeSource === "accounts"
+                    ? "bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow"
+                    : "border border-[var(--app-border)] bg-transparent text-muted hover:border-sky-400 hover:text-slate-700 dark:hover:text-slate-200"
+                } ${!canUseAccountIncome ? "opacity-50" : ""}`}
+              >
+                Saldo de cuentas
+              </button>
+              <button
+                type="button"
+                onClick={() => setIncomeSource("period")}
+                className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                  incomeSource === "period"
+                    ? "bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow"
+                    : "border border-[var(--app-border)] bg-transparent text-muted hover:border-sky-400 hover:text-slate-700 dark:hover:text-slate-200"
+                }`}
+              >
+                Periodo seleccionado
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -500,13 +706,14 @@ export function Dashboard() {
       )}
 
       {!isLoading && !error && data && (
-        <div className="grid auto-rows-max gap-4 xl:grid-cols-12 2xl:gap-5">
+        <div className="grid auto-rows-max gap-4 xl:grid-cols-12 xl:grid-flow-row-dense 2xl:gap-5">
           <div className="xl:col-span-12">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <KpiCard
-                title="Ganancias"
-                value={formatCurrency(data.kpis.income.amount)}
-                comparison={data.kpis.income.comparison}
+                title={incomeKpiTitle}
+                value={incomeKpiValue}
+                comparison={incomeComparison}
+                comparisonLabel={incomeComparisonLabel}
                 icon={<TrendingUp className="h-5 w-5" />}
                 variant="emerald"
               />
@@ -591,23 +798,9 @@ export function Dashboard() {
           <div className="xl:col-span-5 2xl:col-span-4">
             <BudgetRuleCard
               rules={data.budget_rule_control}
-              incomeTotal={data.kpis.income.amount}
+              incomeTotal={incomeBasis}
+              basisLabel={incomeBasisLabel}
             />
-          </div>
-
-          <div className="xl:col-span-7 2xl:col-span-8">
-            <div className="grid gap-4 md:grid-cols-2">
-              <BudgetSummaryCard
-                title="Ingresos PPTO"
-                summary={data.budget_vs_actual.income}
-                accentClass="from-emerald-500/80 to-sky-500/80"
-              />
-              <BudgetSummaryCard
-                title="Gastos PPTO"
-                summary={data.budget_vs_actual.expense}
-                accentClass="from-rose-500/80 to-orange-500/80"
-              />
-            </div>
           </div>
 
           <div className="xl:col-span-5 2xl:col-span-4">
@@ -629,24 +822,82 @@ export function Dashboard() {
           </div>
 
           <div className="xl:col-span-7 2xl:col-span-8">
+            <div className="grid gap-4 md:grid-cols-2">
+              <BudgetSummaryCard
+                title="Ingresos PPTO"
+                summary={data.budget_vs_actual.income}
+                accentClass="from-emerald-500/80 to-sky-500/80"
+              />
+              <BudgetSummaryCard
+                title="Gastos PPTO"
+                summary={data.budget_vs_actual.expense}
+                accentClass="from-rose-500/80 to-orange-500/80"
+              />
+            </div>
+          </div>
+
+          <div className="xl:col-span-7 2xl:col-span-8">
             <div className="app-card flex h-full flex-col p-5">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold">Metas activas</h2>
-                <Target className="h-5 w-5 text-sky-500" />
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <span className="rounded-full bg-sky-500/10 p-2 text-sky-500">
+                    <Target className="h-5 w-5" />
+                  </span>
+                  <div>
+                    <h2 className="text-lg font-semibold">
+                      {activeProgressView === "goals" ? "Metas activas" : "Deudas activas"}
+                    </h2>
+                    <p className="mt-1 text-sm text-muted">
+                      {activeProgressView === "goals"
+                        ? "Da seguimiento a tus objetivos financieros y mantén la motivación."
+                        : "Supervisa tus compromisos de pago y evita sorpresas en tu flujo de efectivo."}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setActiveProgressView("goals")}
+                    aria-pressed={activeProgressView === "goals"}
+                    className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                      activeProgressView === "goals"
+                        ? "bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow"
+                        : "border border-[var(--app-border)] bg-transparent text-muted hover:border-sky-400 hover:text-[var(--app-text)]"
+                    }`}
+                  >
+                    Metas
+                  </button>
+                  <button
+                    onClick={() => setActiveProgressView("debts")}
+                    aria-pressed={activeProgressView === "debts"}
+                    className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                      activeProgressView === "debts"
+                        ? "bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow"
+                        : "border border-[var(--app-border)] bg-transparent text-muted hover:border-sky-400 hover:text-[var(--app-text)]"
+                    }`}
+                  >
+                    Deudas
+                  </button>
+                </div>
               </div>
-              <p className="mt-1 text-sm text-muted">
-                Da seguimiento a tus objetivos financieros y mantén la motivación.
-              </p>
-              <div className="mt-4 grid flex-1 content-start gap-3 sm:grid-cols-2 2xl:grid-cols-3">
-                {data.goals.length > 0 ? (
-                  data.goals.map((goal) => (
-                    <GoalProgressCard
-                      key={goal.id}
-                      goal={goal}
-                    />
-                  ))
+              <div className="mt-4 flex-1">
+                {activeProgressView === "goals" ? (
+                  goals.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+                      {goals.map((goal) => (
+                        <GoalProgressCard key={goal.id} goal={goal} />
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyState message="No has definido metas todavía." />
+                  )
+                ) : debts.length > 0 ? (
+                  <div className="grid grid-cols-1 gap-3">
+                    {debts.map((debt) => (
+                      <DebtProgressCard key={debt.id} debt={debt} />
+                    ))}
+                  </div>
                 ) : (
-                  <EmptyState message="No has definido metas todavía." />
+                  <EmptyState message="No tienes deudas activas." />
                 )}
               </div>
             </div>
@@ -696,6 +947,10 @@ export function Dashboard() {
                 )}
               </div>
             </div>
+          </div>
+
+          <div className="xl:col-span-5 2xl:col-span-4">
+            <UpcomingBudgetPaymentsCard items={upcomingBudgetPayments} />
           </div>
         </div>
       )}
@@ -794,6 +1049,138 @@ function MonthMultiSelect({ value, onChange }: MonthMultiSelectProps) {
   );
 }
 
+function AccountMultiSelect({
+  accounts,
+  value,
+  onChange,
+}: {
+  accounts: AccountSummary[];
+  value: number[];
+  onChange: (ids: number[]) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  if (accounts.length === 0) {
+    return (
+      <button
+        type="button"
+        disabled
+        className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)] px-4 py-2 text-sm font-medium text-muted"
+      >
+        Sin cuentas disponibles
+      </button>
+    );
+  }
+
+  const toggleAccount = (id: number) => {
+    const exists = value.includes(id);
+    if (exists) {
+      onChange(value.filter((item) => item !== id));
+    } else {
+      const updated = Array.from(new Set([...value, id]));
+      const ordered = updated.sort((first, second) => {
+        const firstIndex = accounts.findIndex((account) => account.id === first);
+        const secondIndex = accounts.findIndex((account) => account.id === second);
+        return firstIndex - secondIndex;
+      });
+      onChange(ordered);
+    }
+  };
+
+  const toggleAll = () => {
+    if (value.length === accounts.length) {
+      onChange([]);
+    } else {
+      onChange(accounts.map((account) => account.id));
+    }
+  };
+
+  const label = (() => {
+    if (value.length === 0) {
+      return "Sin cuentas seleccionadas";
+    }
+    if (value.length === accounts.length) {
+      return "Todas las cuentas";
+    }
+    if (value.length === 1) {
+      const selected = accounts.find((account) => account.id === value[0]);
+      return selected ? selected.name : "1 cuenta";
+    }
+    return `${value.length} cuentas seleccionadas`;
+  })();
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen((previous) => !previous)}
+        className="flex w-full items-center justify-between gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-4 py-2 text-sm font-medium text-slate-900 shadow-sm transition-all duration-200 hover:-translate-y-px hover:border-sky-400 hover:shadow-lg focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
+      >
+        {label}
+        <span
+          className={`text-xs text-muted transition-transform duration-300 ${
+            isOpen ? "rotate-180" : ""
+          }`}
+        >
+          ▼
+        </span>
+      </button>
+      {isOpen && (
+        <div className="popover-panel absolute right-0 z-30 mt-2 w-72 origin-top-right p-4">
+          <button
+            type="button"
+            onClick={toggleAll}
+            className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-muted transition-all hover:border-sky-400 hover:text-sky-600 dark:hover:text-sky-300"
+          >
+            {value.length === accounts.length
+              ? "Limpiar selección"
+              : "Seleccionar todo"}
+          </button>
+          <div className="mt-3 flex max-h-64 flex-col gap-2 overflow-y-auto pr-1 text-sm">
+            {accounts.map((account) => {
+              const isSelected = value.includes(account.id);
+              return (
+                <label
+                  key={account.id}
+                  className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1 text-slate-900 transition-colors duration-150 hover:bg-[var(--app-surface-muted)] dark:text-slate-100 dark:hover:bg-slate-800/70"
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleAccount(account.id)}
+                    className="mt-1 h-4 w-4 rounded border-slate-300 text-sky-500 focus:ring-sky-400 dark:border-slate-600"
+                  />
+                  <div className="flex flex-col">
+                    <span className="font-medium">{account.name}</span>
+                    <span className="text-xs text-muted">
+                      {account.account_type || "Cuenta"}
+                    </span>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BudgetSummaryCard({
   title,
   summary,
@@ -847,9 +1234,11 @@ function BudgetSummaryCard({
 function BudgetRuleCard({
   rules,
   incomeTotal,
+  basisLabel,
 }: {
   rules: BudgetRuleItem[];
   incomeTotal: number;
+  basisLabel?: string;
 }) {
   const { formatCurrency, formatPercent } = useNumberFormatter();
 
@@ -880,7 +1269,9 @@ function BudgetRuleCard({
     <div className="app-card flex h-full flex-col p-5">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Control de gastos</h2>
-        <span className="text-xs text-muted">Basado en {formatCurrency(incomeTotal)} de ingresos</span>
+        <span className="text-xs text-muted">
+          {basisLabel ?? `Basado en ${formatCurrency(incomeTotal)} de ingresos`}
+        </span>
       </div>
       <div className="mt-4 space-y-4">
         {rules.map((rule) => {
@@ -996,6 +1387,148 @@ function AccountsCard({
       ) : (
         <EmptyState message="Aún no has creado cuentas." />
       )}
+    </div>
+  );
+}
+
+function UpcomingBudgetPaymentsCard({
+  items,
+}: {
+  items: UpcomingBudgetPayment[];
+}) {
+  const { formatCurrency } = useNumberFormatter();
+  const [frequencyFilter, setFrequencyFilter] = useState("Todos");
+
+  const frequencyOptions = useMemo(() => {
+    const unique = new Set<string>();
+    items.forEach((item) => {
+      if (item.frequency) {
+        unique.add(item.frequency);
+      }
+    });
+    return Array.from(unique).sort((a, b) => a.localeCompare(b, "es"));
+  }, [items]);
+
+  const filters = frequencyOptions.length > 0 ? ["Todos", ...frequencyOptions] : ["Todos"];
+
+  const filteredItems = useMemo(() => {
+    if (frequencyFilter === "Todos") {
+      return items;
+    }
+    return items.filter((item) => item.frequency === frequencyFilter);
+  }, [items, frequencyFilter]);
+
+  return (
+    <div className="app-card flex h-full flex-col p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Pagos próximos de presupuesto</h2>
+          <p className="mt-1 text-sm text-muted">
+            Anticipa los compromisos más cercanos y organiza tu flujo de efectivo.
+          </p>
+        </div>
+        {filters.length > 1 && (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {filters.map((label) => (
+              <button
+                key={label}
+                onClick={() => setFrequencyFilter(label)}
+                aria-pressed={frequencyFilter === label}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                  frequencyFilter === label
+                    ? "bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow"
+                    : "border border-[var(--app-border)] bg-transparent text-muted hover:border-sky-400 hover:text-[var(--app-text)]"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="mt-4 flex-1 space-y-3 overflow-y-auto pr-1 max-h-80">
+        {filteredItems.length > 0 ? (
+          filteredItems.map((item) => {
+            const referenceDate = item.due_date ?? item.end_date ?? item.start_date;
+            const dueDate = parseDateOnly(referenceDate ?? null);
+            const dateLabel = referenceDate
+              ? formatDateForDisplay(referenceDate)
+              : "Sin fecha definida";
+
+            let relativeText = "";
+            if (dueDate) {
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              const diffMilliseconds = dueDate.getTime() - today.getTime();
+              const diffDays = Math.round(diffMilliseconds / 86_400_000);
+              if (diffDays > 0) {
+                relativeText = `Faltan ${diffDays} día${diffDays === 1 ? "" : "s"}`;
+              } else if (diffDays === 0) {
+                relativeText = "Vence hoy";
+              } else {
+                const abs = Math.abs(diffDays);
+                relativeText = `Venció hace ${abs} día${abs === 1 ? "" : "s"}`;
+              }
+            }
+
+            const remaining =
+              typeof item.remaining_amount === "number"
+                ? item.remaining_amount
+                : item.budgeted_amount - item.actual_amount;
+            const pendingAmount = remaining > 0 ? remaining : 0;
+            const overBudget = item.over_budget_amount ?? 0;
+            const label = item.description || item.category || "Presupuesto";
+
+            return (
+              <div
+                key={item.id}
+                className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-4 py-3"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--app-text)]">{label}</p>
+                    <p className="text-xs text-muted">
+                      {dateLabel}
+                      {relativeText ? ` · ${relativeText}` : ""}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-300">
+                    {item.frequency}
+                  </span>
+                </div>
+                <div className="mt-3 flex items-center justify-between text-sm">
+                  <span className="text-muted">Monto pendiente</span>
+                  <span className="font-semibold text-slate-900 dark:text-slate-100">
+                    {formatCurrency(pendingAmount)}
+                  </span>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-3 text-xs text-muted">
+                  <div>
+                    <p className="font-semibold">Planificado</p>
+                    <p>{formatCurrency(item.budgeted_amount)}</p>
+                  </div>
+                  <div>
+                    <p className="font-semibold">Ejecutado</p>
+                    <p>{formatCurrency(item.actual_amount)}</p>
+                  </div>
+                </div>
+                {overBudget > 0 ? (
+                  <p className="mt-2 text-xs font-semibold text-rose-600 dark:text-rose-300">
+                    Excedido {formatCurrency(overBudget)}
+                  </p>
+                ) : null}
+                {item.goal_name || item.debt_name ? (
+                  <p className="mt-2 text-xs text-muted">
+                    {item.goal_name ? `Meta: ${item.goal_name}` : `Deuda: ${item.debt_name}`}
+                  </p>
+                ) : null}
+              </div>
+            );
+          })
+        ) : (
+          <EmptyState message="No hay pagos próximos para la frecuencia seleccionada." />
+        )}
+      </div>
     </div>
   );
 }

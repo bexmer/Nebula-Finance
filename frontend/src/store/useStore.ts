@@ -9,12 +9,24 @@ export interface TransactionSplit {
   amount: number;
 }
 
+export interface ReceiptItem {
+  id: number;
+  transaction_id?: number | null;
+  budget_entry_id?: number | null;
+  original_filename: string;
+  content_type?: string | null;
+  file_size?: number | null;
+  uploaded_at?: string | null;
+  download_url: string;
+}
+
 export interface Transaction {
   id: number;
   date: string;
   description: string;
   amount: number;
   type: string;
+  portfolio_direction?: string | null;
   category: string;
   account_id: number;
   account?: { name: string }; // La cuenta puede ser opcional al crear
@@ -29,6 +41,7 @@ export interface Transaction {
   transfer_account_name?: string | null;
   splits?: TransactionSplit[];
   tags?: string[];
+  receipts?: ReceiptItem[];
 }
 
 export interface TransactionPrefill {
@@ -130,8 +143,13 @@ export const useStore = create<AppState>((set, get) => ({
         params,
       });
 
+      const normalized = response.data.map((transaction) => ({
+        ...transaction,
+        receipts: transaction.receipts ?? [],
+      }));
+
       const updates: Partial<AppState> = {
-        transactions: response.data,
+        transactions: normalized,
       };
 
       if (filters) {

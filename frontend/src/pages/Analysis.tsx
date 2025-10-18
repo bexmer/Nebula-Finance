@@ -44,7 +44,7 @@ const MONTH_OPTIONS = [
   { value: 12, label: "Dic" },
 ] as const;
 
-type TabKey = "expenses" | "budget" | "projection";
+type TabKey = "expenses" | "budget" | "income" | "projection";
 
 interface MonthHeader {
   number: number;
@@ -98,12 +98,54 @@ interface CashFlowProjection {
   points: ProjectionPoint[];
 }
 
+interface AllocationRow {
+  rule: string;
+  percentage: number | null;
+  share: number | null;
+  values: number[];
+  total: number;
+}
+
+interface TotalsBreakdown {
+  monthly: number[];
+  total: number;
+}
+
+interface MonthlyBalance {
+  month: number;
+  label: string;
+  income: number;
+  recommended_spend: number;
+  actual_spend: number;
+  net: number;
+}
+
+interface PeriodBalanceSummary {
+  income: number;
+  recommended_spend: number;
+  actual_spend: number;
+  net: number;
+}
+
+interface IncomeAllocationAnalysis {
+  months: MonthHeader[];
+  monthly_income: number[];
+  total_income: number;
+  recommended_rows: AllocationRow[];
+  actual_rows: AllocationRow[];
+  recommended_totals: TotalsBreakdown;
+  actual_totals: TotalsBreakdown;
+  monthly_balances: MonthlyBalance[];
+  period_balance: PeriodBalanceSummary;
+}
+
 interface AnalysisResponse {
   year: number;
   months: number[];
   annual_expense_report: AnnualExpenseReport;
   budget_analysis: BudgetAnalysis;
   cash_flow_projection: CashFlowProjection;
+  income_allocation: IncomeAllocationAnalysis;
 }
 
 const years = Array.from({ length: 10 }, (_, index) => new Date().getFullYear() - index);
@@ -137,6 +179,17 @@ export function Analysis() {
 
   const { formatCurrency, formatPercent } = useNumberFormatter();
   const theme = useStore((state) => state.theme);
+  const incomeAllocation = analysisData?.income_allocation;
+
+  const getNetClass = (value: number) => {
+    if (value > 0) {
+      return "text-emerald-600 dark:text-emerald-300";
+    }
+    if (value < 0) {
+      return "text-rose-600 dark:text-rose-300";
+    }
+    return "text-muted";
+  };
 
   const allMonthsSelected =
     selectedMonths.length === 0 || selectedMonths.length === MONTH_OPTIONS.length;
@@ -378,6 +431,7 @@ export function Analysis() {
         {[
           { key: "expenses", label: "Reporte anual de gastos" },
           { key: "budget", label: "Análisis de presupuesto" },
+          { key: "income", label: "Análisis de ingresos" },
           { key: "projection", label: "Proyección de flujo de efectivo" },
         ].map((tab) => (
           <button
@@ -575,6 +629,286 @@ export function Analysis() {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeTab === "income" && (
+            <div className="space-y-6">
+              {incomeAllocation ? (
+                <>
+                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="app-card p-5">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                        Ingresos del periodo
+                      </p>
+                      <p className="mt-2 text-2xl font-semibold text-[var(--app-text)]">
+                        {formatCurrency(incomeAllocation.period_balance.income)}
+                      </p>
+                    </div>
+                    <div className="app-card p-5">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                        Gasto recomendado
+                      </p>
+                      <p className="mt-2 text-2xl font-semibold text-[var(--app-text)]">
+                        {formatCurrency(incomeAllocation.period_balance.recommended_spend)}
+                      </p>
+                    </div>
+                    <div className="app-card p-5">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                        Gasto real
+                      </p>
+                      <p className="mt-2 text-2xl font-semibold text-[var(--app-text)]">
+                        {formatCurrency(incomeAllocation.period_balance.actual_spend)}
+                      </p>
+                    </div>
+                    <div className="app-card p-5">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                        Resultado neto
+                      </p>
+                      <p
+                        className={`mt-2 text-2xl font-semibold ${getNetClass(
+                          incomeAllocation.period_balance.net,
+                        )}`}
+                      >
+                        {formatCurrency(incomeAllocation.period_balance.net)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="app-card overflow-hidden">
+                    <header className="border-b border-[var(--app-border)] bg-[var(--app-surface-muted)] px-6 py-4">
+                      <h2 className="text-lg font-semibold text-[var(--app-text)]">
+                        Resumen mensual de ingresos y gastos
+                      </h2>
+                      <p className="text-xs text-muted">
+                        Contrasta tus ingresos reales contra el gasto recomendado y el ejecutado cada mes.
+                      </p>
+                    </header>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-[var(--app-border)] text-sm">
+                        <thead className="bg-[var(--app-surface-muted)] text-muted">
+                          <tr>
+                            <th className="px-6 py-3 text-left font-semibold text-[var(--app-text)]">Mes</th>
+                            <th className="px-4 py-3 text-right font-semibold text-[var(--app-text)]">Ingresos</th>
+                            <th className="px-4 py-3 text-right font-semibold text-[var(--app-text)]">Gasto recomendado</th>
+                            <th className="px-4 py-3 text-right font-semibold text-[var(--app-text)]">Gasto real</th>
+                            <th className="px-4 py-3 text-right font-semibold text-[var(--app-text)]">Resultado</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[var(--app-border)]">
+                          {incomeAllocation.monthly_balances.length > 0 ? (
+                            incomeAllocation.monthly_balances.map((balance) => (
+                              <tr key={balance.month} className="text-[var(--app-text)]">
+                                <td className="px-6 py-3 font-medium text-[var(--app-text)]">{balance.label}</td>
+                                <td className="px-4 py-3 text-right">{formatCurrency(balance.income)}</td>
+                                <td className="px-4 py-3 text-right">{formatCurrency(balance.recommended_spend)}</td>
+                                <td className="px-4 py-3 text-right">{formatCurrency(balance.actual_spend)}</td>
+                                <td
+                                  className={`px-4 py-3 text-right font-semibold ${getNetClass(balance.net)}`}
+                                >
+                                  {formatCurrency(balance.net)}
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td
+                                colSpan={5}
+                                className="px-6 py-6 text-center text-muted"
+                              >
+                                No se registraron movimientos en los meses seleccionados.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                        <tfoot className="bg-[var(--app-surface-muted)] text-[var(--app-text)]">
+                          <tr>
+                            <th className="px-6 py-3 text-left font-semibold text-[var(--app-text)]">
+                              Totales del periodo
+                            </th>
+                            <th className="px-4 py-3 text-right font-semibold text-[var(--app-text)]">
+                              {formatCurrency(incomeAllocation.period_balance.income)}
+                            </th>
+                            <th className="px-4 py-3 text-right font-semibold text-[var(--app-text)]">
+                              {formatCurrency(incomeAllocation.period_balance.recommended_spend)}
+                            </th>
+                            <th className="px-4 py-3 text-right font-semibold text-[var(--app-text)]">
+                              {formatCurrency(incomeAllocation.period_balance.actual_spend)}
+                            </th>
+                            <th
+                              className={`px-4 py-3 text-right font-semibold ${getNetClass(
+                                incomeAllocation.period_balance.net,
+                              )}`}
+                            >
+                              {formatCurrency(incomeAllocation.period_balance.net)}
+                            </th>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-6 lg:grid-cols-2">
+                    <div className="app-card overflow-hidden">
+                      <header className="border-b border-[var(--app-border)] bg-[var(--app-surface-muted)] px-6 py-4">
+                        <h3 className="text-base font-semibold text-[var(--app-text)]">
+                          Asignación ideal según tus reglas
+                        </h3>
+                        <p className="text-xs text-muted">
+                          Calculado con los porcentajes configurados para cada regla y los ingresos del periodo.
+                        </p>
+                      </header>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-[var(--app-border)] text-sm">
+                          <thead className="bg-[var(--app-surface-muted)] text-muted">
+                            <tr>
+                              <th className="px-6 py-3 text-left font-semibold text-[var(--app-text)]">Regla</th>
+                              <th className="px-4 py-3 text-right font-semibold text-[var(--app-text)]">% regla</th>
+                              {incomeAllocation.months.map((month) => (
+                                <th
+                                  key={`recommended-${month.number}`}
+                                  className="px-4 py-3 text-right font-semibold text-[var(--app-text)]"
+                                >
+                                  {month.label}
+                                </th>
+                              ))}
+                              <th className="px-6 py-3 text-right font-semibold text-[var(--app-text)]">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[var(--app-border)]">
+                            {incomeAllocation.recommended_rows.length > 0 ? (
+                              incomeAllocation.recommended_rows.map((row) => (
+                                <tr key={row.rule} className="text-[var(--app-text)]">
+                                  <td className="px-6 py-3 font-medium text-[var(--app-text)]">{row.rule}</td>
+                                  <td className="px-4 py-3 text-right text-muted">
+                                    {row.percentage !== null ? formatPercent(row.percentage) : "-"}
+                                  </td>
+                                  {incomeAllocation.months.map((month, index) => (
+                                    <td key={`${row.rule}-${month.number}`} className="px-4 py-3 text-right">
+                                      {formatCurrency(row.values[index] ?? 0)}
+                                    </td>
+                                  ))}
+                                  <td className="px-6 py-3 text-right font-semibold text-[var(--app-text)]">
+                                    {formatCurrency(row.total)}
+                                  </td>
+                                </tr>
+                              ))
+                            ) : (
+                              <tr>
+                                <td
+                                  colSpan={incomeAllocation.months.length + 3}
+                                  className="px-6 py-6 text-center text-muted"
+                                >
+                                  Configura reglas de presupuesto para visualizar la asignación recomendada.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                          <tfoot className="bg-[var(--app-surface-muted)] text-[var(--app-text)]">
+                            <tr>
+                              <th className="px-6 py-3 text-left font-semibold text-[var(--app-text)]">
+                                Total recomendado
+                              </th>
+                              <th className="px-4 py-3 text-right font-semibold text-muted">-</th>
+                              {incomeAllocation.recommended_totals.monthly.map((value, index) => (
+                                <th key={`recommended-total-${index}`} className="px-4 py-3 text-right font-semibold">
+                                  {formatCurrency(value)}
+                                </th>
+                              ))}
+                              <th className="px-6 py-3 text-right font-semibold text-[var(--app-text)]">
+                                {formatCurrency(incomeAllocation.recommended_totals.total)}
+                              </th>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="app-card overflow-hidden">
+                      <header className="border-b border-[var(--app-border)] bg-[var(--app-surface-muted)] px-6 py-4">
+                        <h3 className="text-base font-semibold text-[var(--app-text)]">
+                          Ejecución real por regla de presupuesto
+                        </h3>
+                        <p className="text-xs text-muted">
+                          Distribución de los gastos registrados en transacciones durante el periodo analizado.
+                        </p>
+                      </header>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-[var(--app-border)] text-sm">
+                          <thead className="bg-[var(--app-surface-muted)] text-muted">
+                            <tr>
+                              <th className="px-6 py-3 text-left font-semibold text-[var(--app-text)]">Regla</th>
+                              <th className="px-4 py-3 text-right font-semibold text-[var(--app-text)]">
+                                Participación real
+                              </th>
+                              {incomeAllocation.months.map((month) => (
+                                <th
+                                  key={`actual-${month.number}`}
+                                  className="px-4 py-3 text-right font-semibold text-[var(--app-text)]"
+                                >
+                                  {month.label}
+                                </th>
+                              ))}
+                              <th className="px-6 py-3 text-right font-semibold text-[var(--app-text)]">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[var(--app-border)]">
+                            {incomeAllocation.actual_rows.length > 0 ? (
+                              incomeAllocation.actual_rows.map((row) => (
+                                <tr key={`${row.rule}-actual`} className="text-[var(--app-text)]">
+                                  <td className="px-6 py-3 font-medium text-[var(--app-text)]">{row.rule}</td>
+                                  <td className="px-4 py-3 text-right text-muted">
+                                    {row.share !== null ? formatPercent(row.share) : "-"}
+                                  </td>
+                                  {incomeAllocation.months.map((month, index) => (
+                                    <td key={`${row.rule}-actual-${month.number}`} className="px-4 py-3 text-right">
+                                      {formatCurrency(row.values[index] ?? 0)}
+                                    </td>
+                                  ))}
+                                  <td className="px-6 py-3 text-right font-semibold text-[var(--app-text)]">
+                                    {formatCurrency(row.total)}
+                                  </td>
+                                </tr>
+                              ))
+                            ) : (
+                              <tr>
+                                <td
+                                  colSpan={incomeAllocation.months.length + 3}
+                                  className="px-6 py-6 text-center text-muted"
+                                >
+                                  Aún no hay gastos asociados a reglas de presupuesto en este periodo.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                          <tfoot className="bg-[var(--app-surface-muted)] text-[var(--app-text)]">
+                            <tr>
+                              <th className="px-6 py-3 text-left font-semibold text-[var(--app-text)]">
+                                Total ejecutado
+                              </th>
+                              <th className="px-4 py-3 text-right font-semibold text-[var(--app-text)]">
+                                {incomeAllocation.actual_totals.total > 0 ? formatPercent(100) : "-"}
+                              </th>
+                              {incomeAllocation.actual_totals.monthly.map((value, index) => (
+                                <th key={`actual-total-${index}`} className="px-4 py-3 text-right font-semibold">
+                                  {formatCurrency(value)}
+                                </th>
+                              ))}
+                              <th className="px-6 py-3 text-right font-semibold text-[var(--app-text)]">
+                                {formatCurrency(incomeAllocation.actual_totals.total)}
+                              </th>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="app-card border border-dashed border-[var(--app-border)] bg-[var(--app-surface-muted)] p-6 text-sm text-muted">
+                  No se encontró información de ingresos para el periodo seleccionado.
+                </div>
+              )}
             </div>
           )}
 

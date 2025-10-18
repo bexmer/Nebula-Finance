@@ -5,6 +5,7 @@ import datetime
 import json
 import unicodedata
 from collections import defaultdict
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
@@ -24,6 +25,7 @@ from app.model.trade import Trade
 from app.model.transaction import Transaction
 from app.model.transaction_split import TransactionSplit
 from app.model.transaction_tag import TransactionTag
+from app.model.receipt import Receipt
 from app.model.base_model import db
 
 
@@ -49,6 +51,12 @@ DEFAULT_APP_SETTINGS = {
     "decimal_places": 2,
     "theme": "dark",
 }
+
+
+RECEIPT_STORAGE_DIR = (
+    Path(__file__).resolve().parents[1] / "storage" / "receipts"
+)
+RECEIPT_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class AppController:
@@ -300,6 +308,7 @@ class AppController:
                 BudgetEntry,
                 TransactionSplit,
                 tag_links,
+                Receipt,
             )
         )
 
@@ -451,6 +460,8 @@ class AppController:
         cash_flow_data = self._get_cash_flow_data_for_chart(year, month_list)
 
         goals_summary = self.get_goals_summary()
+        debts_summary = self.get_debts_summary()
+        upcoming_budget_payments = self.get_upcoming_budget_payments()
 
         accounts_summary = [
             {
@@ -475,11 +486,13 @@ class AppController:
             "net_worth_chart": net_worth_data,
             "cash_flow_chart": cash_flow_data,
             "goals": goals_summary,
+            "debts": debts_summary,
             "accounts": accounts_summary,
             "budget_vs_actual": budget_vs_actual,
             "budget_rule_control": budget_rule_control,
             "expense_distribution": expense_distribution,
             "expense_type_comparison": expense_type_comparison,
+            "upcoming_budget_payments": upcoming_budget_payments,
         }
         return dashboard_data
 
@@ -715,7 +728,7 @@ class AppController:
     def _get_budget_rule_control(self, transactions: List[Transaction], total_income: float):
         """Calcula el cumplimiento de las reglas de presupuesto basadas en el ingreso."""
 
-        parameters = Parameter.select().where(Parameter.group == 'Tipo de Transacción')
+        parameters = Parameter.select().where(Parameter.group == "Tipo de Transacción")
         type_to_rule = {}
         for param in parameters:
             if param.budget_rule_id:
@@ -725,7 +738,7 @@ class AppController:
         for transaction in transactions:
             if getattr(transaction, 'is_transfer', False):
                 continue
-            if transaction.type == 'Ingreso':
+            if transaction.type == "Ingreso":
                 continue
             amount = abs(float(transaction.amount or 0))
             rule = type_to_rule.get(transaction.type)
@@ -860,6 +873,9 @@ class AppController:
         cash_flow_projection = self._build_cash_flow_projection(
             year, month_list, projection_months, transactions
         )
+        income_allocation = self._build_income_allocation_analysis(
+            year, month_list, transactions
+        )
 
         return {
             "year": year,
@@ -867,6 +883,7 @@ class AppController:
             "annual_expense_report": annual_expense_report,
             "budget_analysis": budget_analysis,
             "cash_flow_projection": cash_flow_projection,
+            "income_allocation": income_allocation,
         }
 
     def _build_annual_expense_report(self, year: int, months: List[int]) -> Dict[str, Any]:
@@ -929,7 +946,7 @@ class AppController:
 
         start_date, end_date = self._get_date_range(year, months)
 
-        parameters = Parameter.select().where(Parameter.group == 'Tipo de Transacción')
+        parameters = Parameter.select().where(Parameter.group == "Tipo de Transacción")
         type_to_rule: Dict[str, Optional[BudgetRule]] = {}
         for param in parameters:
             type_to_rule[param.value] = param.budget_rule if param.budget_rule_id else None
@@ -1017,6 +1034,162 @@ class AppController:
             "total_actual": total_actual,
             "total_difference": total_difference,
             "total_compliance": total_compliance,
+        }
+
+    def _build_income_allocation_analysis(
+        self,
+        year: int,
+        months: List[int],
+        transactions: List[Transaction],
+    ) -> Dict[str, Any]:
+        """Resume ingresos mensuales y su asignación ideal vs real por reglas."""
+
+        month_list = sorted(set(months)) if months else list(range(1, 13))
+        month_headers = [
+            {"number": month, "label": MONTH_LABELS[month]}
+            for month in month_list
+        ]
+        month_set = set(month_list)
+
+        income_by_month = {month: 0.0 for month in month_list}
+        actual_spent_by_month = {month: 0.0 for month in month_list}
+
+        parameters = Parameter.select().where(Parameter.group == "Tipo de Transacción")
+        type_to_rule: Dict[str, Optional[BudgetRule]] = {}
+        for param in parameters:
+            type_to_rule[param.value] = param.budget_rule if param.budget_rule_id else None
+
+        rules = list(BudgetRule.select().order_by(BudgetRule.id))
+        rule_percentages: Dict[str, float] = {
+            rule.name: float(getattr(rule, 'percentage', 0) or 0)
+            for rule in rules
+        }
+        rule_order = [rule.name for rule in rules]
+
+        def _fresh_month_totals() -> Dict[int, float]:
+            return {month: 0.0 for month in month_list}
+
+        actual_by_rule: Dict[str, Dict[int, float]] = {}
+
+        for transaction, amount, _ in self._iter_transaction_allocations(transactions):
+            month_number = int(transaction.date.month)
+            if month_number not in month_set:
+                continue
+
+            amount_value = float(amount or 0)
+
+            if transaction.type == "Ingreso":
+                income_amount = amount_value if amount_value >= 0 else abs(amount_value)
+                income_by_month[month_number] += income_amount
+                continue
+
+            spend_value = abs(amount_value)
+            actual_spent_by_month[month_number] += spend_value
+
+            mapped_rule = type_to_rule.get(transaction.type)
+            rule_name = (
+                mapped_rule.name
+                if mapped_rule
+                else (transaction.type or "Sin regla")
+            )
+            rule_totals = actual_by_rule.setdefault(rule_name, _fresh_month_totals())
+            rule_totals[month_number] = rule_totals.get(month_number, 0.0) + spend_value
+
+        additional_rules = [
+            name for name in actual_by_rule.keys() if name not in rule_percentages
+        ]
+        additional_rules.sort()
+        row_order = rule_order + additional_rules
+
+        recommended_by_rule: Dict[str, Dict[int, float]] = {}
+        for name in row_order:
+            percentage = rule_percentages.get(name, 0.0)
+            recommended_by_rule[name] = {
+                month: income_by_month.get(month, 0.0) * (percentage / 100.0)
+                for month in month_list
+            }
+
+        recommended_rows = []
+        for name in row_order:
+            monthly_values = [recommended_by_rule[name][month] for month in month_list]
+            total_value = sum(monthly_values)
+            recommended_rows.append(
+                {
+                    "rule": name,
+                    "percentage": rule_percentages.get(name),
+                    "share": None,
+                    "values": monthly_values,
+                    "total": total_value,
+                }
+            )
+
+        total_actual_spent = sum(actual_spent_by_month.values())
+
+        actual_rows = []
+        for name in row_order:
+            month_totals = actual_by_rule.get(name, _fresh_month_totals())
+            monthly_values = [month_totals.get(month, 0.0) for month in month_list]
+            total_value = sum(monthly_values)
+            share = None
+            if total_actual_spent > 0:
+                share = (total_value / total_actual_spent) * 100
+            actual_rows.append(
+                {
+                    "rule": name,
+                    "percentage": rule_percentages.get(name),
+                    "share": share,
+                    "values": monthly_values,
+                    "total": total_value,
+                }
+            )
+
+        monthly_recommended_totals = [
+            sum(recommended_by_rule[name][month] for name in row_order)
+            for month in month_list
+        ]
+        monthly_actual_totals = [
+            sum(actual_by_rule.get(name, {}).get(month, 0.0) for name in row_order)
+            for month in month_list
+        ]
+
+        monthly_balances = []
+        for index, month in enumerate(month_list):
+            monthly_balances.append(
+                {
+                    "month": month,
+                    "label": MONTH_LABELS[month],
+                    "income": income_by_month.get(month, 0.0),
+                    "recommended_spend": monthly_recommended_totals[index],
+                    "actual_spend": monthly_actual_totals[index],
+                    "net": income_by_month.get(month, 0.0)
+                    - monthly_actual_totals[index],
+                }
+            )
+
+        total_income = sum(income_by_month.values())
+        total_recommended = sum(monthly_recommended_totals)
+
+        return {
+            "months": month_headers,
+            "monthly_income": [income_by_month[month] for month in month_list],
+            "total_income": total_income,
+            "recommended_rows": recommended_rows,
+            "actual_rows": actual_rows,
+            "recommended_totals": {
+                "monthly": monthly_recommended_totals,
+                "total": total_recommended,
+            },
+            "actual_totals": {
+                "monthly": monthly_actual_totals,
+                "total": total_actual_spent,
+            },
+            "monthly_balances": monthly_balances,
+            "period_balance": {
+                "income": total_income,
+                "recommended_spend": total_recommended,
+                "actual_spend": total_actual_spent,
+                "net": total_income - total_actual_spent,
+            },
         }
 
     def _build_cash_flow_projection(
@@ -1378,6 +1551,10 @@ class AppController:
                 if link.tag is not None
             ]
             transfer_account = getattr(transaction, 'transfer_account', None)
+            receipts = [
+                self._serialize_receipt(receipt)
+                for receipt in getattr(transaction, "receipts", [])
+            ]
 
             transaction_data = {
                 "id": transaction.id,
@@ -1385,6 +1562,7 @@ class AppController:
                 "description": transaction.description,
                 "amount": float(transaction.amount or 0),
                 "type": transaction.type,
+                "portfolio_direction": getattr(transaction, 'portfolio_direction', None),
                 "category": transaction.category,
                 "account_id": transaction.account_id,
                 "account": account.__data__ if account else None,
@@ -1403,9 +1581,99 @@ class AppController:
                 "transfer_account_name": getattr(transfer_account, 'name', None),
                 "splits": splits,
                 "tags": tags,
+                "receipts": receipts,
             }
             results.append(transaction_data)
         return results
+
+    @staticmethod
+    def _serialize_receipt(receipt: Receipt) -> Dict[str, Any]:
+        """Return a serializable representation of a receipt object."""
+
+        uploaded_at = receipt.uploaded_at.isoformat() if receipt.uploaded_at else None
+        return {
+            "id": receipt.id,
+            "transaction_id": receipt.transaction_id,
+            "budget_entry_id": receipt.budget_entry_id,
+            "original_filename": receipt.original_filename,
+            "content_type": receipt.content_type,
+            "file_size": receipt.file_size,
+            "uploaded_at": uploaded_at,
+            "download_url": f"/api/receipts/{receipt.id}",
+        }
+
+    def get_transaction_receipts(self, transaction_id: int):
+        """Return every receipt associated with a transaction."""
+
+        try:
+            Transaction.get_by_id(transaction_id)
+        except Transaction.DoesNotExist:
+            return {"error": "La transacción no existe."}
+
+        query = (
+            Receipt.select()
+            .where(Receipt.transaction_id == transaction_id)
+            .order_by(Receipt.uploaded_at.desc())
+        )
+        return [self._serialize_receipt(receipt) for receipt in query]
+
+    def register_receipt(
+        self,
+        *,
+        file_path: str,
+        original_filename: str,
+        content_type: Optional[str] = None,
+        file_size: Optional[int] = None,
+        transaction_id: Optional[int] = None,
+        budget_entry_id: Optional[int] = None,
+    ):
+        """Create a receipt row linked to a transaction or budget entry."""
+
+        if not transaction_id and not budget_entry_id:
+            return {"error": "Debes asociar el recibo a una transacción o presupuesto."}
+
+        if transaction_id:
+            try:
+                Transaction.get_by_id(transaction_id)
+            except Transaction.DoesNotExist:
+                return {"error": "La transacción especificada no existe."}
+
+        if budget_entry_id:
+            try:
+                BudgetEntry.get_by_id(budget_entry_id)
+            except BudgetEntry.DoesNotExist:
+                return {"error": "El presupuesto especificado no existe."}
+
+        receipt = Receipt.create(
+            transaction=transaction_id,
+            budget_entry=budget_entry_id,
+            file_path=file_path,
+            original_filename=original_filename,
+            content_type=content_type,
+            file_size=file_size,
+        )
+        return self._serialize_receipt(receipt)
+
+    def get_receipt_record(self, receipt_id: int):
+        """Return the underlying receipt instance or None."""
+
+        try:
+            return Receipt.get_by_id(receipt_id)
+        except Receipt.DoesNotExist:
+            return None
+
+    def delete_receipt(self, receipt_id: int):
+        """Delete a receipt and return its serialized data and storage key."""
+
+        try:
+            receipt = Receipt.get_by_id(receipt_id)
+        except Receipt.DoesNotExist:
+            return None, None, "El recibo solicitado no existe."
+
+        file_path = receipt.file_path
+        payload = self._serialize_receipt(receipt)
+        receipt.delete_instance()
+        return payload, file_path, None
 
 
     def get_all_tags(self) -> List[Dict[str, Any]]:
@@ -1544,6 +1812,19 @@ class AppController:
         entry.actual_amount = new_value
         entry.save()
 
+    def _resolve_transaction_cash_flow(
+        self,
+        transaction_type: Optional[str],
+        portfolio_direction: Optional[str] = None,
+    ) -> str:
+        """Return 'Ingreso' or 'Gasto' describing the cash impact."""
+
+        normalized_type = (transaction_type or "").strip().lower()
+        if normalized_type == "movimiento portafolio":
+            normalized_direction = (portfolio_direction or "").strip().lower()
+            return "Ingreso" if normalized_direction == "venta" else "Gasto"
+        return "Ingreso" if normalized_type == "ingreso" else "Gasto"
+
     def add_transaction(self, data):
         try:
             is_recurring = data.pop('is_recurring', False)
@@ -1557,6 +1838,18 @@ class AppController:
             if amount <= 0:
                 return {"error": "El monto debe ser mayor a cero."}
 
+            type_value = data.get('type')
+            is_portfolio_movement = str(type_value or "").strip().lower() == "movimiento portafolio"
+            if is_portfolio_movement:
+                direction_value = (data.get('portfolio_direction') or "").strip().lower()
+                if direction_value not in {"compra", "venta"}:
+                    return {"error": "Selecciona si el movimiento de portafolio es una compra o una venta."}
+                data['portfolio_direction'] = "Venta" if direction_value == "venta" else "Compra"
+                if splits_payload:
+                    return {"error": "Los movimientos de portafolio no admiten divisiones."}
+            else:
+                data['portfolio_direction'] = None
+
             if splits_payload:
                 total_splits = sum(split['amount'] for split in splits_payload)
                 if abs(total_splits - amount) > 0.01:
@@ -1567,6 +1860,8 @@ class AppController:
             transfer_account_value = data.get('transfer_account_id')
 
             if is_transfer:
+                if is_portfolio_movement:
+                    return {"error": "Los movimientos de portafolio no pueden registrarse como transferencias."}
                 if not transfer_account_value:
                     return {"error": "Selecciona la cuenta de destino de la transferencia."}
                 if int(transfer_account_value) == int(data['account_id']):
@@ -1593,6 +1888,9 @@ class AppController:
 
             with db.atomic():
                 account = Account.get_by_id(data['account_id'])
+                cash_flow = self._resolve_transaction_cash_flow(
+                    data.get('type'), data.get('portfolio_direction')
+                )
 
                 if is_transfer:
                     if float(account.current_balance or 0) + 1e-9 < amount:
@@ -1608,7 +1906,7 @@ class AppController:
                     data['is_transfer'] = True
                     data['transfer_account_id'] = destination.id
                 else:
-                    if data['type'] == 'Ingreso':
+                    if cash_flow == 'Ingreso':
                         account.current_balance += amount
                     else:
                         account.current_balance -= amount
@@ -1652,6 +1950,18 @@ class AppController:
             if amount <= 0:
                 return {"error": "El monto debe ser mayor a cero."}
 
+            type_value = data.get('type')
+            is_portfolio_movement = str(type_value or "").strip().lower() == "movimiento portafolio"
+            if is_portfolio_movement:
+                direction_value = (data.get('portfolio_direction') or "").strip().lower()
+                if direction_value not in {"compra", "venta"}:
+                    return {"error": "Selecciona si el movimiento de portafolio es una compra o una venta."}
+                data['portfolio_direction'] = "Venta" if direction_value == "venta" else "Compra"
+                if splits_payload:
+                    return {"error": "Los movimientos de portafolio no admiten divisiones."}
+            else:
+                data['portfolio_direction'] = None
+
             if splits_payload:
                 total_splits = sum(split['amount'] for split in splits_payload)
                 if abs(total_splits - amount) > 0.01:
@@ -1661,6 +1971,8 @@ class AppController:
             is_transfer = bool(data.get('is_transfer'))
             transfer_account_value = data.get('transfer_account_id')
             if is_transfer:
+                if is_portfolio_movement:
+                    return {"error": "Los movimientos de portafolio no pueden registrarse como transferencias."}
                 if not transfer_account_value:
                     return {"error": "Selecciona la cuenta de destino de la transferencia."}
                 if int(transfer_account_value) == int(data['account_id']):
@@ -1690,6 +2002,11 @@ class AppController:
                 original_amount = float(original_transaction.amount or 0)
                 original_budget_entry_id = getattr(original_transaction, 'budget_entry_id', None)
 
+                original_cash_flow = self._resolve_transaction_cash_flow(
+                    original_transaction.type,
+                    getattr(original_transaction, 'portfolio_direction', None),
+                )
+
                 if original_transaction.is_transfer:
                     source_account = original_transaction.account
                     target_account = original_transaction.transfer_account
@@ -1701,7 +2018,7 @@ class AppController:
                         target_account.save()
                 else:
                     original_account = Account.get_by_id(original_transaction.account_id)
-                    if original_transaction.type == 'Ingreso':
+                    if original_cash_flow == 'Ingreso':
                         original_account.current_balance -= original_amount
                     else:
                         original_account.current_balance += original_amount
@@ -1717,6 +2034,9 @@ class AppController:
                     )
 
                 new_account = Account.get_by_id(data['account_id'])
+                new_cash_flow = self._resolve_transaction_cash_flow(
+                    data.get('type'), data.get('portfolio_direction')
+                )
 
                 if is_transfer:
                     if float(new_account.current_balance or 0) + 1e-9 < amount:
@@ -1732,7 +2052,7 @@ class AppController:
                     data['is_transfer'] = True
                     data['transfer_account_id'] = destination.id
                 else:
-                    if data['type'] == 'Ingreso':
+                    if new_cash_flow == 'Ingreso':
                         new_account.current_balance += amount
                     else:
                         new_account.current_balance -= amount
@@ -1775,7 +2095,11 @@ class AppController:
                         target_account.save()
                 else:
                     account = transaction.account
-                    if transaction.type == 'Ingreso':
+                    cash_flow = self._resolve_transaction_cash_flow(
+                        transaction.type,
+                        getattr(transaction, 'portfolio_direction', None),
+                    )
+                    if cash_flow == 'Ingreso':
                         account.current_balance -= amount
                     else:
                         account.current_balance += amount
@@ -2599,6 +2923,49 @@ class AppController:
             goals_data.append(self._serialize_goal(goal))
         return goals_data
 
+    def get_debts_summary(self, limit=3):
+        """Devuelve un resumen de las deudas activas para el dashboard."""
+        debts_data: List[Dict[str, Any]] = []
+        query = Debt.select()
+        if limit:
+            query = query.limit(limit)
+
+        for debt in query:
+            debts_data.append(self._serialize_debt(debt))
+        return debts_data
+
+    def get_upcoming_budget_payments(self, limit=6):
+        """Obtiene las próximas entradas de presupuesto con saldo pendiente."""
+        today = datetime.date.today()
+        upcoming: List[Tuple[datetime.date, Dict[str, Any]]] = []
+
+        for entry in BudgetEntry.select():
+            serialized = self._serialize_budget_entry(entry)
+            remaining = float(serialized.get("remaining_amount") or 0.0)
+            if remaining <= 0:
+                continue
+
+            due_reference = (
+                serialized.get("due_date")
+                or serialized.get("end_date")
+                or serialized.get("start_date")
+            )
+            due_date = self._coerce_date(due_reference)
+            if due_date is None:
+                continue
+            if due_date < today:
+                continue
+
+            serialized["due_date"] = due_date.isoformat()
+            upcoming.append((due_date, serialized))
+
+        upcoming.sort(key=lambda item: item[0])
+
+        if limit:
+            upcoming = upcoming[:limit]
+
+        return [data for _, data in upcoming]
+
     def get_all_goals(self):
         """Devuelve todas las metas con su progreso."""
         return [self._serialize_goal(goal) for goal in Goal.select()]
@@ -2739,14 +3106,19 @@ class AppController:
     def delete_goal(self, goal_id):
         try:
             Transaction.update(goal=None).where(Transaction.goal == goal_id).execute()
+            BudgetEntry.update(goal=None).where(BudgetEntry.goal == goal_id).execute()
+            PortfolioAsset.update(linked_goal=None).where(
+                PortfolioAsset.linked_goal == goal_id
+            ).execute()
             Goal.get_by_id(goal_id).delete_instance()
             return {"success": True}
         except Goal.DoesNotExist:
             return {"error": "La meta no existe."}
-            
+
     def delete_debt(self, debt_id):
         try:
             Transaction.update(debt=None).where(Transaction.debt == debt_id).execute()
+            BudgetEntry.update(debt=None).where(BudgetEntry.debt == debt_id).execute()
             Debt.get_by_id(debt_id).delete_instance()
             return {"success": True}
         except Debt.DoesNotExist:
@@ -2977,7 +3349,10 @@ class AppController:
         """Calculate the remaining planned funds as a virtual account."""
 
         reference = reference_date or datetime.date.today()
-        remaining_total = 0.0
+        planned_income_total = 0.0
+        planned_expense_total = 0.0
+        actual_income_total = 0.0
+        actual_expense_total = 0.0
 
         for entry in BudgetEntry.select():
             start, end = self._resolve_entry_bounds(entry)
@@ -2985,21 +3360,25 @@ class AppController:
                 continue
 
             entry_type = (getattr(entry, "type", "") or "").strip().lower()
-            if entry_type == "ingreso":
-                continue
-
             planned = float(getattr(entry, "budgeted_amount", 0) or 0)
             actual = float(getattr(entry, "actual_amount", 0) or 0)
-            remaining = planned - actual
-            if remaining > 0:
-                remaining_total += remaining
+
+            if entry_type == "ingreso":
+                planned_income_total += planned
+                actual_income_total += actual
+            else:
+                planned_expense_total += planned
+                actual_expense_total += actual
+
+        planned_net_total = planned_income_total - planned_expense_total
+        balance = planned_net_total - actual_expense_total
 
         return {
             "id": -1,
             "name": "Saldo de Presupuesto",
             "account_type": "Virtual",
             "initial_balance": 0.0,
-            "current_balance": remaining_total,
+            "current_balance": balance,
             "is_virtual": True,
             "annual_interest_rate": 0.0,
             "compounding_frequency": "Mensual",
@@ -3108,8 +3487,196 @@ class AppController:
     # --- SECCIÓN: PORTAFOLIO (Portfolio) ---
     # =================================================================
     
+    def _trade_total_amount(self, payload: Dict[str, Any]) -> float:
+        quantity = float(payload.get("quantity") or 0.0)
+        price = float(payload.get("price") or 0.0)
+        return quantity * price
+
+    def _ensure_portfolio_category(self, category: str) -> None:
+        """Guarantee that the portfolio transaction category exists."""
+
+        normalized = (category or "").strip()
+        if not normalized:
+            return
+
+        movimiento = Parameter.get_or_none(
+            (Parameter.group == "Tipo de Transacción")
+            & (Parameter.value == "Movimiento Portafolio")
+        )
+
+        if not movimiento:
+            return
+
+        exists = Parameter.get_or_none(
+            (Parameter.group == "Categoría")
+            & (Parameter.parent == movimiento)
+            & (Parameter.value == normalized)
+        )
+
+        if exists:
+            return
+
+        Parameter.create(
+            group="Categoría",
+            value=normalized,
+            parent=movimiento,
+        )
+
+    def _resolve_trade_account_name(self, trade: Trade) -> Optional[str]:
+        """Return the most relevant account name linked to a trade."""
+
+        transaction = getattr(trade, "linked_transaction", None)
+        account = getattr(transaction, "account", None)
+        if account and getattr(account, "name", None):
+            return account.name
+
+        linked_account = getattr(trade.asset, "linked_account", None)
+        if linked_account and getattr(linked_account, "name", None):
+            return linked_account.name
+
+        return None
+
+    def _build_trade_transaction_data(
+        self,
+        payload: Dict[str, Any],
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        account = payload.get("linked_account")
+        if account is None:
+            return None, "Selecciona una cuenta para registrar la operación."
+
+        normalized_type = self._normalize_trade_type(payload["trade_type"])
+        amount = self._trade_total_amount(payload)
+        description_prefix = "Venta" if normalized_type == "Venta" else "Compra"
+        goal = payload.get("linked_goal")
+        category = payload.get("asset_type") or f"Inversión {payload['symbol']}"
+        self._ensure_portfolio_category(category)
+
+        data = {
+            "account_id": account.id,
+            "date": payload["date"].isoformat(),
+            "description": f"[Portafolio] {description_prefix} de {payload['symbol']}",
+            "amount": amount,
+            "type": "Movimiento Portafolio",
+            "portfolio_direction": normalized_type,
+            "category": category,
+            "goal_id": getattr(goal, "id", None),
+            "debt_id": None,
+            "budget_entry_id": None,
+            "is_transfer": False,
+        }
+        return data, None
+
+    def _build_trade_budget_data(
+        self,
+        payload: Dict[str, Any],
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        normalized_type = self._normalize_trade_type(payload["trade_type"])
+        if normalized_type == "Venta":
+            return None, "Las ventas deben registrarse como transacciones."
+
+        amount = self._trade_total_amount(payload)
+        description = f"[Portafolio] Compra planificada de {payload['symbol']}"
+        goal = payload.get("linked_goal")
+        date_value = payload["date"].isoformat()
+
+        data = {
+            "description": description,
+            "category": payload.get("asset_type") or f"Inversión {payload['symbol']}",
+            "type": "Gasto",
+            "budgeted_amount": amount,
+            "frequency": "Única vez",
+            "use_custom_schedule": True,
+            "start_date": date_value,
+            "due_date": date_value,
+            "end_date": date_value,
+            "goal_id": getattr(goal, "id", None),
+            "debt_id": None,
+            "is_recurring": False,
+        }
+        return data, None
+
+    def _create_trade_transaction(self, trade: Trade, payload: Dict[str, Any]):
+        data, error = self._build_trade_transaction_data(payload)
+        if error:
+            return {"error": error}
+
+        result = self.add_transaction(data)
+        if "error" in result:
+            return result
+
+        trade.linked_transaction = result["id"]
+        trade.save()
+        return {"success": True}
+
+    def _update_trade_transaction(self, trade: Trade, payload: Dict[str, Any]):
+        data, error = self._build_trade_transaction_data(payload)
+        if error:
+            return {"error": error}
+
+        if not getattr(trade, "linked_transaction_id", None):
+            return self._create_trade_transaction(trade, payload)
+
+        result = self.update_transaction(trade.linked_transaction_id, data)
+        if "error" in result:
+            return result
+        return {"success": True}
+
+    def _delete_trade_transaction(self, trade: Trade):
+        transaction_id = getattr(trade, "linked_transaction_id", None)
+        if not transaction_id:
+            return {"success": True}
+
+        result = self.delete_transaction(transaction_id, adjust_balance=True)
+        if "error" in result:
+            return result
+
+        trade.linked_transaction = None
+        trade.save()
+        return {"success": True}
+
+    def _create_trade_budget(self, trade: Trade, payload: Dict[str, Any]):
+        data, error = self._build_trade_budget_data(payload)
+        if error:
+            return {"error": error}
+
+        result = self.add_budget_entry(data)
+        if "error" in result:
+            return result
+
+        trade.linked_budget_entry = result["id"]
+        trade.save()
+        return {"success": True}
+
+    def _update_trade_budget(self, trade: Trade, payload: Dict[str, Any]):
+        data, error = self._build_trade_budget_data(payload)
+        if error:
+            return {"error": error}
+
+        entry_id = getattr(trade, "linked_budget_entry_id", None)
+        if not entry_id:
+            return self._create_trade_budget(trade, payload)
+
+        result = self.update_budget_entry(entry_id, data)
+        if "error" in result:
+            return result
+        return {"success": True}
+
+    def _delete_trade_budget(self, trade: Trade):
+        entry_id = getattr(trade, "linked_budget_entry_id", None)
+        if not entry_id:
+            return {"success": True}
+
+        result = self.delete_budget_entry(entry_id)
+        if "error" in result:
+            return result
+
+        trade.linked_budget_entry = None
+        trade.save()
+        return {"success": True}
+
     def get_portfolio_assets(self):
-        """Obtiene todos los activos del portafolio listos para la vista del frontend."""
+        """Obtiene los activos ejecutados y las operaciones planificadas."""
+
         assets = (
             PortfolioAsset
             .select(PortfolioAsset, Account, Goal)
@@ -3120,7 +3687,7 @@ class AppController:
             .order_by(PortfolioAsset.symbol)
         )
 
-        summary = []
+        paid = []
         for asset in assets:
             quantity = float(asset.total_quantity or 0)
             avg_cost = float(asset.avg_cost_price or 0)
@@ -3134,7 +3701,7 @@ class AppController:
             linked_account = getattr(asset, "linked_account", None)
             linked_goal = getattr(asset, "linked_goal", None)
 
-            summary.append(
+            paid.append(
                 {
                     "symbol": asset.symbol,
                     "name": asset.asset_type,
@@ -3152,15 +3719,67 @@ class AppController:
                 }
             )
 
-        return summary
+        planned_trades = (
+            Trade
+            .select(Trade, PortfolioAsset, BudgetEntry, Goal)
+            .join(PortfolioAsset)
+            .switch(Trade)
+            .join(BudgetEntry, JOIN.LEFT_OUTER)
+            .switch(PortfolioAsset)
+            .join(Goal, JOIN.LEFT_OUTER)
+            .switch(Trade)
+            .where(Trade.is_planned == True)  # pylint: disable=singleton-comparison
+            .order_by(Trade.date.desc(), Trade.id.desc())
+        )
+
+        planned = []
+        for trade in planned_trades:
+            normalized = self._normalize_trade_type(trade.trade_type)
+            direction = "buy" if normalized == "Compra" else "sell"
+            quantity = float(trade.quantity or 0)
+            price = float(trade.price_per_unit or 0)
+            budget_entry = getattr(trade, "linked_budget_entry", None)
+            linked_goal = getattr(trade.asset, "linked_goal", None)
+
+            planned.append(
+                {
+                    "id": trade.id,
+                    "date": trade.date,
+                    "symbol": trade.asset.symbol,
+                    "asset_type": trade.asset.asset_type,
+                    "type": direction,
+                    "quantity": quantity,
+                    "price": price,
+                    "total_amount": quantity * price,
+                    "linked_budget_entry_id": getattr(trade, "linked_budget_entry_id", None),
+                    "budget_due_date": getattr(budget_entry, "due_date", None),
+                    "budget_description": getattr(budget_entry, "description", None),
+                    "linked_goal_id": getattr(linked_goal, "id", None),
+                }
+            )
+
+        return {"paid": paid, "planned": planned}
 
     def get_trade_history(self):
         """Obtiene el historial de operaciones listo para la vista del frontend."""
-        trades = (
-            Trade
-            .select(Trade, PortfolioAsset)
-            .join(PortfolioAsset)
-            .order_by(Trade.date.desc())
+        asset_query = (
+            PortfolioAsset
+            .select(PortfolioAsset, Account, Goal)
+            .join(Account, JOIN.LEFT_OUTER)
+            .switch(PortfolioAsset)
+            .join(Goal, JOIN.LEFT_OUTER)
+        )
+
+        transaction_query = (
+            Transaction
+            .select(Transaction, Account)
+            .join(Account, JOIN.LEFT_OUTER)
+        )
+
+        trades = prefetch(
+            Trade.select().order_by(Trade.date.desc(), Trade.id.desc()),
+            asset_query,
+            transaction_query,
         )
 
         history = []
@@ -3174,6 +3793,10 @@ class AppController:
             payload = self._parse_trade_payload(data)
         except ValueError as exc:
             return {"error": str(exc)}
+
+        destination = str(data.get("sync_destination") or "none").strip().lower()
+        if destination not in {"transaction", "budget", "none"}:
+            return {"error": "Destino de registro no válido."}
 
         asset, created = PortfolioAsset.get_or_create(
             symbol=payload["symbol"], defaults={"asset_type": payload["asset_type"]}
@@ -3198,32 +3821,65 @@ class AppController:
         if metadata_dirty:
             asset.save()
 
-        projected_entries = self._build_trade_entries(asset)
-        projected_entries.append({
-            "id": None,
-            "date": payload["date"],
-            "trade_type": payload["trade_type"],
-            "quantity": payload["quantity"],
-            "price": payload["price"],
-        })
+        normalized_type = self._normalize_trade_type(payload["trade_type"])
+        is_planned = destination == "budget"
+
+        if destination == "transaction" and payload.get("linked_account") is None:
+            return {"error": "Selecciona una cuenta para registrar la operación."}
+
+        executed_entries = self._build_trade_entries(asset)
+        available_quantity = float(getattr(asset, "total_quantity", 0) or 0.0)
+
+        if not is_planned:
+            if normalized_type == "Venta" and payload["quantity"] - available_quantity > 1e-4:
+                return {"error": "No puedes vender más activos de los que posees."}
+
+            projected_entries = executed_entries + [
+                {
+                    "id": None,
+                    "date": payload["date"],
+                    "trade_type": payload["trade_type"],
+                    "quantity": payload["quantity"],
+                    "price": payload["price"],
+                }
+            ]
+            try:
+                self._project_portfolio_asset(projected_entries, strict=True)
+            except ValueError as exc:
+                return {"error": str(exc)}
+        else:
+            if normalized_type == "Venta" and payload["quantity"] - available_quantity > 1e-4:
+                return {
+                    "error": "No puedes vender más activos ejecutados de los que posees."
+                }
 
         try:
-            total_qty, avg_cost, last_price = self._project_portfolio_asset(projected_entries, strict=True)
+            with db.atomic():
+                trade = Trade.create(
+                    asset=asset,
+                    trade_type=payload["trade_type"],
+                    quantity=payload["quantity"],
+                    price_per_unit=payload["price"],
+                    date=payload["date"],
+                    is_planned=is_planned,
+                )
+
+                if destination == "transaction":
+                    sync_result = self._create_trade_transaction(trade, payload)
+                    if "error" in sync_result:
+                        raise ValueError(sync_result["error"])
+                    trade.is_planned = False
+                    trade.save()
+                elif destination == "budget":
+                    sync_result = self._create_trade_budget(trade, payload)
+                    if "error" in sync_result:
+                        raise ValueError(sync_result["error"])
+                    trade.is_planned = True
+                    trade.save()
+
+                self._recalculate_portfolio_asset(asset, strict=True)
         except ValueError as exc:
             return {"error": str(exc)}
-
-        trade = Trade.create(
-            asset=asset,
-            trade_type=payload["trade_type"],
-            quantity=payload["quantity"],
-            price_per_unit=payload["price"],
-            date=payload["date"],
-        )
-
-        asset.total_quantity = total_qty
-        asset.avg_cost_price = avg_cost
-        asset.current_price = last_price
-        asset.save()
 
         return self._serialize_trade(trade)
 
@@ -3238,10 +3894,31 @@ class AppController:
         except ValueError as exc:
             return {"error": str(exc)}
 
+        raw_destination = data.get("sync_destination")
+        if raw_destination in (None, ""):
+            if getattr(trade, "is_planned", False):
+                destination = "budget"
+            elif getattr(trade, "linked_transaction_id", None):
+                destination = "transaction"
+            else:
+                destination = "none"
+        else:
+            destination = str(raw_destination).strip().lower()
+
+        if destination not in {"transaction", "budget", "none"}:
+            return {"error": "Destino de registro no válido."}
+
+        normalized_type = self._normalize_trade_type(payload["trade_type"])
+        is_planned = destination == "budget"
+
+        if destination == "transaction" and payload.get("linked_account") is None:
+            return {"error": "Selecciona una cuenta para registrar la operación."}
+
         original_asset = trade.asset
         target_asset, created = PortfolioAsset.get_or_create(
             symbol=payload["symbol"], defaults={"asset_type": payload["asset_type"]}
         )
+
         metadata_dirty = False
         if payload["asset_type"] and target_asset.asset_type != payload["asset_type"]:
             target_asset.asset_type = payload["asset_type"]
@@ -3262,48 +3939,77 @@ class AppController:
         if metadata_dirty:
             target_asset.save()
 
-        # Construimos la proyección para el activo destino
-        target_entries = self._build_trade_entries(target_asset, exclude_id=trade.id if target_asset.id == original_asset.id else None)
-        target_entries.append({
+        exclude_id = trade.id if target_asset.id == original_asset.id else None
+        target_entries = self._build_trade_entries(target_asset, exclude_id=exclude_id)
+        new_entry = {
             "id": trade.id,
             "date": payload["date"],
             "trade_type": payload["trade_type"],
             "quantity": payload["quantity"],
             "price": payload["price"],
-        })
+        }
 
-        try:
-            target_qty, target_avg, target_price = self._project_portfolio_asset(target_entries, strict=True)
-        except ValueError as exc:
-            return {"error": str(exc)}
-
-        # Si el activo cambia, recalculamos también el original excluyendo la operación
-        if original_asset.id != target_asset.id:
-            original_entries = self._build_trade_entries(original_asset, exclude_id=trade.id)
+        if not is_planned:
+            projected_entries = target_entries + [new_entry]
             try:
-                orig_qty, orig_avg, orig_price = self._project_portfolio_asset(original_entries, strict=True)
+                self._project_portfolio_asset(projected_entries, strict=True)
             except ValueError as exc:
                 return {"error": str(exc)}
         else:
-            orig_qty, orig_avg, orig_price = target_qty, target_avg, target_price
+            if normalized_type == "Venta":
+                current_qty, _, _ = self._project_portfolio_asset(target_entries, strict=True)
+                if payload["quantity"] - current_qty > 1e-4:
+                    return {
+                        "error": "No puedes vender más activos ejecutados de los que posees."
+                    }
 
-        trade.asset = target_asset
-        trade.trade_type = payload["trade_type"]
-        trade.quantity = payload["quantity"]
-        trade.price_per_unit = payload["price"]
-        trade.date = payload["date"]
-        trade.save()
+        try:
+            with db.atomic():
+                trade.asset = target_asset
+                trade.trade_type = payload["trade_type"]
+                trade.quantity = payload["quantity"]
+                trade.price_per_unit = payload["price"]
+                trade.date = payload["date"]
+                trade.is_planned = is_planned
+                trade.save()
 
-        target_asset.total_quantity = target_qty
-        target_asset.avg_cost_price = target_avg
-        target_asset.current_price = target_price
-        target_asset.save()
+                if destination == "transaction":
+                    if getattr(trade, "linked_budget_entry_id", None):
+                        removal = self._delete_trade_budget(trade)
+                        if "error" in removal:
+                            raise ValueError(removal["error"])
+                    sync_result = self._update_trade_transaction(trade, payload)
+                    if "error" in sync_result:
+                        raise ValueError(sync_result["error"])
+                    trade.is_planned = False
+                    trade.save()
+                elif destination == "budget":
+                    if getattr(trade, "linked_transaction_id", None):
+                        removal = self._delete_trade_transaction(trade)
+                        if "error" in removal:
+                            raise ValueError(removal["error"])
+                    sync_result = self._update_trade_budget(trade, payload)
+                    if "error" in sync_result:
+                        raise ValueError(sync_result["error"])
+                    trade.is_planned = True
+                    trade.save()
+                else:
+                    if getattr(trade, "linked_transaction_id", None):
+                        removal = self._delete_trade_transaction(trade)
+                        if "error" in removal:
+                            raise ValueError(removal["error"])
+                    if getattr(trade, "linked_budget_entry_id", None):
+                        removal = self._delete_trade_budget(trade)
+                        if "error" in removal:
+                            raise ValueError(removal["error"])
+                    trade.is_planned = False
+                    trade.save()
 
-        if original_asset.id != target_asset.id:
-            original_asset.total_quantity = orig_qty
-            original_asset.avg_cost_price = orig_avg
-            original_asset.current_price = orig_price
-            original_asset.save()
+                self._recalculate_portfolio_asset(target_asset, strict=True)
+                if original_asset.id != target_asset.id:
+                    self._recalculate_portfolio_asset(original_asset, strict=True)
+        except ValueError as exc:
+            return {"error": str(exc)}
 
         return self._serialize_trade(trade)
 
@@ -3314,8 +4020,19 @@ class AppController:
             return {"error": "La operación no existe."}
 
         asset = trade.asset
-        trade.delete_instance()
-        self._recalculate_portfolio_asset(asset)
+        try:
+            with db.atomic():
+                removal_tx = self._delete_trade_transaction(trade)
+                if "error" in removal_tx:
+                    raise ValueError(removal_tx["error"])
+                removal_budget = self._delete_trade_budget(trade)
+                if "error" in removal_budget:
+                    raise ValueError(removal_budget["error"])
+                trade.delete_instance()
+                self._recalculate_portfolio_asset(asset, strict=True)
+        except ValueError as exc:
+            return {"error": str(exc)}
+
         return {"success": True}
 
     # --- Métodos de utilidad internos ---
@@ -3422,13 +4139,19 @@ class AppController:
             "price": float(trade.price_per_unit or 0),
             "annual_yield_rate": float(getattr(trade.asset, "annual_yield_rate", 0) or 0),
             "linked_account_id": getattr(getattr(trade.asset, "linked_account", None), "id", None),
+            "linked_account_name": self._resolve_trade_account_name(trade),
             "linked_goal_id": getattr(getattr(trade.asset, "linked_goal", None), "id", None),
+            "linked_transaction_id": getattr(trade, "linked_transaction_id", None),
+            "linked_budget_entry_id": getattr(trade, "linked_budget_entry_id", None),
+            "is_planned": bool(getattr(trade, "is_planned", False)),
         }
 
-    def _build_trade_entries(self, asset, exclude_id=None):
+    def _build_trade_entries(self, asset, exclude_id=None, include_planned=False):
         entries = []
         for trade in asset.trades:
             if exclude_id and trade.id == exclude_id:
+                continue
+            if not include_planned and getattr(trade, "is_planned", False):
                 continue
             entries.append({
                 "id": trade.id,
@@ -3466,7 +4189,7 @@ class AppController:
                 total_quantity += quantity
                 avg_cost = total_cost / total_quantity if total_quantity > 0 else 0.0
             else:
-                if strict and quantity > total_quantity + 1e-6:
+                if strict and quantity - total_quantity > 1e-4:
                     raise ValueError("No puedes vender más activos de los que posees.")
                 total_quantity = max(total_quantity - quantity, 0.0)
 

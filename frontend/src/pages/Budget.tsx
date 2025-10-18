@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import axios from "axios";
 import {
   AlertCircle,
@@ -8,9 +15,14 @@ import {
   PiggyBank,
   Plus,
   Trash2,
+  Wallet,
 } from "lucide-react";
 import { BudgetModal } from "../components/BudgetModal";
-import { useStore } from "../store/useStore";
+import {
+  BudgetPickerModal,
+  type BudgetPickerItem,
+} from "../components/BudgetPickerModal";
+import { useStore, type TransactionPrefill } from "../store/useStore";
 import { useNumberFormatter } from "../context/DisplayPreferencesContext";
 import { apiPath } from "../utils/api";
 import {
@@ -49,8 +61,10 @@ interface ParameterOption {
 }
 
 type BudgetStatusFilter = "active" | "upcoming" | "archived" | "all";
+type BudgetTab = "all" | "goals" | "debts";
 
 interface BudgetSummary {
+  /** Valores netos (ingresos menos gastos) para el periodo filtrado. */
   planned: number;
   executed: number;
   available: number;
@@ -89,7 +103,11 @@ export function Budget() {
   const [typeFilter, setTypeFilter] = useState("");
   const [monthFilter, setMonthFilter] = useState("all");
   const [yearFilter, setYearFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState<BudgetStatusFilter>("active");
+  const [statusFilter, setStatusFilter] = useState<BudgetStatusFilter>("all");
+  const [activeTab, setActiveTab] = useState<BudgetTab>("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [isPaymentPickerOpen, setIsPaymentPickerOpen] = useState(false);
   const [referenceDate, setReferenceDate] = useState<string>(
     getTodayDateInputValue(),
   );
@@ -153,6 +171,10 @@ export function Budget() {
   }, [budgetEntries]);
 
   useEffect(() => {
+    setSelectedEntryIds([]);
+  }, [activeTab]);
+
+  useEffect(() => {
     axios
       .get<ParameterOption[]>(apiPath("/parameters/transaction-types"))
       .then((res) => setTransactionTypes(res.data));
@@ -169,6 +191,24 @@ export function Budget() {
     }
     return new Date();
   }, []);
+
+  const tabCounts = useMemo(
+    () => ({
+      total: budgetEntries.length,
+      goals: budgetEntries.filter((entry) => Boolean(entry.goal_id)).length,
+      debts: budgetEntries.filter((entry) => Boolean(entry.debt_id)).length,
+    }),
+    [budgetEntries],
+  );
+
+  const tabOptions = useMemo(
+    () => [
+      { key: "all" as BudgetTab, label: "Todos", count: tabCounts.total },
+      { key: "goals" as BudgetTab, label: "Metas", count: tabCounts.goals },
+      { key: "debts" as BudgetTab, label: "Deudas", count: tabCounts.debts },
+    ],
+    [tabCounts],
+  );
 
   const filteredEntries = useMemo(() => {
     return budgetEntries
@@ -188,10 +228,170 @@ export function Budget() {
         const matchesYear =
           yearFilter === "all" || entryYear === Number(yearFilter);
 
-        return matchesSearch && matchesType && matchesMonth && matchesYear;
+        const matchesTab =
+          activeTab === "all" ||
+          (activeTab === "goals" && Boolean(entry.goal_id)) ||
+          (activeTab === "debts" && Boolean(entry.debt_id));
+
+        return matchesSearch && matchesType && matchesMonth && matchesYear && matchesTab;
       })
-      .sort((a, b) => parseEntryDate(a).getTime() - parseEntryDate(b).getTime());
-  }, [budgetEntries, monthFilter, parseEntryDate, searchTerm, typeFilter, yearFilter]);
+      .sort((a, b) => {
+        const diff = parseEntryDate(b).getTime() - parseEntryDate(a).getTime();
+        if (diff !== 0) {
+          return diff;
+        }
+        return (b.id ?? 0) - (a.id ?? 0);
+      });
+  }, [
+    activeTab,
+    budgetEntries,
+    monthFilter,
+    parseEntryDate,
+    searchTerm,
+    typeFilter,
+    yearFilter,
+  ]);
+
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(filteredEntries.length / pageSize)),
+    [filteredEntries.length, pageSize],
+  );
+
+  const paginatedEntries = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    return filteredEntries.slice(startIndex, startIndex + pageSize);
+  }, [filteredEntries, currentPage, pageSize]);
+
+  const pageNumbers = useMemo(() => {
+    const pages: number[] = [];
+    const maxButtons = 5;
+    let start = Math.max(1, currentPage - 2);
+    let end = Math.min(totalPages, start + maxButtons - 1);
+    if (end - start + 1 < maxButtons) {
+      start = Math.max(1, end - maxButtons + 1);
+    }
+    for (let page = start; page <= end; page += 1) {
+      pages.push(page);
+    }
+    return pages;
+  }, [currentPage, totalPages]);
+
+  const handlePageChange = (page: number) => {
+    if (page < 1 || page > totalPages) {
+      return;
+    }
+    setCurrentPage(page);
+  };
+
+  const handlePageSizeChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    setPageSize(Number(event.target.value));
+  };
+
+  const handleBudgetPayment = useCallback(
+    (entry: BudgetEntry) => {
+      if (!entry) {
+        return;
+      }
+
+      const plannedAmount = Number(entry.budgeted_amount ?? 0);
+      const actualAmount = Number(entry.actual_amount ?? 0);
+      const recordedRemaining = Number(entry.remaining_amount ?? 0);
+      const computedRemaining = plannedAmount - actualAmount;
+      const candidateRemaining = Number.isFinite(recordedRemaining)
+        ? recordedRemaining
+        : computedRemaining;
+
+      let amountCandidate = Number.isFinite(candidateRemaining)
+        ? candidateRemaining
+        : 0;
+
+      if (amountCandidate <= 0) {
+        if (plannedAmount > 0) {
+          amountCandidate = plannedAmount;
+        } else if (actualAmount > 0) {
+          amountCandidate = actualAmount;
+        }
+      }
+
+      const normalizedAmount =
+        amountCandidate > 0
+          ? Number.parseFloat(amountCandidate.toFixed(2))
+          : undefined;
+
+      const descriptionBase =
+        entry.description?.trim().length
+          ? entry.description.trim()
+          : entry.category;
+
+      const prefill: TransactionPrefill = {
+        description: `Pago presupuesto: ${descriptionBase}`,
+        amount: normalizedAmount,
+        date: getTodayDateInputValue(),
+        type: entry.type,
+        category: entry.category,
+        goal_id: entry.goal_id ?? null,
+        debt_id: entry.debt_id ?? null,
+        budget_entry_id: entry.id,
+      };
+
+      openTransactionModal(null, prefill, async () => {
+        await fetchBudgetEntries();
+      });
+    },
+    [fetchBudgetEntries, openTransactionModal],
+  );
+
+  const handleBudgetPaymentFromPicker = useCallback(
+    (entry: BudgetPickerItem | null) => {
+      if (!entry) {
+        return;
+      }
+
+      const planned =
+        entry.budgeted_amount ?? (entry as { amount?: number }).amount ?? 0;
+      const actual = entry.actual_amount ?? 0;
+      const normalizedEntry: BudgetEntry = {
+        id: entry.id,
+        category: entry.category,
+        description: entry.description,
+        type: entry.type,
+        frequency: entry.frequency,
+        budgeted_amount: planned,
+        actual_amount: actual,
+        remaining_amount:
+          entry.remaining_amount !== undefined && entry.remaining_amount !== null
+            ? entry.remaining_amount
+            : planned - actual,
+        over_budget_amount:
+          entry.over_budget_amount !== undefined &&
+          entry.over_budget_amount !== null
+            ? entry.over_budget_amount
+            : Math.max(actual - planned, 0),
+        start_date: entry.start_date ?? null,
+        end_date: entry.end_date ?? null,
+        due_date: entry.due_date ?? null,
+        goal_id: entry.goal_id ?? null,
+        goal_name: entry.goal_name ?? null,
+        debt_id: entry.debt_id ?? null,
+        debt_name: entry.debt_name ?? null,
+        is_recurring: Boolean(entry.is_recurring),
+      };
+
+      handleBudgetPayment(normalizedEntry);
+    },
+    [handleBudgetPayment],
+  );
+
+  useEffect(() => {
+    const total = Math.max(1, Math.ceil(filteredEntries.length / pageSize));
+    if (currentPage > total) {
+      setCurrentPage(total);
+    }
+  }, [filteredEntries.length, pageSize, currentPage]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, typeFilter, monthFilter, yearFilter, statusFilter, activeTab]);
 
   const totals = useMemo<BudgetSummary>(() => {
     let today = new Date();
@@ -204,9 +404,10 @@ export function Budget() {
     const next30 = new Date(today.getTime());
     next30.setDate(today.getDate() + 30);
 
-    let planned = 0;
-    let executed = 0;
-    let available = 0;
+    let plannedIncome = 0;
+    let plannedExpense = 0;
+    let executedIncome = 0;
+    let executedExpense = 0;
     let upcoming = 0;
     let overdueCount = 0;
     let nextEntry: { amount: number; description: string; date: Date } | null = null;
@@ -215,31 +416,52 @@ export function Budget() {
       const date = parseEntryDate(entry);
       const plannedAmount = entry.budgeted_amount ?? 0;
       const actualAmount = entry.actual_amount ?? 0;
-      const remainingAmount = Math.max(plannedAmount - actualAmount, 0);
-      const isOverBudget = (entry.over_budget_amount ?? 0) > 0.01;
+      const type = (entry.type ?? "").trim().toLowerCase();
+      const isIncome = type === "ingreso";
 
-      planned += plannedAmount;
-      executed += actualAmount;
-      available += Math.max(plannedAmount - actualAmount, 0);
+      if (isIncome) {
+        plannedIncome += plannedAmount;
+        executedIncome += actualAmount;
+      } else {
+        plannedExpense += plannedAmount;
+        executedExpense += actualAmount;
 
-      if (!isOverBudget && remainingAmount > 0 && date >= today && date <= next30) {
-        upcoming += remainingAmount;
-      }
+        const remainingAmount = Math.max(plannedAmount - actualAmount, 0);
+        const isOverBudget = (entry.over_budget_amount ?? 0) > 0.01;
 
-      if (date < today && remainingAmount > 0) {
-        overdueCount += 1;
-      }
+        if (!isOverBudget && remainingAmount > 0 && date >= today && date <= next30) {
+          upcoming += remainingAmount;
+        }
 
-      if (!nextEntry || date < nextEntry.date) {
-        nextEntry = {
-          amount: remainingAmount > 0 ? remainingAmount : Math.max(actualAmount, plannedAmount),
-          description: entry.description || entry.category,
-          date,
-        };
+        if (date < today && remainingAmount > 0) {
+          overdueCount += 1;
+        }
+
+        if (!nextEntry || date < nextEntry.date) {
+          nextEntry = {
+            amount:
+              remainingAmount > 0
+                ? remainingAmount
+                : Math.max(actualAmount, plannedAmount),
+            description: entry.description || entry.category,
+            date,
+          };
+        }
       }
     });
 
-    return { planned, executed, available, upcoming, overdueCount, nextEntry };
+    const plannedNet = plannedIncome - plannedExpense;
+    const executedNet = executedIncome - executedExpense;
+    const available = plannedNet - executedExpense;
+
+    return {
+      planned: plannedNet,
+      executed: executedNet,
+      available,
+      upcoming,
+      overdueCount,
+      nextEntry,
+    };
   }, [budgetEntries, parseEntryDate, referenceDate]);
 
   const availableYears = useMemo(() => {
@@ -290,9 +512,16 @@ export function Budget() {
 
   const handleToggleAll = (checked: boolean) => {
     if (checked) {
-      setSelectedEntryIds(filteredEntries.map((entry) => entry.id));
+      setSelectedEntryIds((prev) => {
+        const pageIds = paginatedEntries.map((entry) => entry.id);
+        const merged = new Set(prev);
+        pageIds.forEach((id) => merged.add(id));
+        return Array.from(merged);
+      });
     } else {
-      setSelectedEntryIds([]);
+      setSelectedEntryIds((prev) =>
+        prev.filter((id) => !paginatedEntries.some((entry) => entry.id === id))
+      );
     }
   };
 
@@ -323,7 +552,7 @@ export function Budget() {
     setTypeFilter("");
     setMonthFilter("all");
     setYearFilter("all");
-    setStatusFilter("active");
+    setStatusFilter("all");
     setReferenceDate(getTodayDateInputValue());
   };
 
@@ -383,8 +612,8 @@ export function Budget() {
   };
 
   const isAllSelected =
-    filteredEntries.length > 0 &&
-    filteredEntries.every((entry) => selectedEntryIds.includes(entry.id));
+    paginatedEntries.length > 0 &&
+    paginatedEntries.every((entry) => selectedEntryIds.includes(entry.id));
 
   useEffect(() => {
     if (budgetInitialLoad.current) {
@@ -414,6 +643,12 @@ export function Budget() {
             <Plus className="h-4 w-4" /> Añadir entrada
           </button>
           <button
+            onClick={() => setIsPaymentPickerOpen(true)}
+            className="inline-flex items-center gap-2 rounded-lg border border-sky-300 px-4 py-2 text-sm font-semibold text-sky-600 transition hover:border-sky-400 hover:text-sky-700 dark:border-sky-500/60 dark:text-sky-200"
+          >
+            <Wallet className="h-4 w-4" /> Registrar pago
+          </button>
+          <button
             onClick={resetFilters}
             className="inline-flex items-center gap-2 rounded-lg border border-[var(--app-border)] px-4 py-2 text-sm font-semibold text-muted transition hover:border-sky-400 hover:text-slate-700 dark:hover:text-slate-200"
           >
@@ -438,7 +673,7 @@ export function Budget() {
             </span>
           </div>
           <p className="mt-3 text-sm text-muted">
-            Suma total de compromisos registrados.
+            Saldo neto planificado (ingresos menos gastos).
           </p>
         </div>
         <div className="glow-card glow-card--sky sm:p-6">
@@ -456,7 +691,7 @@ export function Budget() {
             </span>
           </div>
           <p className="mt-3 text-sm text-muted">
-            Monto aplicado a transacciones vinculadas al presupuesto.
+            Saldo neto ejecutado con base en las transacciones registradas.
           </p>
         </div>
         <div className="glow-card glow-card--amber sm:p-6">
@@ -474,7 +709,7 @@ export function Budget() {
             </span>
           </div>
           <p className="mt-3 text-sm text-muted">
-            Recursos aún libres dentro de tus límites presupuestados.
+            Diferencia neta entre ingresos y gastos del periodo seleccionado.
           </p>
         </div>
         <div className="glow-card glow-card--rose sm:p-6">
@@ -586,10 +821,10 @@ export function Budget() {
               }
               className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 text-sm text-slate-900 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-200 dark:text-slate-100"
             >
+              <option value="all">Todos</option>
               <option value="active">Activos</option>
               <option value="upcoming">Próximos</option>
               <option value="archived">Cerrados</option>
-              <option value="all">Todos</option>
             </select>
           </div>
           <div>
@@ -631,6 +866,34 @@ export function Budget() {
               </button>
             </div>
           </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 border-b border-[var(--app-border)] bg-[var(--app-surface)] px-6 py-3">
+          {tabOptions.map((tab) => {
+            const isActive = activeTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 ${
+                  isActive
+                    ? "bg-sky-600 text-white shadow shadow-sky-500/30"
+                    : "border border-[var(--app-border)] bg-[var(--app-surface-muted)] text-muted hover:border-sky-400 hover:text-sky-600 dark:hover:text-sky-300"
+                }`}
+              >
+                <span>{tab.label}</span>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    isActive
+                      ? "bg-white/20 text-white"
+                      : "bg-[var(--app-surface)] text-muted"
+                  }`}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            );
+          })}
         </div>
         <p className="mb-3 text-xs text-muted">
           Haz doble clic en cualquier fila para editar el presupuesto al instante.
@@ -676,12 +939,12 @@ export function Budget() {
             <tbody className="divide-y divide-[var(--app-border)]">
               {filteredEntries.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-muted">
+                  <td colSpan={9} className="px-4 py-10 text-center text-muted">
                     No hay presupuestos que coincidan con los filtros actuales.
                   </td>
                 </tr>
               ) : (
-                filteredEntries.map((entry) => {
+                paginatedEntries.map((entry) => {
                   const entryDate = parseEntryDate(entry);
                   const status = getStatusPill(entry);
                   const isSelected = selectedEntryIds.includes(entry.id);
@@ -760,6 +1023,12 @@ export function Budget() {
                       <td className="px-4 py-4 text-right text-sm">
                         <div className="flex flex-wrap justify-end gap-2">
                           <button
+                            onClick={() => handleBudgetPayment(entry)}
+                            className="inline-flex items-center gap-1 rounded-full border border-emerald-300 px-3 py-1.5 text-xs font-semibold text-emerald-600 transition hover:border-emerald-400 hover:text-emerald-700 dark:border-emerald-500/60 dark:text-emerald-200"
+                          >
+                            Registrar pago
+                          </button>
+                          <button
                             onClick={() => handleOpenModal(entry)}
                             className="inline-flex items-center gap-1 rounded-full border border-sky-300 px-3 py-1.5 text-xs font-semibold text-sky-600 transition hover:border-sky-400 hover:text-sky-700 dark:border-sky-500/60 dark:text-sky-200"
                           >
@@ -774,6 +1043,60 @@ export function Budget() {
             </tbody>
           </table>
         </div>
+        <div className="flex flex-col gap-4 border-t border-[var(--app-border)] bg-[var(--app-surface)] px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-2 text-sm text-muted">
+            <span>Mostrar</span>
+            <select
+              value={pageSize}
+              onChange={handlePageSizeChange}
+              className="rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)] px-2 py-1 text-sm focus:border-sky-400 focus:outline-none"
+            >
+              {[5, 10, 20, 50].map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+            <span>por página</span>
+          </div>
+          <div className="flex flex-col items-center gap-3 text-sm text-muted md:flex-row md:gap-4">
+            <span>
+              Página {currentPage} de {totalPages}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handlePageChange(currentPage - 1)}
+                disabled={currentPage === 1}
+                className="rounded-lg border border-[var(--app-border)] px-3 py-1 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Anterior
+              </button>
+              {pageNumbers.map((page) => (
+                <button
+                  key={page}
+                  type="button"
+                  onClick={() => handlePageChange(page)}
+                  className={`rounded-lg px-3 py-1 text-sm font-semibold transition ${
+                    currentPage === page
+                      ? "bg-sky-600 text-white"
+                      : "border border-[var(--app-border)] hover:border-sky-400"
+                  }`}
+                >
+                  {page}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => handlePageChange(currentPage + 1)}
+                disabled={currentPage === totalPages}
+                className="rounded-lg border border-[var(--app-border)] px-3 py-1 transition hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        </div>
       </section>
 
       <BudgetModal
@@ -781,6 +1104,14 @@ export function Budget() {
         onClose={() => setIsModalOpen(false)}
         onSave={handleSave}
         entry={selectedEntry}
+      />
+      <BudgetPickerModal
+        isOpen={isPaymentPickerOpen}
+        onClose={() => setIsPaymentPickerOpen(false)}
+        onSelect={handleBudgetPaymentFromPicker}
+        mode="pay"
+        title="Selecciona un presupuesto para pagar"
+        actionLabel="Continuar"
       />
     </div>
   );
