@@ -1065,9 +1065,6 @@ export function Transactions() {
                       <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
                         Categoría
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">
-                        Recibos
-                      </th>
                       <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">
                         Monto
                       </th>
@@ -1079,7 +1076,7 @@ export function Transactions() {
                   <tbody className="divide-y divide-[var(--app-border)]">
                     {paginatedTransactions.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="px-4 py-10 text-center text-muted">
+                        <td colSpan={8} className="px-4 py-10 text-center text-muted">
                           No se encontraron transacciones con los filtros seleccionados.
                         </td>
                       </tr>
@@ -1095,9 +1092,6 @@ export function Transactions() {
                         const isTransfer = Boolean(t.is_transfer);
                         const splits = t.splits ?? [];
                         const hasSplits = splits.length > 0;
-                        const receipts = t.receipts ?? [];
-                        const visibleReceipts = receipts.slice(0, 3);
-                        const hiddenReceipts = receipts.length - visibleReceipts.length;
                         const amountClass = isTransfer
                           ? "text-muted"
                           : isIncome
@@ -1216,40 +1210,6 @@ export function Transactions() {
                                 <span className="inline-flex rounded-full bg-[var(--app-surface-muted)] px-3 py-1 text-xs">
                                   {t.category}
                                 </span>
-                              )}
-                            </td>
-                            <td className="px-4 py-3">
-                              {receipts.length === 0 ? (
-                                <span className="text-xs text-muted">—</span>
-                              ) : (
-                                <div className="flex flex-wrap items-center gap-2">
-                                  {visibleReceipts.map((receipt) => (
-                                    <button
-                                      key={receipt.id}
-                                      type="button"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        handleOpenReceipt(receipt.id);
-                                      }}
-                                      onDoubleClick={(event) => event.stopPropagation()}
-                                      className="group relative h-12 w-12 overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-muted)]"
-                                      aria-label={`Ver recibo ${receipt.original_filename}`}
-                                    >
-                                      <img
-                                        src={getReceiptUrl(receipt)}
-                                        alt={receipt.original_filename}
-                                        className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
-                                      />
-                                      <span className="pointer-events-none absolute inset-0 bg-black/30 opacity-0 transition group-hover:opacity-100" />
-                                      <Eye className="pointer-events-none absolute inset-0 m-auto h-4 w-4 text-white opacity-0 transition group-hover:opacity-100" />
-                                    </button>
-                                  ))}
-                                  {hiddenReceipts > 0 ? (
-                                    <span className="rounded-lg border border-dashed border-[var(--app-border)] px-2 py-1 text-xs font-semibold text-muted">
-                                      +{hiddenReceipts}
-                                    </span>
-                                  ) : null}
-                                </div>
                               )}
                             </td>
                             <td className={`px-4 py-3 text-right text-sm font-semibold ${amountClass}`}>
